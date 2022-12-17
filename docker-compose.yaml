@@ -10,7 +10,7 @@ services:
     volumes:
       - "./src/:/var/www/html/"
     ports:
-      - "801:80"
+      - "80:80"
   mysql-server:
     image: mysql:8.0.19
     restart: always
