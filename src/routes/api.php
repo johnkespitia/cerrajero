@@ -17,3 +17,9 @@ use Illuminate\Support\Facades\Route;
 Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
     return $request->user();
 });
+
+Route::get("/greating", function() {
+    return "HELLO WORLD!!";
+});
+
+Route::post('/login', [\App\Http\Controllers\UserController::class, 'apiLogin']);

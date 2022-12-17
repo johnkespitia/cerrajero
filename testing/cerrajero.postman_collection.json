@@ -1,0 +1,112 @@
+{
+	"info": {
+		"_postman_id": "5904dd13-4344-4cc5-b19b-6f1e2a16de23",
+		"name": "cerrajero",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "grettings",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{host_api}}/greating",
+					"host": [
+						"{{host_api}}"
+					],
+					"path": [
+						"greating"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "login",
+			"request": {
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"email\":\"jcespitia1@gmail.com\",\n    \"password\":\"1234567890\"\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "{{host_api}}/tokens/create",
+					"host": [
+						"{{host_api}}"
+					],
+					"path": [
+						"tokens",
+						"create"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "/user",
+			"request": {
+				"auth": {
+					"type": "bearer",
+					"bearer": [
+						{
+							"key": "token",
+							"value": "2|mQgU3UHipqxeudT61zvtqEZSJkRWPmSjPbQNBv30",
+							"type": "string"
+						}
+					]
+				},
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{host_api}}/user",
+					"host": [
+						"{{host_api}}"
+					],
+					"path": [
+						"user"
+					]
+				}
+			},
+			"response": []
+		}
+	],
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		},
+		{
+			"listen": "test",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		}
+	],
+	"variable": [
+		{
+			"key": "host",
+			"value": "http://cerrajero.local",
+			"type": "default"
+		},
+		{
+			"key": "host_api",
+			"value": "{{host}}/api",
+			"type": "default"
+		}
+	]
+}
