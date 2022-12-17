@@ -1,0 +1,22 @@
+version: "3.7"
+services:
+  web-server:
+    build:
+      dockerfile: php.Dockerfile
+      context: .
+    restart: always
+    extra_hosts:
+      - "cerrajero.local:127.0.0.1"
+    volumes:
+      - "./src/:/var/www/html/"
+    ports:
+      - "801:80"
+  mysql-server:
+    image: mysql:8.0.19
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: secret
+    ports:
+      - "3306:3306"
+    volumes:
+      - ./docker/MYSQLDATA:/var/lib/mysql
