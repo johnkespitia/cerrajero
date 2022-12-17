@@ -14,9 +14,11 @@ services:
   mysql-server:
     image: mysql:8.0.19
     restart: always
+    command: --init-file /docker-entrypoint-initdb.d/init.sql
     environment:
       MYSQL_ROOT_PASSWORD: secret
     ports:
       - "3306:3306"
     volumes:
       - ./docker/MYSQLDATA:/var/lib/mysql
+      - ./config/init.sql:/docker-entrypoint-initdb.d/init.sql
