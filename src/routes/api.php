@@ -23,10 +23,12 @@ Route::get("/greating", function() {
 });
 
 Route::post('/login', [\App\Http\Controllers\UserController::class, 'apiLogin']);
+
 Route::middleware(['auth:sanctum'])->group(function () {
-    Route::controller(OrderController::class)->group(function () {
+    Route::controller(\App\Http\Controllers\RolController::class)->group(function () {
         Route::get('/rol', 'list');
-        Route::get('/rol/{id}', 'show');
+        Route::get('/rol/{rol}', 'show');
         Route::post('/rol', 'save');
+        Route::put('/rol/{rol}', 'update');
     });
 });

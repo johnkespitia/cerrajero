@@ -15,15 +15,18 @@ class RolController extends Controller
         $validation = Validator::make($request->all(), [
             'name' => 'required|unique:rols|max:20',
             'status' => 'required|boolean',
-        ])->validate();
+        ], [
+            'required' => 'The :attribute is required',
+            'unique' => 'The :attribute exists in the database',
+        ]);
         if ($validation->fails()) {
-            return \response("Verify the input data", Response::HTTP_UNPROCESSABLE_ENTITY)
+            return response("Verify the input data", Response::HTTP_UNPROCESSABLE_ENTITY);
         }
         $model = new Rol;
         $model->name = $request->name;
         $model->status = $request->status;
         $model->save();
-        return response(['msg' => "Rol saved"], Response::HTTP_OK);
+        return response(['msg' => "Rol saved", 'rol'=>$model], Response::HTTP_OK);
     }
 
     public function list(Request $request){
@@ -35,4 +38,23 @@ class RolController extends Controller
     public function show(Rol $rol){
         return response($rol, Response::HTTP_OK);
     }
+
+    public function update(Request $request,Rol $rol){
+
+        $validation = Validator::make($request->all(), [
+            'name' => 'required|unique:rols|max:20',
+            'status' => 'required|boolean',
+        ], [
+            'required' => 'The :attribute is required',
+            'unique' => 'The :attribute exists in the database',
+        ]);
+        if ($validation->fails()) {
+            return response($validation->errors(), Response::HTTP_UNPROCESSABLE_ENTITY);
+        }
+        $rol->name = $request->name;
+        $rol->status = $request->status;
+        $rol->save();
+        return response(['msg' => "Rol saved", 'rol'=>$rol], Response::HTTP_OK);
+    }
+
 }
