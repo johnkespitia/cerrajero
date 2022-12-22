@@ -14,10 +14,6 @@ use Illuminate\Support\Facades\Route;
 |
 */
 
-Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
-    return $request->user();
-});
-
 Route::get("/greating", function() {
     return "HELLO WORLD!!";
 });
@@ -30,5 +26,12 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::get('/rol/{rol}', 'show');
         Route::post('/rol', 'save');
         Route::put('/rol/{rol}', 'update');
+    });
+    Route::controller(\App\Http\Controllers\UserController::class)->group(function () {
+        Route::get('/accounts', 'list');
+        Route::get('/accounts/{user}', 'show');
+        Route::post('/accounts', 'save');
+        Route::put('/accounts/{user}', 'update');
+        Route::get('/my-account', 'mydata');
     });
 });

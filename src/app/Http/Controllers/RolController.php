@@ -20,7 +20,7 @@ class RolController extends Controller
             'unique' => 'The :attribute exists in the database',
         ]);
         if ($validation->fails()) {
-            return response("Verify the input data", Response::HTTP_UNPROCESSABLE_ENTITY);
+            return response($validation->errors()->toArray(), Response::HTTP_UNPROCESSABLE_ENTITY);
         }
         $model = new Rol;
         $model->name = $request->name;
@@ -49,7 +49,7 @@ class RolController extends Controller
             'unique' => 'The :attribute exists in the database',
         ]);
         if ($validation->fails()) {
-            return response($validation->errors(), Response::HTTP_UNPROCESSABLE_ENTITY);
+            return response($validation->errors()->toArray(), Response::HTTP_UNPROCESSABLE_ENTITY);
         }
         $rol->name = $request->name;
         $rol->status = $request->status;
