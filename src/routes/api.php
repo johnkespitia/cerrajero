@@ -27,6 +27,12 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::post('/rol', 'save');
         Route::put('/rol/{rol}', 'update');
     });
+    Route::controller(\App\Http\Controllers\PermissionsController::class)->group(function () {
+        Route::get('/permission', 'list');
+        Route::get('/permission/{permission}', 'show');
+        Route::post('/permission', 'save');
+        Route::put('/permission/{permission}', 'update');
+    });
     Route::controller(\App\Http\Controllers\UserController::class)->group(function () {
         Route::get('/accounts', 'list');
         Route::get('/accounts/{user}', 'show');

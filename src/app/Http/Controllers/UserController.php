@@ -7,6 +7,7 @@ use \App\Models\User;
 use \Illuminate\Http\Response;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
+use Spatie\Permission\Models\Role;
 
 class UserController extends Controller
 {
@@ -25,7 +26,7 @@ class UserController extends Controller
             'name' => 'required|string|max:255',
             'email' => 'required|string|email|max:255|unique:users',
             'password' => 'required|string|min:8|confirmed',
-            'rol' => 'required|exists:rols,id',
+            'rol' => 'required|exists:roles,id',
             'active' => 'boolean'
         ]);
         if ($validation->fails()) {
@@ -36,9 +37,11 @@ class UserController extends Controller
         $user->name = $request->name;
         $user->email = $request->email;
         $user->password = bcrypt($request->password);
-        $user->rol_id = $request->rol;
         $user->active = $request->active;
         $user->save();
+        $rol = Role::find($request->rol);
+        $user->team_id = $rol->team_id;
+        $user->assignRole($rol);
         return response(['user' => $user], Response::HTTP_OK);
     }
 
@@ -47,7 +50,7 @@ class UserController extends Controller
             'name' => 'string|max:255',
             'email' => 'string|email|max:255|unique:users',
             'password' => 'string|min:8|confirmed',
-            'rol' => 'exists:rols,id',
+            'rol' => 'exists:roles,id',
             'active' => 'boolean'
         ]);
         if ($validation->fails()) {
@@ -56,9 +59,11 @@ class UserController extends Controller
         $user->name = $request->name??$user->name;
         $user->email = $request->email??$user->email;
         $user->password = bcrypt($request->password)??$user->password;
-        $user->rol_id = $request->rol??$user->rol_id;
         $user->active = $request->active??$user->active;
         $user->save();
+        if(!empty($request->rol)){
+            $user->assignRole(Role::find($request->rol));
+        }
         return response(['user' => $user], Response::HTTP_OK);
     }
 
