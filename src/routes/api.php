@@ -26,6 +26,8 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::get('/rol/{rol}', 'show');
         Route::post('/rol', 'save');
         Route::put('/rol/{rol}', 'update');
+        Route::post('/rol/grant-permission/{rol}', 'grantPermission');
+        Route::post('/rol/revoke-permission/{rol}', 'revokePermission');
     });
     Route::controller(\App\Http\Controllers\PermissionsController::class)->group(function () {
         Route::get('/permission', 'list');

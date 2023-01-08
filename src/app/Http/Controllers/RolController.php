@@ -58,4 +58,29 @@ class RolController extends Controller
         return response(['msg' => "Rol saved", 'rol'=>$rol], Response::HTTP_OK);
     }
 
+    public function grantPermission(Request $request,Role $rol){
+        $validation = Validator::make($request->all(), [
+            'permission' => 'exists:permissions,name|max:125|required'
+        ], [
+            'required' => 'The :attribute is required',
+        ]);
+        if ($validation->fails()) {
+            return response($validation->errors()->toArray(), Response::HTTP_UNPROCESSABLE_ENTITY);
+        }
+        $rol->givePermissionTo($request->permission);
+        return response(['msg' => "permission assigned", 'rol'=>$rol], Response::HTTP_OK);
+    }
+
+    public function revokePermission(Request $request,Role $rol){
+        $validation = Validator::make($request->all(), [
+            'permission' => 'exists:permissions,name|max:125|required'
+        ], [
+            'required' => 'The :attribute is required',
+        ]);
+        if ($validation->fails()) {
+            return response($validation->errors()->toArray(), Response::HTTP_UNPROCESSABLE_ENTITY);
+        }
+        $rol->revokePermissionTo($request->permission);
+        return response(['msg' => "permission revoked", 'rol'=>$rol], Response::HTTP_OK);
+    }
 }
