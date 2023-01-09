@@ -34,3 +34,9 @@ You need configure the database .env config on src folder and run the migrate co
 Using the same configuration as composer you can execute the artisan commands passing a command in the `c` parameter
 
 `make artisan c="key:generate"`
+
+## Recreate Env
+
+If you need recreate the env from start and set it ready to use you must run: 
+
+`make recreate-env`

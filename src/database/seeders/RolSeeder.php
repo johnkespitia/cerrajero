@@ -14,9 +14,20 @@ class RolSeeder extends Seeder
      */
     public function run()
     {
-        Role::create([
+        $rol = Role::create([
             "name"=>"root",
             "guard_name"=>"cerrajero"
         ]);
+        $rol->givePermissionTo("user.list");
+        $rol->givePermissionTo("user.create");
+        $rol->givePermissionTo("user.edit");
+        $rol->givePermissionTo("rol.list");
+        $rol->givePermissionTo("rol.create");
+        $rol->givePermissionTo("rol.edit");
+        $rol->givePermissionTo("rol.grantpermission");
+        $rol->givePermissionTo("rol.revokepermission");
+        $rol->givePermissionTo("permission.list");
+        $rol->givePermissionTo("permission.create");
+        $rol->givePermissionTo("permission.edit");
     }
 }

@@ -22,24 +22,24 @@ Route::post('/login', [\App\Http\Controllers\UserController::class, 'apiLogin'])
 
 Route::middleware(['auth:sanctum'])->group(function () {
     Route::controller(\App\Http\Controllers\RolController::class)->group(function () {
-        Route::get('/rol', 'list');
-        Route::get('/rol/{rol}', 'show');
-        Route::post('/rol', 'save');
-        Route::put('/rol/{rol}', 'update');
-        Route::post('/rol/grant-permission/{rol}', 'grantPermission');
-        Route::post('/rol/revoke-permission/{rol}', 'revokePermission');
+        Route::get('/rol', 'list')->middleware('permission:rol.edit,cerrajero');
+        Route::get('/rol/{rol}', 'show')->middleware('permission:rol.edit,cerrajero');
+        Route::post('/rol', 'save')->middleware('permission:rol.edit,cerrajero');
+        Route::put('/rol/{rol}', 'update')->middleware('permission:rol.edit,cerrajero');
+        Route::post('/rol/grant-permission/{rol}', 'grantPermission')->middleware('permission:rol.grantpermission,cerrajero');
+        Route::post('/rol/revoke-permission/{rol}', 'revokePermission')->middleware('permission:rol.revokepermission,cerrajero');
     });
     Route::controller(\App\Http\Controllers\PermissionsController::class)->group(function () {
-        Route::get('/permission', 'list');
-        Route::get('/permission/{permission}', 'show');
-        Route::post('/permission', 'save');
-        Route::put('/permission/{permission}', 'update');
+        Route::get('/permission', 'list')->middleware('permission:permission.edit,cerrajero');
+        Route::get('/permission/{permission}', 'show')->middleware('permission:permission.edit,cerrajero');
+        Route::post('/permission', 'save')->middleware('permission:permission.edit,cerrajero');
+        Route::put('/permission/{permission}', 'update')->middleware('permission:permission.edit,cerrajero');
     });
     Route::controller(\App\Http\Controllers\UserController::class)->group(function () {
-        Route::get('/accounts', 'list');
-        Route::get('/accounts/{user}', 'show');
-        Route::post('/accounts', 'save');
-        Route::put('/accounts/{user}', 'update');
+        Route::get('/accounts', 'list')->middleware('permission:user.list,cerrajero');
+        Route::get('/accounts/{user}', 'show')->middleware('permission:user.list,cerrajero');
+        Route::post('/accounts', 'save')->middleware('permission:user.create,cerrajero');
+        Route::put('/accounts/{user}', 'update')->middleware('permission:user.edit,cerrajero');
         Route::get('/my-account', 'mydata');
     });
 });

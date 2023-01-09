@@ -5,7 +5,7 @@ namespace App\Http\Middleware;
 use Closure;
 use Illuminate\Http\Request;
 
-class ValidateRole
+class ValidatePermission
 {
     /**
      * Handle an incoming request.
@@ -14,11 +14,11 @@ class ValidateRole
      * @param  \Closure(\Illuminate\Http\Request): (\Illuminate\Http\Response|\Illuminate\Http\RedirectResponse)  $next
      * @return \Illuminate\Http\Response|\Illuminate\Http\RedirectResponse
      */
-    public function handle(Request $request, Closure $next, $role)
+    public function handle(Request $request, Closure $next, $permission = null, $guard = "")
     {
-        if ($request->user()->hasRole($role)) {
-            abort(401, 'This action is unauthorized.');
+        if($request->user()->hasPermissionTo($permission, $guard)){
+            return $next($request);
         }
-        return $next($request);
+        abort(401, 'This action is unauthorized.');
     }
 }
