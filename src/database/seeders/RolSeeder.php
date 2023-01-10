@@ -29,5 +29,9 @@ class RolSeeder extends Seeder
         $rol->givePermissionTo("permission.list");
         $rol->givePermissionTo("permission.create");
         $rol->givePermissionTo("permission.edit");
+        $rol->givePermissionTo("guard.list");
+        $rol->givePermissionTo("guard.create");
+        $rol->givePermissionTo("guard.edit");
+
     }
 }

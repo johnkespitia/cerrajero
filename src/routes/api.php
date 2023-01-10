@@ -40,6 +40,15 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::get('/accounts/{user}', 'show')->middleware('permission:user.list,cerrajero');
         Route::post('/accounts', 'save')->middleware('permission:user.create,cerrajero');
         Route::put('/accounts/{user}', 'update')->middleware('permission:user.edit,cerrajero');
+        Route::post('/accounts/role/{user}', 'assignRole')->middleware('permission:user.edit,cerrajero');
+        Route::delete('/accounts/role/{user}', 'removeRole')->middleware('permission:user.edit,cerrajero');
         Route::get('/my-account', 'mydata');
+        Route::get('/can-i/{guard}/{permission}', 'cani');
+    });
+    Route::controller(\App\Http\Controllers\GuardController::class)->group(function () {
+        Route::get('/guard', 'list')->middleware('permission:guard.list,cerrajero');
+        Route::get('/guard/{guard}', 'show')->middleware('permission:guard.list,cerrajero');
+        Route::post('/guard', 'save')->middleware('permission:guard.create,cerrajero');
+        Route::put('/guard/{guard}', 'update')->middleware('permission:guard.edit,cerrajero');
     });
 });

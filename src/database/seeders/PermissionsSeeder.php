@@ -58,5 +58,17 @@ class PermissionsSeeder extends Seeder
             "name"=>"permission.edit",
             "guard_name"=>"cerrajero"
         ]);
+        Permission::create([
+            "name"=>"guard.list",
+            "guard_name"=>"cerrajero"
+        ]);
+        Permission::create([
+            "name"=>"guard.create",
+            "guard_name"=>"cerrajero"
+        ]);
+        Permission::create([
+            "name"=>"guard.edit",
+            "guard_name"=>"cerrajero"
+        ]);
     }
 }

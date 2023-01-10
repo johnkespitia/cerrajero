@@ -7,6 +7,7 @@ use \App\Models\User;
 use \Illuminate\Http\Response;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
+use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
 
 class UserController extends Controller
@@ -40,7 +41,6 @@ class UserController extends Controller
         $user->active = $request->active;
         $user->save();
         $rol = Role::find($request->rol);
-        $user->team_id = $rol->team_id;
         $user->assignRole($rol);
         return response(['user' => $user], Response::HTTP_OK);
     }
@@ -74,10 +74,55 @@ class UserController extends Controller
     }
 
     public function show(User $user){
+        $roles = $user->roles;
+        foreach ($roles as $r){
+            $r->permissions;
+        }
+        $user->permissions;
         return response($user, Response::HTTP_OK);
     }
 
     public function mydata(Request $request){
-        return response($request->user(), Response::HTTP_OK);
+        $user = $request->user();
+        $roles = $user->roles;
+        foreach ($roles as $r){
+            $r->permissions;
+        }
+        $user->permissions;
+        return response($user, Response::HTTP_OK);
+    }
+
+    public function assignRole(Request $request, User $user){
+        $validation = Validator::make($request->all(), [
+            'rol' => 'required|exists:roles,id',
+        ]);
+        if ($validation->fails()) {
+            return response($validation->errors()->toArray(), Response::HTTP_UNPROCESSABLE_ENTITY);
+        }
+        $rol = Role::find($request->rol);
+        $user->assignRole($rol);
+        $user->roles;
+        return response($user, Response::HTTP_OK);
+    }
+
+    public function removeRole(Request $request,User $user){
+        $validation = Validator::make($request->all(), [
+            'rol' => 'required|exists:roles,id',
+        ]);
+        if ($validation->fails()) {
+            return response($validation->errors()->toArray(), Response::HTTP_UNPROCESSABLE_ENTITY);
+        }
+        $rol = Role::find($request->rol);
+        $user->removeRole($rol);
+        $user->roles;
+        return response($user, Response::HTTP_OK);
+
+    }
+
+    public function cani(Request $request, $guard, $permission){
+        if($request->user()->hasPermissionTo($permission, $guard)){
+            return response(["message"=>"you can to do {$permission}"], Response::HTTP_OK);
+        }
+        return response(["message"=>"you can not to do {$permission}"], Response::HTTP_UNAUTHORIZED);
     }
 }
