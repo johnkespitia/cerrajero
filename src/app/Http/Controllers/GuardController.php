@@ -7,6 +7,32 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Validator;
 
+/**
+ * @OA\Info(
+ *      version="1.0.0",
+ *      title="My API",
+ *      description="API for managing users and roles",
+ *      @OA\Contact(
+ *          email="your@email.com"
+ *      ),
+ *     )
+ * * @OA\PathItem(
+ *     path="/guards",
+ *     @OA\Get(
+ *         summary="Get all users",
+ *         operationId="list",
+ *         @OA\Response(
+ *             response="200",
+ *             description="Success",
+ *             @OA\JsonContent(type="array", @OA\Items(ref="#/components/schemas/User"))
+ *         ),
+ *         @OA\Response(
+ *             response="400",
+ *             description="Bad Request"
+ *         )
+ *     ),
+ *  )
+ */
 class GuardController extends Controller
 {
     public function save(Request $request){

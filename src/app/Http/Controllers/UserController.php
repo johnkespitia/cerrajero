@@ -10,8 +10,19 @@ use Illuminate\Support\Facades\Validator;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
 
+/**
+ * Class UserController
+ *
+ * @package App\Http\Controllers
+ */
 class UserController extends Controller
 {
+    /**
+     * Login user
+     *
+     * @param Request $request
+     * @return \Illuminate\Http\JsonResponse
+     */
     public function apiLogin(Request $request){
         $user = User::where('email', $request->email)->first();
         if (!$user || !Hash::check($request->password, $user->password)) {
@@ -22,13 +33,22 @@ class UserController extends Controller
         return response(['token' => $token->plainTextToken], Response::HTTP_OK);
     }
 
+    /**
+     * Save a new user
+     *
+     * @param Request $request
+     * @return \Illuminate\Http\JsonResponse
+     *
+     * @throws \Illuminate\Validation\ValidationException
+     */
     public function save(Request $request){
         $validation = Validator::make($request->all(), [
             'name' => 'required|string|max:255',
             'email' => 'required|string|email|max:255|unique:users',
             'password' => 'required|string|min:8|confirmed',
             'rol' => 'required|exists:roles,id',
-            'active' => 'boolean'
+            'active' => 'boolean',
+            'superior' => 'exists:users,id'
         ]);
         if ($validation->fails()) {
             return response($validation->errors()->toArray(), Response::HTTP_UNPROCESSABLE_ENTITY);
@@ -42,16 +62,29 @@ class UserController extends Controller
         $user->save();
         $rol = Role::find($request->rol);
         $user->assignRole($rol);
+        if(!empty($request->superior)){
+            $user->superior()->attach($request->superior);
+        }
         return response(['user' => $user], Response::HTTP_OK);
     }
 
+    /**
+     * Update a user
+     *
+     * @param Request $request
+     * @param User $user
+     * @return \Illuminate\Http\JsonResponse
+     *
+     * @throws \Illuminate\Validation\ValidationException
+     */
     public function update(Request $request, User $user){
         $validation = Validator::make($request->all(), [
             'name' => 'string|max:255',
             'email' => 'string|email|max:255|unique:users',
             'password' => 'string|min:8|confirmed',
             'rol' => 'exists:roles,id',
-            'active' => 'boolean'
+            'active' => 'boolean',
+            'superior' => 'exists:users,id'
         ]);
         if ($validation->fails()) {
             return response($validation->errors()->toArray(), Response::HTTP_UNPROCESSABLE_ENTITY);
@@ -64,24 +97,47 @@ class UserController extends Controller
         if(!empty($request->rol)){
             $user->assignRole(Role::find($request->rol));
         }
+        if(!empty($request->superior)){
+            $user->superior()->sync([$request->superior]);
+        }
         return response(['user' => $user], Response::HTTP_OK);
     }
 
+    /**
+     * List all users
+     *
+     * @param Request $request
+     * @return \Illuminate\Http\JsonResponse
+     */
     public function list(Request $request){
 
         $users = User::all();
         return response($users, Response::HTTP_OK);
     }
 
+    /**
+     * Show a user
+     *
+     * @param User $user
+     * @return \Illuminate\Http\JsonResponse
+     */
     public function show(User $user){
         $roles = $user->roles;
         foreach ($roles as $r){
             $r->permissions;
         }
         $user->permissions;
+        $user->superior;
+        $user->dependency;
         return response($user, Response::HTTP_OK);
     }
 
+    /**
+     * Get user data
+     *
+     * @param Request $request
+     * @return \Illuminate\Http\JsonResponse
+     */
     public function mydata(Request $request){
         $user = $request->user();
         $roles = $user->roles;
@@ -89,9 +145,20 @@ class UserController extends Controller
             $r->permissions;
         }
         $user->permissions;
+        $user->superior;
+        $user->dependency;
         return response($user, Response::HTTP_OK);
     }
 
+    /**
+     * Assign a role to a user
+     *
+     * @param Request $request
+     * @param User $user
+     * @return \Illuminate\Http\JsonResponse
+     *
+     * @throws \Illuminate\Validation\ValidationException
+     */
     public function assignRole(Request $request, User $user){
         $validation = Validator::make($request->all(), [
             'rol' => 'required|exists:roles,id',
@@ -105,6 +172,15 @@ class UserController extends Controller
         return response($user, Response::HTTP_OK);
     }
 
+    /**
+     * Remove a role from a user
+     *
+     * @param Request $request
+     * @param User $user
+     * @return \Illuminate\Http\JsonResponse
+     *
+     * @throws \Illuminate\Validation\ValidationException
+     */
     public function removeRole(Request $request,User $user){
         $validation = Validator::make($request->all(), [
             'rol' => 'required|exists:roles,id',
@@ -119,6 +195,14 @@ class UserController extends Controller
 
     }
 
+    /**
+     * Check if user have permission
+     *
+     * @param Request $request
+     * @param string $guard
+     * @param string $permission
+     * @return \Illuminate\Http\JsonResponse
+     */
     public function cani(Request $request, $guard, $permission){
         if($request->user()->hasPermissionTo($permission, $guard)){
             return response(["message"=>"you can to do {$permission}"], Response::HTTP_OK);
