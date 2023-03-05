@@ -13,7 +13,7 @@ class RolController extends Controller
     public function save(Request $request){
 
         $validation = Validator::make($request->all(), [
-            'name' => 'required|unique:roles|max:125',
+            'name' => 'required|max:125|unique:roles',
             'guard_name' => 'required|max:125',
         ], [
             'required' => 'The :attribute is required',
@@ -31,7 +31,7 @@ class RolController extends Controller
 
     public function list(Request $request){
 
-        $rols = Role::all();
+        $rols = Role::with("permissions")->get();
         return response($rols, Response::HTTP_OK);
     }
 
@@ -42,7 +42,7 @@ class RolController extends Controller
     public function update(Request $request,Role $rol){
 
         $validation = Validator::make($request->all(), [
-            'name' => 'unique:roles|max:125',
+            'name' => 'max:125|unique:roles,name,'.$rol->id,
             'guard_name' => 'max:125',
         ], [
             'required' => 'The :attribute is required',

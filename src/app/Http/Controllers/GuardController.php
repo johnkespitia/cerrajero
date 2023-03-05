@@ -69,7 +69,7 @@ class GuardController extends Controller
     public function update(Request $request,Guard $guard){
 
         $validation = Validator::make($request->all(), [
-            'name' => 'sometimes|unique:guards|max:125',
+            'name' => 'sometimes|max:125|unique:guards,name,'.$guard->id,
             'driver' => 'sometimes|max:125',
             'provider' => 'sometimes|max:125',
         ], [

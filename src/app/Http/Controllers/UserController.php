@@ -80,11 +80,11 @@ class UserController extends Controller
     public function update(Request $request, User $user){
         $validation = Validator::make($request->all(), [
             'name' => 'string|max:255',
-            'email' => 'string|email|max:255|unique:users',
+            'email' => 'string|email|max:255|unique:users,email,'.$user->id,
             'password' => 'string|min:8|confirmed',
-            'rol' => 'exists:roles,id',
+            'rol' => 'sometimes|exists:roles,id',
             'active' => 'boolean',
-            'superior' => 'exists:users,id'
+            'superior' => 'sometimes|exists:users,id'
         ]);
         if ($validation->fails()) {
             return response($validation->errors()->toArray(), Response::HTTP_UNPROCESSABLE_ENTITY);
@@ -111,7 +111,7 @@ class UserController extends Controller
      */
     public function list(Request $request){
 
-        $users = User::all();
+        $users = User::with("roles")->with("superior")->get();
         return response($users, Response::HTTP_OK);
     }
 
@@ -169,6 +169,29 @@ class UserController extends Controller
         $rol = Role::find($request->rol);
         $user->assignRole($rol);
         $user->roles;
+        $user->superior;
+        return response($user, Response::HTTP_OK);
+    }
+
+    /**
+     * Assign a role to a user
+     *
+     * @param Request $request
+     * @param User $user
+     * @return \Illuminate\Http\JsonResponse
+     *
+     * @throws \Illuminate\Validation\ValidationException
+     */
+    public function assignSuperior(Request $request, User $user){
+        $validation = Validator::make($request->all(), [
+            'superior' => 'required|exists:users,id',
+        ]);
+        if ($validation->fails()) {
+            return response($validation->errors()->toArray(), Response::HTTP_UNPROCESSABLE_ENTITY);
+        }
+        $user->superior()->attach($request->superior);
+        $user->roles;
+        $user->superior;
         return response($user, Response::HTTP_OK);
     }
 
@@ -181,16 +204,27 @@ class UserController extends Controller
      *
      * @throws \Illuminate\Validation\ValidationException
      */
-    public function removeRole(Request $request,User $user){
-        $validation = Validator::make($request->all(), [
-            'rol' => 'required|exists:roles,id',
-        ]);
-        if ($validation->fails()) {
-            return response($validation->errors()->toArray(), Response::HTTP_UNPROCESSABLE_ENTITY);
-        }
-        $rol = Role::find($request->rol);
+    public function removeRole(Request $request,User $user, $rol){
+        $rol = Role::find($rol);
         $user->removeRole($rol);
         $user->roles;
+        $user->superior;
+        return response($user, Response::HTTP_OK);
+
+    }
+/**
+     * Remove a role from a user
+     *
+     * @param Request $request
+     * @param User $user
+     * @return \Illuminate\Http\JsonResponse
+     *
+     * @throws \Illuminate\Validation\ValidationException
+     */
+    public function removeSuperior(Request $request,User $user, $superior){
+        $user->superior()->detach($superior);
+        $user->roles;
+        $user->superior;
         return response($user, Response::HTTP_OK);
 
     }

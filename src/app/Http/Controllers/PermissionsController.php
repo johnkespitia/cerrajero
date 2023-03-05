@@ -41,7 +41,7 @@ class PermissionsController extends Controller
     public function update(Request $request,Permission $permission){
 
         $validation = Validator::make($request->all(), [
-            'name' => 'unique:permissions|max:125',
+            'name' => 'max:125|unique:permissions,name,'.$permission->id,
             'guard_name' => 'max:125',
         ], [
             'required' => 'The :attribute is required',

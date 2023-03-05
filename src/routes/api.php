@@ -41,7 +41,9 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::post('/accounts', 'save')->middleware('permission:user.create,cerrajero');
         Route::put('/accounts/{user}', 'update')->middleware('permission:user.edit,cerrajero');
         Route::post('/accounts/role/{user}', 'assignRole')->middleware('permission:user.edit,cerrajero');
-        Route::delete('/accounts/role/{user}', 'removeRole')->middleware('permission:user.edit,cerrajero');
+        Route::delete('/accounts/role/{user}/{rol}', 'removeRole')->middleware('permission:user.edit,cerrajero');
+        Route::post('/accounts/superior/{user}', 'assignSuperior')->middleware('permission:user.edit,cerrajero');
+        Route::delete('/accounts/superior/{user}/{superior}', 'removeSuperior')->middleware('permission:user.edit,cerrajero');
         Route::get('/my-account', 'mydata');
         Route::get('/can-i/{guard}/{permission}', 'cani');
     });
