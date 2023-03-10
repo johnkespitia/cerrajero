@@ -12,10 +12,10 @@ You need installed docker, create a `.env` file copying `.env.dev`  and run the 
 ## Run
 You can create a virtualhost editing your hosts file, then you can execute the makefile start command and access directly to:
 - [localhost](http://localhost)
-- [cerrajero.local](http://cerrajero.local)
+- [bodeguero.local](http://bodeguero.local)
 
 ### Linux & Unix
-`sudo -- sh -c -e "echo '127.0.0.1  cerrajero.local' >> /etc/hosts"`
+`sudo -- sh -c -e "echo '127.0.0.1  bodeguero.local' >> /etc/hosts"`
 
 ## Dependencies
 You must execute the composer command adding the install parameter

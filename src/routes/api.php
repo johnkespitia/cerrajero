@@ -53,4 +53,20 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::post('/guard', 'save')->middleware('permission:guard.create,cerrajero');
         Route::put('/guard/{guard}', 'update')->middleware('permission:guard.edit,cerrajero');
     });
+
+    // BODEGUERO
+
+    Route::controller(\App\Http\Controllers\InventoryCategoryController::class)->group(function () {
+        Route::get('/inventory-categories', 'index')->middleware('permission:category.list,bodeguero');
+        Route::get('/inventory-categories/{inventoryCategory}', 'show')->middleware('permission:category.list,bodeguero');
+        Route::post('/inventory-categories', 'store')->middleware('permission:category.create,bodeguero');
+        Route::put('/inventory-categories/{inventoryCategory}', 'update')->middleware('permission:category.edit,bodeguero');
+    });
+    Route::controller(\App\Http\Controllers\InventoryTypeInputController::class)->group(function () {
+        Route::get('/inventory-type-input', 'index')->middleware('permission:category.list,bodeguero');
+        Route::get('/inventory-type-input/{inventoryTypeInput}', 'show')->middleware('permission:category.list,bodeguero');
+        Route::post('/inventory-type-input', 'store')->middleware('permission:category.create,bodeguero');
+        Route::put('/inventory-type-input/{inventoryTypeInput}', 'update')->middleware('permission:category.edit,bodeguero');
+    });
+
 });
