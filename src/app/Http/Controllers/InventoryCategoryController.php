@@ -69,7 +69,7 @@ class InventoryCategoryController extends Controller
     public function update(Request $request, inventoryCategory $inventoryCategory)
     {
         $validation = Validator::make($request->all(), [
-            'name' => 'required|unique:inventory_categories|max:100',
+            'name' => 'required|unique:inventory_categories,name,'.$inventoryCategory->id.'|max:100',
             'input_type_id' => 'sometimes|exists:inventory_type_inputs,id',
         ], [
             'required' => 'The :attribute is required',

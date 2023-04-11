@@ -3,83 +3,145 @@
 namespace App\Http\Controllers;
 
 use App\Models\inventoryMeasure;
+use App\Models\inventoryMeasureConversion;
 use Illuminate\Http\Request;
+use Illuminate\Http\Response;
 
 class InventoryMeasureController extends Controller
 {
-    /**
-     * Display a listing of the resource.
-     *
-     * @return \Illuminate\Http\Response
-     */
     public function index()
     {
-        //
+        $measures = InventoryMeasure::with('conversionsOrigin.destinationMeasure')->get();
+        return response($measures, Response::HTTP_OK);
     }
 
-    /**
-     * Show the form for creating a new resource.
-     *
-     * @return \Illuminate\Http\Response
-     */
-    public function create()
+    public function getConversions($measureId)
     {
-        //
+        $measure = InventoryMeasure::findOrFail($measureId);
+        $conversions = $measure->conversionsOrigin;
+
+        return response()->json($conversions);
     }
 
-    /**
-     * Store a newly created resource in storage.
-     *
-     * @param  \Illuminate\Http\Request  $request
-     * @return \Illuminate\Http\Response
-     */
+
     public function store(Request $request)
     {
-        //
+        $validatedData = $request->validate([
+            'name' => 'required|unique:inventory_measures,name'
+        ]);
+
+        $measure = inventoryMeasure::create([
+            'name' => $validatedData['name']
+        ]);
+
+        return response()->json([
+            'message' => 'Medida creada exitosamente',
+            'measure' => $measure
+        ], 201);
+    }
+    public function storeConversion(Request $request)
+    {
+        $validatedData = $request->validate([
+            'origin_id' => 'required|exists:inventory_measures,id',
+            'destination_id' => 'required|exists:inventory_measures,id',
+            'factor' => 'required|numeric'
+        ]);
+
+        // Crear la nueva conversión
+        $conversion = inventoryMeasureConversion::create([
+            'origin_id' => $validatedData['origin_id'],
+            'destination_id' => $validatedData['destination_id'],
+            'factor' => $validatedData['factor']
+        ]);
+
+        return response()->json([
+            'message' => 'Conversión creada exitosamente',
+            'conversion' => $conversion
+        ], 201);
     }
 
     /**
      * Display the specified resource.
      *
-     * @param  \App\Models\inventoryMeasure  $inventoryMeasure
+     * @param  \App\Models\inventoryCategory  $inventoryCategory
      * @return \Illuminate\Http\Response
      */
     public function show(inventoryMeasure $inventoryMeasure)
     {
-        //
+        $inventoryMeasure->conversions_origin;
+        return response($inventoryMeasure, Response::HTTP_OK);
     }
 
-    /**
-     * Show the form for editing the specified resource.
-     *
-     * @param  \App\Models\inventoryMeasure  $inventoryMeasure
-     * @return \Illuminate\Http\Response
-     */
-    public function edit(inventoryMeasure $inventoryMeasure)
-    {
-        //
-    }
 
-    /**
-     * Update the specified resource in storage.
-     *
-     * @param  \Illuminate\Http\Request  $request
-     * @param  \App\Models\inventoryMeasure  $inventoryMeasure
-     * @return \Illuminate\Http\Response
-     */
     public function update(Request $request, inventoryMeasure $inventoryMeasure)
     {
-        //
+        $validatedData = $request->validate([
+            'name' => 'required|unique:inventory_measures,name,' . $inventoryMeasure->id
+        ]);
+
+        // Actualizar la medida
+        $inventoryMeasure->update([
+            'name' => $validatedData['name']
+        ]);
+
+        return response()->json([
+            'message' => 'Medida actualizada exitosamente',
+            'measure' => $inventoryMeasure
+        ], 200);
     }
 
-    /**
-     * Remove the specified resource from storage.
-     *
-     * @param  \App\Models\inventoryMeasure  $inventoryMeasure
-     * @return \Illuminate\Http\Response
-     */
-    public function destroy(inventoryMeasure $inventoryMeasure)
+    public function updateConversion(Request $request, inventoryMeasureConversion $conversion)
     {
-        //
+        // Validar los datos de la conversión actualizada
+        $validatedData = $request->validate([
+            'origin_id' => 'required|exists:inventory_measures,id',
+            'destination_id' => 'required|exists:inventory_measures,id',
+            'factor' => 'required|numeric'
+        ]);
+
+        $conversion->update([
+            'origin_id' => $validatedData['origin_id']??$conversion->origin_id,
+            'destination_id' => $validatedData['destination_id']??$conversion->destination_id,
+            'factor' => $validatedData['factor']??$conversion->factor
+        ]);
+
+        return response()->json([
+            'message' => 'Conversión actualizada exitosamente',
+            'conversion' => $conversion
+        ], 200);
+    }
+
+    public function convert(Request $request)
+    {
+        $quantity = $request->input('quantity');
+        $originMeasureId = $request->input('origin_measure_id');
+        $destinationMeasureId = $request->input('destination_measure_id');
+
+        $conversion = InventoryMeasureConversion::where('origin_id', $originMeasureId)
+            ->where('destination_id', $destinationMeasureId)
+            ->orWhere(function ($query) use ($originMeasureId, $destinationMeasureId) {
+                $query->where('destination_id', $originMeasureId)
+                    ->where('origin_id', $destinationMeasureId);
+            })
+            ->first();
+
+        if (!$conversion) {
+            return response()->json([
+                'error' => 'Conversion not found'
+            ], 404);
+        }
+
+        if ($conversion->origin_id === $originMeasureId) {
+            $convertedQuantity = $quantity * $conversion->factor;
+        } else {
+            $convertedQuantity = $quantity / $conversion->factor;
+        }
+
+        return response()->json([
+            'quantity' => $quantity,
+            'origin_measure' => $conversion->originMeasure->name,
+            'destination_measure' => $conversion->destinationMeasure->name,
+            'converted_quantity' => $convertedQuantity
+        ]);
     }
 }

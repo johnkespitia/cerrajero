@@ -63,10 +63,56 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::put('/inventory-categories/{inventoryCategory}', 'update')->middleware('permission:category.edit,bodeguero');
     });
     Route::controller(\App\Http\Controllers\InventoryTypeInputController::class)->group(function () {
-        Route::get('/inventory-type-input', 'index')->middleware('permission:category.list,bodeguero');
-        Route::get('/inventory-type-input/{inventoryTypeInput}', 'show')->middleware('permission:category.list,bodeguero');
-        Route::post('/inventory-type-input', 'store')->middleware('permission:category.create,bodeguero');
-        Route::put('/inventory-type-input/{inventoryTypeInput}', 'update')->middleware('permission:category.edit,bodeguero');
+        Route::get('/inventory-type-input', 'index')->middleware('permission:inventory-type.list,bodeguero');
+        Route::get('/inventory-type-input/{inventoryTypeInput}', 'show')->middleware('permission:inventory-type.list,bodeguero');
+        Route::post('/inventory-type-input', 'store')->middleware('permission:inventory-type.create,bodeguero');
+        Route::put('/inventory-type-input/{inventoryTypeInput}', 'update')->middleware('permission:inventory-type.edit,bodeguero');
     });
+
+    Route::controller(\App\Http\Controllers\InventoryInputController::class)->group(function () {
+        Route::get('/inventory-input', 'index')->middleware('permission:input.list,bodeguero');
+        Route::get('/inventory-input/{inventoryInput}', 'show')->middleware('permission:input.list,bodeguero');
+        Route::post('/inventory-input', 'store')->middleware('permission:input.create,bodeguero');
+        Route::put('/inventory-input/{inventoryInput}', 'update')->middleware('permission:input.edit,bodeguero');
+    });
+
+    Route::controller(\App\Http\Controllers\InventoryBatchController::class)->group(function () {
+        Route::get('/inventory-batch', 'index')->middleware('permission:batch.list,bodeguero');
+        Route::get('/inventory-batch/{inventoryBatch}', 'show')->middleware('permission:batch.list,bodeguero');
+        Route::post('/inventory-batch', 'store')->middleware('permission:batch.create,bodeguero');
+        Route::put('/inventory-batch/{inventoryBatch}', 'update')->middleware('permission:batch.edit,bodeguero');
+    });
+
+    Route::controller(\App\Http\Controllers\InventoryMeasureController::class)->group(function () {
+        Route::get('/inventory-measures', 'index')->middleware('permission:measures.list,bodeguero');
+        Route::get('/inventory-measures/{inventoryMeasure}', 'show')->middleware('permission:measures.list,bodeguero');
+        Route::post('/inventory-measures', 'store')->middleware('permission:measures.create,bodeguero');
+        Route::put('/inventory-measures/{inventoryMeasure}', 'update')->middleware('permission:measures.edit,bodeguero');
+        Route::get('/inventory-measures/conversion/{measureId}', 'show')->middleware('permission:measures.list,bodeguero');
+        Route::post('/inventory-measures/conversion', 'storeConversion')->middleware('permission:measures.create,bodeguero');
+        Route::put('/inventory-measures/conversion/{inventoryMeasure}', 'updateConversion')->middleware('permission:measures.edit,bodeguero');
+        Route::get('/convert-measures', 'convert');
+
+    });
+
+    Route::controller(\App\Http\Controllers\KitchenRecipeController::class)->group(function () {
+        Route::get('/kitchen-recipes', 'index')->middleware('permission:recipes.list,cocinero');
+        Route::get('/kitchen-recipes/{recipe}', 'show')->middleware('permission:recipes.list,cocinero');
+        Route::post('/kitchen-recipes', 'store')->middleware('permission:recipes.create,cocinero');
+        Route::put('/kitchen-recipes/{recipe}', 'update')->middleware('permission:recipes.edit,cocinero');
+    });
+
+    Route::controller(\App\Http\Controllers\RecipeStepController::class)->group(function () {
+        Route::post('/kitchen-recipe-steps', 'store')->middleware('permission:recipes.create,cocinero');
+        Route::put('/kitchen-recipe-steps/{recipeStep}', 'update')->middleware('permission:recipes.edit,cocinero');
+        Route::delete('/kitchen-recipe-steps/{recipeStep}', 'destroy')->middleware('permission:recipes.edit,cocinero');
+    });
+
+    Route::controller(\App\Http\Controllers\RecipeIngredientController::class)->group(function () {
+        Route::post('/kitchen-recipes-ingredient', 'store')->middleware('permission:recipes.create,cocinero');
+        Route::put('/kitchen-recipes-ingredient/{recipeIngredient}', 'update')->middleware('permission:recipes.edit,cocinero');
+        Route::delete('/kitchen-recipes-ingredient/{recipeIngredient}', 'destroy')->middleware('permission:recipes.edit,cocinero');
+    });
+
 
 });

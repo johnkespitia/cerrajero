@@ -5,16 +5,16 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
-class inventoryMeasure extends Model
+class KitchenRecipeSteps extends Model
 {
     protected $fillable = [
-        'name'
+        'recipe_id',
+        'description'
     ];
 
     use HasFactory;
-
-    public function conversionsOrigin()
+    public function recipe()
     {
-        return $this->hasMany(InventoryMeasureConversion::class, 'origin_id');
+        return $this->belongsTo(KitchenRecipe::class);
     }
 }
