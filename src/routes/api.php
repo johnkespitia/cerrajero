@@ -115,4 +115,16 @@ Route::middleware(['auth:sanctum'])->group(function () {
     });
 
 
+    Route::controller(\App\Http\Controllers\OrderController::class)->group(function () {
+        Route::get('/order', 'index')->middleware('permission:order.list,cocinero');
+        Route::get('/order/{order}', 'show')->middleware('permission:order.list,cocinero');
+        Route::post('/order', 'store')->middleware('permission:order.create,cocinero');
+        Route::put('/order/{order}', 'update')->middleware('permission:order.edit,cocinero');
+        Route::delete('/order/{order}', 'destroy')->middleware('permission:order.edit,cocinero');
+    });
+    Route::controller(\App\Http\Controllers\OrderItemController::class)->group(function () {
+        Route::post('/order-item', 'store')->middleware('permission:order.create,cocinero');
+        Route::put('/order-item/{orderItem}', 'update')->middleware('permission:order.edit,cocinero');
+        Route::delete('/order-item/{orderItem}', 'destroy')->middleware('permission:order.edit,cocinero');
+    });
 });
