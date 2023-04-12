@@ -13,7 +13,8 @@ class OrderItem extends Model
         'order_id',
         'recipe_id',
         'quantity',
-        'measure_id'
+        'measure_id',
+        'status'
     ];
 
     public function order()

@@ -127,4 +127,10 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::put('/order-item/{orderItem}', 'update')->middleware('permission:order.edit,cocinero');
         Route::delete('/order-item/{orderItem}', 'destroy')->middleware('permission:order.edit,cocinero');
     });
+
+    Route::controller(\App\Http\Controllers\ProducedBatchController::class)->group(function () {
+        Route::get('/order-item-batch', 'index')->middleware('permission:order.create,cocinero');
+        Route::get('/order-item-batch/{producedBatch}', 'show')->middleware('permission:order.create,cocinero');
+        Route::put('/order-item-batch/{producedBatch}', 'update')->middleware('permission:order.edit,cocinero');
+    });
 });
