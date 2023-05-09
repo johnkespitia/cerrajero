@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\inventoryCategory;
+use App\Models\InventoryCategory;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Validator;
@@ -16,7 +16,7 @@ class InventoryCategoryController extends Controller
      */
     public function index()
     {
-        $categories = inventoryCategory::with("inputTypes")->get();
+        $categories = InventoryCategory::with("inputTypes")->get();
         return response($categories, Response::HTTP_OK);
     }
 
@@ -39,7 +39,7 @@ class InventoryCategoryController extends Controller
         if ($validation->fails()) {
             return response($validation->errors()->toArray(), Response::HTTP_UNPROCESSABLE_ENTITY);
         }
-        $inventoryCategory = inventoryCategory::create([
+        $inventoryCategory = InventoryCategory::create([
             "name"=> $request->name,
             "input_type_id"=> $request->input_type_id,
         ]);
@@ -50,10 +50,10 @@ class InventoryCategoryController extends Controller
     /**
      * Display the specified resource.
      *
-     * @param  \App\Models\inventoryCategory  $inventoryCategory
+     * @param  \App\Models\InventoryCategory  $inventoryCategory
      * @return \Illuminate\Http\Response
      */
-    public function show(inventoryCategory $inventoryCategory)
+    public function show(InventoryCategory $inventoryCategory)
     {
         $inventoryCategory->inputTypes;
         return response($inventoryCategory, Response::HTTP_OK);
@@ -63,10 +63,10 @@ class InventoryCategoryController extends Controller
      * Update the specified resource in storage.
      *
      * @param  \Illuminate\Http\Request  $request
-     * @param  \App\Models\inventoryCategory  $inventoryCategory
+     * @param  \App\Models\InventoryCategory  $inventoryCategory
      * @return \Illuminate\Http\Response
      */
-    public function update(Request $request, inventoryCategory $inventoryCategory)
+    public function update(Request $request, InventoryCategory $inventoryCategory)
     {
         $validation = Validator::make($request->all(), [
             'name' => 'required|unique:inventory_categories,name,'.$inventoryCategory->id.'|max:100',

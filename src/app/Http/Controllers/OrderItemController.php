@@ -52,7 +52,7 @@ class OrderItemController extends Controller
     private function updateInventory(OrderItem $orderItem){
         if($orderItem->status === "prepared"){
             foreach ($orderItem->recipe->recipeIngredients as $ingredient){
-                $batchs = inventoryBatch::whereDate('expiration_date', '>', now())->where("quantity",">",0)->where("input_id", $ingredient->inventoryInput->id)->get();
+                $batchs = inventoryBatch::whereDate('expiration_date', '>=', now())->where("quantity",">",0)->where("input_id", $ingredient->inventoryInput->id)->get();
                 $b = $batchs->first();
                 $calculatedQuantity = $this->getConvertedQty($ingredient, $b);
                 if(!$calculatedQuantity){

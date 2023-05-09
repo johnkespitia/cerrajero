@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\inventoryBatch;
+use App\Models\InventoryBatch;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Validator;
@@ -16,8 +16,16 @@ class InventoryBatchController extends Controller
      */
     public function index()
     {
-        $batch = inventoryBatch::with("input")->get();
-        return response($batch, Response::HTTP_OK);
+        $batchReady = InventoryBatch::with("input.measure")->where("quantity",">",0)->where("active",1)->whereDate("expiration_date",">=", now())->get();
+        $batchConsumed = InventoryBatch::with("input.measure")->where("quantity","<=",0)->where("active",1)->whereDate("expiration_date",">=", now())->get();
+        $batchInactive = InventoryBatch::with("input.measure")->where("active",0)->whereDate("expiration_date",">=", now())->get();
+        $batchExpired = InventoryBatch::with("input.measure")->whereDate("expiration_date","<", now())->get();
+        return response([
+            "ready"=>$batchReady,
+            "consumed"=>$batchConsumed,
+            "inactive"=>$batchInactive,
+            "expired"=>$batchExpired,
+        ], Response::HTTP_OK);
     }
 
     /**
@@ -44,7 +52,7 @@ class InventoryBatchController extends Controller
         if ($validation->fails()) {
             return response($validation->errors()->toArray(), Response::HTTP_UNPROCESSABLE_ENTITY);
         }
-        $inventoryBatch = inventoryBatch::create([
+        $inventoryBatch = InventoryBatch::create([
             'name' => $request->name,
             'active' => $request->active,
             'serial' => $request->serial,
@@ -64,7 +72,7 @@ class InventoryBatchController extends Controller
      * @param  \App\Models\inventoryBatch  $inventoryBatch
      * @return \Illuminate\Http\Response
      */
-    public function show(inventoryBatch $inventoryBatch)
+    public function show(InventoryBatch $inventoryBatch)
     {
         $inventoryBatch->input;
         return response($inventoryBatch, Response::HTTP_OK);
@@ -77,7 +85,7 @@ class InventoryBatchController extends Controller
      * @param  \App\Models\inventoryBatch  $inventoryBatch
      * @return \Illuminate\Http\Response
      */
-    public function update(Request $request, inventoryBatch $inventoryBatch)
+    public function update(Request $request, InventoryBatch $inventoryBatch)
     {
         $validation = Validator::make($request->all(), [
             'name' => 'unique:inventory_batches,name,'.$inventoryBatch->id.'|max:100',
@@ -95,7 +103,6 @@ class InventoryBatchController extends Controller
         if ($validation->fails()) {
             return response([$validation->errors()->toArray()], Response::HTTP_UNPROCESSABLE_ENTITY);
         }
-
         $inventoryBatch->update([
             'name' => $request->name??$inventoryBatch->name,
             'active' => $request->active??$inventoryBatch->active,

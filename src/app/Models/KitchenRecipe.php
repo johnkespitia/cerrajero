@@ -28,6 +28,6 @@ class KitchenRecipe extends Model
 
     public function inventoryMeasure()
     {
-        return $this->belongsTo(inventoryMeasure::class, "measure_id","id");
+        return $this->belongsTo(InventoryMeasure::class, "measure_id","id");
     }
 }

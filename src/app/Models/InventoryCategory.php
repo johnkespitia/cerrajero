@@ -5,7 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
-class inventoryCategory extends Model
+class InventoryCategory extends Model
 {
     use HasFactory;
 
@@ -16,6 +16,6 @@ class inventoryCategory extends Model
 
     public function inputTypes()
     {
-        return $this->belongsTo(inventoryTypeInput::class, "input_type_id", "id");
+        return $this->belongsTo(InventoryTypeInput::class, "input_type_id", "id");
     }
 }

@@ -5,16 +5,15 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
-class inventoryMeasure extends Model
+class InventoryTypeInput extends Model
 {
+    use HasFactory;
     protected $fillable = [
         'name'
     ];
 
-    use HasFactory;
-
-    public function conversionsOrigin()
+    public function categories()
     {
-        return $this->hasMany(InventoryMeasureConversion::class, 'origin_id');
+        return $this->hasMany(InventoryCategory::class, "input_type_id", "id");
     }
 }

@@ -90,8 +90,9 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::put('/inventory-measures/{inventoryMeasure}', 'update')->middleware('permission:measures.edit,bodeguero');
         Route::get('/inventory-measures/conversion/{measureId}', 'show')->middleware('permission:measures.list,bodeguero');
         Route::post('/inventory-measures/conversion', 'storeConversion')->middleware('permission:measures.create,bodeguero');
-        Route::put('/inventory-measures/conversion/{inventoryMeasure}', 'updateConversion')->middleware('permission:measures.edit,bodeguero');
+        Route::put('/inventory-measures/conversion/{conversion}', 'updateConversion')->middleware('permission:measures.edit,bodeguero');
         Route::get('/convert-measures', 'convert');
+        Route::get('/convert-measure-list', 'conversions');
 
     });
 

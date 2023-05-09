@@ -2,8 +2,8 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\inventoryMeasure;
-use App\Models\inventoryMeasureConversion;
+use App\Models\InventoryMeasure;
+use App\Models\InventoryMeasureConversion;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 
@@ -12,6 +12,12 @@ class InventoryMeasureController extends Controller
     public function index()
     {
         $measures = InventoryMeasure::with('conversionsOrigin.destinationMeasure')->get();
+        return response($measures, Response::HTTP_OK);
+    }
+
+    public function conversions()
+    {
+        $measures = InventoryMeasureConversion::with('originMeasure')->with('destinationMeasure')->get();
         return response($measures, Response::HTTP_OK);
     }
 
@@ -30,7 +36,7 @@ class InventoryMeasureController extends Controller
             'name' => 'required|unique:inventory_measures,name'
         ]);
 
-        $measure = inventoryMeasure::create([
+        $measure = InventoryMeasure::create([
             'name' => $validatedData['name']
         ]);
 
@@ -48,7 +54,7 @@ class InventoryMeasureController extends Controller
         ]);
 
         // Crear la nueva conversión
-        $conversion = inventoryMeasureConversion::create([
+        $conversion = InventoryMeasureConversion::create([
             'origin_id' => $validatedData['origin_id'],
             'destination_id' => $validatedData['destination_id'],
             'factor' => $validatedData['factor']
@@ -66,14 +72,14 @@ class InventoryMeasureController extends Controller
      * @param  \App\Models\inventoryCategory  $inventoryCategory
      * @return \Illuminate\Http\Response
      */
-    public function show(inventoryMeasure $inventoryMeasure)
+    public function show(InventoryMeasure $inventoryMeasure)
     {
         $inventoryMeasure->conversions_origin;
         return response($inventoryMeasure, Response::HTTP_OK);
     }
 
 
-    public function update(Request $request, inventoryMeasure $inventoryMeasure)
+    public function update(Request $request, InventoryMeasure $inventoryMeasure)
     {
         $validatedData = $request->validate([
             'name' => 'required|unique:inventory_measures,name,' . $inventoryMeasure->id
@@ -90,13 +96,13 @@ class InventoryMeasureController extends Controller
         ], 200);
     }
 
-    public function updateConversion(Request $request, inventoryMeasureConversion $conversion)
+    public function updateConversion(Request $request, InventoryMeasureConversion $conversion)
     {
         // Validar los datos de la conversión actualizada
         $validatedData = $request->validate([
-            'origin_id' => 'required|exists:inventory_measures,id',
-            'destination_id' => 'required|exists:inventory_measures,id',
-            'factor' => 'required|numeric'
+            'origin_id' => 'sometimes|exists:inventory_measures,id',
+            'destination_id' => 'sometimes|exists:inventory_measures,id',
+            'factor' => 'sometimes|numeric'
         ]);
 
         $conversion->update([

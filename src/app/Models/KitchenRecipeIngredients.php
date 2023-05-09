@@ -23,11 +23,11 @@ class KitchenRecipeIngredients extends Model
 
     public function inventoryMeasure()
     {
-        return $this->belongsTo(inventoryMeasure::class, "measure_id","id");
+        return $this->belongsTo(InventoryMeasure::class, "measure_id","id");
     }
 
     public function inventoryInput()
     {
-        return $this->belongsTo(inventoryInput::class, "input_id", "id");
+        return $this->belongsTo(InventoryInput::class, "input_id", "id");
     }
 }

@@ -2,8 +2,7 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\inventoryCategory;
-use App\Models\inventoryInput;
+use App\Models\InventoryInput;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Validator;
@@ -17,7 +16,7 @@ class InventoryInputController extends Controller
      */
     public function index()
     {
-        $inputs = inventoryInput::with("category", "measure")->get();
+        $inputs = InventoryInput::with("category.inputTypes", "measure")->get();
         return response($inputs, Response::HTTP_OK);
     }
 
@@ -43,7 +42,7 @@ class InventoryInputController extends Controller
             return response($validation->errors()->toArray(), Response::HTTP_UNPROCESSABLE_ENTITY);
         }
 
-        $inventoryInput = inventoryInput::create([
+        $inventoryInput = InventoryInput::create([
             "name"=> $request->name,
             "serial"=> $request->serial,
             "active"=> $request->active,
@@ -58,10 +57,10 @@ class InventoryInputController extends Controller
     /**
      * Display the specified resource.
      *
-     * @param  \App\Models\inventoryInput  $inventoryInput
+     * @param  \App\Models\InventoryInput  $inventoryInput
      * @return \Illuminate\Http\Response
      */
-    public function show(inventoryInput $inventoryInput)
+    public function show(InventoryInput $inventoryInput)
     {
         $inventoryInput->category;
         $inventoryInput->measure;
@@ -74,10 +73,10 @@ class InventoryInputController extends Controller
      * Update the specified resource in storage.
      *
      * @param  \Illuminate\Http\Request  $request
-     * @param  \App\Models\inventoryInput  $inventoryInput
+     * @param  \App\Models\InventoryInput  $inventoryInput
      * @return \Illuminate\Http\Response
      */
-    public function update(Request $request, inventoryInput $inventoryInput)
+    public function update(Request $request, InventoryInput $inventoryInput)
     {
 
         $validation = Validator::make($request->all(), [

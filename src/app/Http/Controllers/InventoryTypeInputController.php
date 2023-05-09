@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\inventoryTypeInput;
+use App\Models\InventoryTypeInput;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Validator;
@@ -16,7 +16,7 @@ class InventoryTypeInputController extends Controller
      */
     public function index()
     {
-        $typeInput = inventoryTypeInput::all();
+        $typeInput = InventoryTypeInput::all();
         return response($typeInput, Response::HTTP_OK);
     }
 
@@ -37,7 +37,7 @@ class InventoryTypeInputController extends Controller
         if ($validation->fails()) {
             return response($validation->errors()->toArray(), Response::HTTP_UNPROCESSABLE_ENTITY);
         }
-        $inventoryTypeInput = inventoryTypeInput::create([
+        $inventoryTypeInput = InventoryTypeInput::create([
             "name"=> $request->name,
         ]);
         return response(['msg' => "Input Type saved", 'inputType'=>$inventoryTypeInput], Response::HTTP_OK);
@@ -46,15 +46,15 @@ class InventoryTypeInputController extends Controller
     /**
      * Display the specified resource.
      *
-     * @param  \App\Models\inventoryTypeInput  $inventoryTypeInput
+     * @param  \App\Models\InventoryTypeInput  $inventoryTypeInput
      * @return \Illuminate\Http\Response
      */
-    public function show(inventoryTypeInput $inventoryTypeInput)
+    public function show(InventoryTypeInput $inventoryTypeInput)
     {
         return response($inventoryTypeInput, Response::HTTP_OK);
     }
 
-    public function update(Request $request, inventoryTypeInput $inventoryTypeInput)
+    public function update(Request $request, InventoryTypeInput $inventoryTypeInput)
     {
         $validation = Validator::make($request->all(), [
             'name' => 'required|unique:inventory_type_inputs,name,'.$inventoryTypeInput->id.'|max:100',

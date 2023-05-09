@@ -5,7 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
-class inventoryBatch extends Model
+class InventoryBatch extends Model
 {
     use HasFactory;
 
@@ -22,6 +22,6 @@ class inventoryBatch extends Model
 
     public function input()
     {
-        return $this->belongsTo(inventoryInput::class, "input_id", "id");
+        return $this->belongsTo(InventoryInput::class, "input_id", "id");
     }
 }
