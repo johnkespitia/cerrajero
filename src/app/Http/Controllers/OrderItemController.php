@@ -35,11 +35,11 @@ class OrderItemController extends Controller
             'measure_id' => 'sometimes|exists:inventory_measures,id',
             'status' => 'sometimes|in:pending,preparing,prepared,delivered',
         ]);
-        if($this->updateInventory($orderItem)){
+        if($this->updateInventory($orderItem, $validatedData['status']??"" )){
             $orderItem->update($validatedData);
             return response()->json($orderItem);
         }else{
-            return response()->json(["error"=>"can't discount from the inventory"], 500);
+            return response()->json(["error"=>"No hay suficientes productos en el inventario para la receta"], 500);
         }
     }
 
@@ -49,34 +49,60 @@ class OrderItemController extends Controller
         return response()->json(null, 204);
     }
 
-    private function updateInventory(OrderItem $orderItem){
-        if($orderItem->status === "prepared"){
+    private function validateIngredientBatch(OrderItem $orderItem){
+        foreach ($orderItem->recipe->recipeIngredients as $ingredient) {
+            $batchs = inventoryBatch::whereDate('expiration_date', '>=', now())->where("quantity", ">", 0)->where("input_id", $ingredient->inventoryInput->id)->get();
+            $totalInStock = $batchs->sum('quantity');
+            if ($batchs->count() === 0) {
+                return false;
+            }
+            $calculatedQuantity = $this->getConvertedQty($ingredient, $batchs->first());
+            if(!$calculatedQuantity){
+                return false;
+            }
+            if($calculatedQuantity > $totalInStock){
+                return false;
+            }
+        }
+        return true;
+    }
+    private function updateInventory(OrderItem $orderItem, string $status){
+        if($status === "preparing"){
+            if(!$this->validateIngredientBatch($orderItem)){
+                return false;
+            }
             foreach ($orderItem->recipe->recipeIngredients as $ingredient){
                 $batchs = inventoryBatch::whereDate('expiration_date', '>=', now())->where("quantity",">",0)->where("input_id", $ingredient->inventoryInput->id)->get();
-                $b = $batchs->first();
-                $calculatedQuantity = $this->getConvertedQty($ingredient, $b);
-                if(!$calculatedQuantity){
-                    return false;
-                }
                 $totalInStock = $batchs->sum('quantity');
-                if($calculatedQuantity > $totalInStock){
+                $discountedAll = 0;
+                if($batchs->count() === 0){
                     return false;
                 }
-                $discountedAll = 0;
-                do{
-                    if($calculatedQuantity <  $b->quantity){
-                        $b->quantity = $b->quantity - $calculatedQuantity;
-                        $discountedAll = $calculatedQuantity;
-                        $b->save();
-                    }else{
-                        $b->quantity = 0;
-                        $discountedAll += $calculatedQuantity - $discountedAll - $b->quantity;
-                        $b->save();
-                        $b = $batchs->next();
+                foreach ($batchs as $batch) {
+                    $calculatedQuantity = $this->getConvertedQty($ingredient, $batch);
+                    if(!$calculatedQuantity){
+                        return false;
                     }
-                }while($discountedAll < $calculatedQuantity);
+                    if($calculatedQuantity > $totalInStock){
+                        return false;
+                    }
+                    if($discountedAll < $calculatedQuantity){
+                        if ($calculatedQuantity < $batch->quantity) {
+                            $batch->quantity = $batch->quantity - $calculatedQuantity;
+                            $discountedAll = $calculatedQuantity;
+                            $batch->save();
+                        } else {
+                            $batch->quantity = 0;
+                            $discountedAll += $calculatedQuantity - $discountedAll - $batch->quantity;
+                            $batch->save();
+                        }
+                    }
+                }
             }
+
             $this->createProducedBatch($orderItem);
+            return true;
+        }else{
             return true;
         }
     }

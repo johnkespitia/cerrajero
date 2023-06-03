@@ -31,4 +31,8 @@ class OrderItem extends Model
     {
         return $this->belongsTo(inventoryMeasure::class);
     }
+    public function batchs()
+    {
+        return $this->HasMany(ProducedBatch::class);
+    }
 }

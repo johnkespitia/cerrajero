@@ -11,6 +11,7 @@ class OrderController extends Controller
     public function index()
     {
         $orders = Order::with("orderItems.recipe")
+            ->with("orderItems.batchs")
             ->with("orderItems.measure")
             ->with("user")
             ->get();
