@@ -2,12 +2,14 @@
 
 namespace App\Http\Controllers;
 
+use App\Mail\InventoryLimitEmail;
 use App\Models\inventoryBatch;
 use App\Models\inventoryMeasureConversion;
 use App\Models\OrderItem;
 use App\Models\ProducedBatch;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
 
 class OrderItemController extends Controller
@@ -97,6 +99,10 @@ class OrderItemController extends Controller
                             $batch->save();
                         }
                     }
+                }
+                $newTotalInStock = $batchs->sum('quantity');
+                if($newTotalInStock <= $ingredient->inventoryInput->min_inventory){
+                    Mail::to(env("MAIN_NOTIFICATION_EMAIL"))->send(new InventoryLimitEmail($ingredient->inventoryInput, $newTotalInStock));
                 }
             }
 

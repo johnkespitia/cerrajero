@@ -11,14 +11,18 @@ class InventoryLimitEmail extends Mailable
 {
     use Queueable, SerializesModels;
 
+    protected $inventoryInput;
+    protected $currentStock;
+
     /**
      * Create a new message instance.
      *
      * @return void
      */
-    public function __construct()
+    public function __construct( $inventoryInput, $currentStock)
     {
-        //
+        $this->inventoryInput = $inventoryInput;
+        $this->currentStock = $currentStock;
     }
 
     /**
@@ -28,6 +32,7 @@ class InventoryLimitEmail extends Mailable
      */
     public function build()
     {
-        return $this->view('emails.inventory-limit');
+        return $this->subject('Limite de inventario alcanzado')
+            ->view('emails.inventory_limit', ["inventoryInput"=>$this->inventoryInput, "currentStock"=>$this->currentStock]);
     }
 }
