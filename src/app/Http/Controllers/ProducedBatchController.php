@@ -9,7 +9,7 @@ class ProducedBatchController extends Controller
 {
     public function index()
     {
-        $batches = Batch::all();
+        $batches = ProducedBatch::all();
         return response()->json($batches);
     }
     public function show(ProducedBatch $producedBatch)
@@ -21,10 +21,10 @@ class ProducedBatchController extends Controller
     public function update(Request $request, ProducedBatch $producedBatch)
     {
         $validatedData = $request->validate([
-            'order_item_id' => 'sometimes|required|exists:products,id',
-            'quantity' => 'sometimes|required|numeric',
-            'expiration_date' => 'sometimes|required|date',
-            'batch_serial' => 'sometimes|required|date',
+            'order_item_id' => 'sometimes|exists:products,id',
+            'quantity' => 'sometimes|numeric',
+            'expiration_date' => 'sometimes|date',
+            'batch_serial' => 'sometimes',
         ]);
         $producedBatch->update($validatedData);
         return response()->json($producedBatch);

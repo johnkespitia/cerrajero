@@ -14,7 +14,8 @@ class InventoryInput extends Model
         'serial',
         'active',
         'category_id',
-        'measure_id'
+        'measure_id',
+        'min_inventory'
     ];
 
     public function category()

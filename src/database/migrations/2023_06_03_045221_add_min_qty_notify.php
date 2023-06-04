@@ -4,7 +4,7 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
-class AddOrdersReferenceAndPrice extends Migration
+class AddMinQtyNotify extends Migration
 {
     /**
      * Run the migrations.
@@ -13,9 +13,8 @@ class AddOrdersReferenceAndPrice extends Migration
      */
     public function up()
     {
-        Schema::table('orders', function (Blueprint $table) {
-            $table->string('external_reference', "20");
-            $table->decimal("price", 8, 2, true);
+        Schema::table('inventory_inputs', function (Blueprint $table) {
+            $table->integer('min_inventory', false, true);
         });
     }
 
@@ -26,9 +25,8 @@ class AddOrdersReferenceAndPrice extends Migration
      */
     public function down()
     {
-        Schema::table('orders', function (Blueprint $table) {
-            $table->dropColumn("external_reference");
-            $table->dropColumn("price");
+        Schema::table('inventory_inputs', function (Blueprint $table) {
+            $table->dropColumn("min_inventory");
         });
     }
 }

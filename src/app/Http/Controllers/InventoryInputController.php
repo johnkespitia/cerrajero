@@ -34,6 +34,7 @@ class InventoryInputController extends Controller
             'active' => 'required|boolean',
             'category_id' => 'required|exists:inventory_categories,id',
             'measure_id' => 'required|exists:inventory_measures,id',
+            'min_inventory' => 'required|min:0',
         ], [
             'required' => 'The :attribute is required',
             'unique' => 'The :attribute exists in the database',
@@ -48,6 +49,7 @@ class InventoryInputController extends Controller
             "active"=> $request->active,
             "category_id"=> $request->category_id,
             "measure_id"=> $request->measure_id,
+            "min_inventory"=>$request->min_inventory,
         ]);
         $inventoryInput->category;
         $inventoryInput->measure;
@@ -85,6 +87,7 @@ class InventoryInputController extends Controller
             'active' => 'sometimes|boolean',
             'category_id' => 'sometimes|exists:inventory_categories,id',
             'measure_id' => 'sometimes|exists:inventory_measures,id',
+            'min_inventory' => 'sometimes|min:0',
         ], [
             'required' => 'The :attribute is required',
             'unique' => 'The :attribute exists in the database',
@@ -98,6 +101,7 @@ class InventoryInputController extends Controller
             "active"=> $request->active??$inventoryInput->active,
             "category_id"=> $request->category_id??$inventoryInput->category->id,
             "measure_id"=> $request->measure_id??$inventoryInput->measure->id,
+            "min_inventory"=> $request->min_inventory??$inventoryInput->min_inventory,
         ]);
         $inventoryInput->category;
         $inventoryInput->measure;
