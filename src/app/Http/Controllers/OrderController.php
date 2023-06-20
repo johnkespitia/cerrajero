@@ -43,6 +43,9 @@ class OrderController extends Controller
 
     public function update(Request $request, Order $order)
     {
+        if($order->open != 1){
+            return response()->json("Orden no puede ser modificada",500);
+        }
         $validator = Validator::make($request->all(), [
             'user_id' => 'sometimes|exists:users,id',
         ]);
@@ -58,6 +61,9 @@ class OrderController extends Controller
 
     public function destroy(Order $order)
     {
+        if($order->open != 1){
+            return response()->json("Orden no puede ser modificada",500);
+        }
         $order->delete();
 
         return response()->json(null, 204);

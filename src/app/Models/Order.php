@@ -11,8 +11,8 @@ class Order extends Model
 
     protected $fillable = [
         'user_id',
-        'external_reference',
-        'price'
+        'programed_production',
+        'open'
     ];
 
     public function user()

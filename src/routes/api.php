@@ -14,7 +14,7 @@ use Illuminate\Support\Facades\Route;
 |
 */
 
-Route::get("/greating", function() {
+Route::get("/greeting", function() {
     return "HELLO WORLD!!";
 });
 

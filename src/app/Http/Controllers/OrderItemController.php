@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Mail\InventoryLimitEmail;
 use App\Models\inventoryBatch;
 use App\Models\inventoryMeasureConversion;
+use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\ProducedBatch;
 use Carbon\Carbon;
@@ -14,6 +15,7 @@ use Illuminate\Support\Str;
 
 class OrderItemController extends Controller
 {
+
     public function store(Request $request)
     {
         $validatedData = $request->validate([
@@ -21,9 +23,13 @@ class OrderItemController extends Controller
             'recipe_id' => 'required|exists:kitchen_recipes,id',
             'quantity' => 'required|numeric|min:0',
             'measure_id' => 'required|exists:inventory_measures,id',
+            'package_id' => 'sometimes|numeric',
             'status' => 'required|in:pending, preparing, prepared, delivered',
         ]);
-
+        $order = Order::find($validatedData["order_id"]);
+        if($order->open != 1){
+            return response()->json("Orden no puede ser modificada",500);
+        }
         $orderItem = OrderItem::create($validatedData);
         return response()->json($orderItem, 201);
     }
@@ -35,8 +41,13 @@ class OrderItemController extends Controller
             'recipe_id' => 'sometimes|exists:kitchen_recipes,id',
             'quantity' => 'sometimes|numeric|min:0',
             'measure_id' => 'sometimes|exists:inventory_measures,id',
-            'status' => 'sometimes|in:pending,preparing,prepared,delivered',
+            'status' => 'sometimes|in:Pendiente,En Producción,Producto Sin Empaque,Producto Empacado,Despachado',
+            'package_id' => 'sometimes|numeric',
         ]);
+        $order = Order::find($validatedData["order_id"]);
+        if($order->open != 1){
+            return response()->json("Orden no puede ser modificada",500);
+        }
         if($this->updateInventory($orderItem, $validatedData['status']??"" )){
             $orderItem->update($validatedData);
             return response()->json($orderItem);

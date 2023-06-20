@@ -14,7 +14,8 @@ class OrderItem extends Model
         'recipe_id',
         'quantity',
         'measure_id',
-        'status'
+        'status',
+        'package_id'
     ];
 
     public function order()
@@ -29,7 +30,7 @@ class OrderItem extends Model
 
     public function measure()
     {
-        return $this->belongsTo(inventoryMeasure::class);
+        return $this->belongsTo(InventoryMeasure::class);
     }
     public function batchs()
     {

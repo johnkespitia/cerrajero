@@ -20,11 +20,11 @@ class InventoryInput extends Model
 
     public function category()
     {
-        return $this->belongsTo(inventoryCategory::class, "category_id", "id");
+        return $this->belongsTo(InventoryCategory::class, "category_id", "id");
     }
 
     public function measure()
     {
-        return $this->belongsTo(inventoryMeasure::class, "measure_id", "id");
+        return $this->belongsTo(InventoryMeasure::class, "measure_id", "id");
     }
 }
