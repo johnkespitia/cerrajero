@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html>
+<html lang="es:la">
 <head>
     <meta charset="UTF-8">
     <title>Alerta de materia prima próximo a quedarse sin stock</title>

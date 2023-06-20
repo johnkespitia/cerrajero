@@ -39,10 +39,15 @@ RUN apt install -y librecode-dev
 RUN curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/bin/ --filename=composer
 #RUN pecl install apc
 RUN docker-php-ext-install opcache
-RUN yes | pecl install xdebug \
-    && echo "zend_extension=$(find /usr/local/lib/php/extensions/ -name xdebug.so)" > /usr/local/etc/php/conf.d/xdebug.ini \
-    && echo "xdebug.remote_enable=on" >> /usr/local/etc/php/conf.d/xdebug.ini \
-    && echo "xdebug.remote_autostart=off" >> /usr/local/etc/php/conf.d/xdebug.ini
+#RUN yes | pecl install xdebug \
+#    && echo "zend_extension=$(find /usr/local/lib/php/extensions/ -name xdebug.so)" > /usr/local/etc/php/conf.d/xdebug.ini \
+#    && echo "xdebug.remote_enable=on" >> /usr/local/etc/php/conf.d/xdebug.ini \
+#    && echo "xdebug.remote_autostart=off" >> /usr/local/etc/php/conf.d/xdebug.ini
+#RUN pecl install zendguardloader \
+#    && echo "zend_extension=$(find /usr/local/lib/php/extensions/ -name zendguardloader.so)" > /usr/local/etc/php/conf.d/zendguardloader.ini \
+#    && echo "zend_loader.enable=1" >> /usr/local/etc/php/conf.d/zendguardloader.ini \
+#    && echo "zend_loader.disable_licensing=0" >> /usr/local/etc/php/conf.d/zendguardloader.ini
+# mysqldump -uroot -p cerrajero_db > db.sql
 RUN docker-php-ext-install soap
 RUN docker-php-ext-install ftp
 RUN docker-php-ext-install xsl
