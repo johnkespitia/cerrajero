@@ -10,6 +10,7 @@ use App\Models\OrderItem;
 use App\Models\ProducedBatch;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
 
@@ -23,8 +24,7 @@ class OrderItemController extends Controller
             'recipe_id' => 'required|exists:kitchen_recipes,id',
             'quantity' => 'required|numeric|min:0',
             'measure_id' => 'required|exists:inventory_measures,id',
-            'package_id' => 'sometimes|numeric',
-            'status' => 'required|in:pending, preparing, prepared, delivered',
+            'status' => 'required|in:Pendiente,En Producción,Producto Sin Empaque,Producto Empacado,Despachado',
         ]);
         $order = Order::find($validatedData["order_id"]);
         if($order->open != 1){
@@ -42,7 +42,6 @@ class OrderItemController extends Controller
             'quantity' => 'sometimes|numeric|min:0',
             'measure_id' => 'sometimes|exists:inventory_measures,id',
             'status' => 'sometimes|in:Pendiente,En Producción,Producto Sin Empaque,Producto Empacado,Despachado',
-            'package_id' => 'sometimes|numeric',
         ]);
         $order = Order::find($validatedData["order_id"]);
         if($order->open != 1){
@@ -65,11 +64,14 @@ class OrderItemController extends Controller
     private function validateIngredientBatch(OrderItem $orderItem){
         foreach ($orderItem->recipe->recipeIngredients as $ingredient) {
             $batchs = inventoryBatch::whereDate('expiration_date', '>=', now())->where("quantity", ">", 0)->where("input_id", $ingredient->inventoryInput->id)->get();
+            Log::warning($batchs);
             $totalInStock = $batchs->sum('quantity');
+            Log::warning($totalInStock);
             if ($batchs->count() === 0) {
                 return false;
             }
             $calculatedQuantity = $this->getConvertedQty($ingredient, $batchs->first());
+            Log::warning($calculatedQuantity);
             if(!$calculatedQuantity){
                 return false;
             }
@@ -80,8 +82,10 @@ class OrderItemController extends Controller
         return true;
     }
     private function updateInventory(OrderItem $orderItem, string $status){
-        if($status === "preparing"){
+        if($status === "En Producción"){
             if(!$this->validateIngredientBatch($orderItem)){
+                Log::error("No creado !!");
+                Log::error($orderItem);
                 return false;
             }
             foreach ($orderItem->recipe->recipeIngredients as $ingredient){
@@ -134,7 +138,8 @@ class OrderItemController extends Controller
                 })
                 ->first();
             if (!$conversion) {
-                return false;
+                Log::error("No Conversion");
+                return $convertedQuantity;
             }
             if ($conversion->origin_id === $ingredient->measure_id) {
                 $convertedQuantity = $ingredient->quantity * $conversion->factor;

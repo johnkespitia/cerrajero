@@ -12,6 +12,8 @@ class OrderController extends Controller
     {
         $orders = Order::with("orderItems.recipe")
             ->with("orderItems.batchs")
+            ->with("orderItems.batchs.packages")
+            ->with("orderItems.batchs.packages.package")
             ->with("orderItems.measure")
             ->with("user")
             ->get();

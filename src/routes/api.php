@@ -96,6 +96,26 @@ Route::middleware(['auth:sanctum'])->group(function () {
 
     });
 
+    Route::controller(\App\Http\Controllers\InventoryPackageController::class)->group(function () {
+        Route::get('/inventory-package', 'list')->middleware('permission:package.list,bodeguero');
+        Route::get('/inventory-package/{package}', 'show')->middleware('permission:package.list,bodeguero');
+        Route::post('/inventory-package', 'save')->middleware('permission:package.create,bodeguero');
+        Route::put('/inventory-package/{package}', 'update')->middleware('permission:package.edit,bodeguero');
+    });
+    Route::controller(\App\Http\Controllers\InventoryPackageSupplyController::class)->group(function () {
+        Route::get('/inventory-package-supply', 'list')->middleware('permission:package.list,bodeguero');
+        Route::get('/inventory-package-supply/{package}', 'show')->middleware('permission:package.list,bodeguero');
+        Route::post('/inventory-package-supply', 'save')->middleware('permission:package.create,bodeguero');
+        Route::put('/inventory-package-supply/{package}', 'update')->middleware('permission:package.edit,bodeguero');
+    });
+    Route::controller(\App\Http\Controllers\InventoryPackageConsumeController::class)->group(function () {
+        Route::get('/inventory-package-consume', 'list')->middleware('permission:package.list,bodeguero');
+        Route::get('/inventory-package-consume/{package}', 'show')->middleware('permission:package.list,bodeguero');
+        Route::post('/inventory-package-consume', 'save')->middleware('permission:package.create,bodeguero');
+        Route::put('/inventory-package-consume/{package}', 'update')->middleware('permission:package.edit,bodeguero');
+    });
+
+
     Route::controller(\App\Http\Controllers\KitchenRecipeController::class)->group(function () {
         Route::get('/kitchen-recipes', 'index')->middleware('permission:recipes.list,cocinero');
         Route::get('/kitchen-recipes/{recipe}', 'show')->middleware('permission:recipes.list,cocinero');

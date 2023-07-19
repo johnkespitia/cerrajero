@@ -15,4 +15,9 @@ class ProducedBatch extends Model
     {
         return $this->belongsTo(OrderItem::class)   ;
     }
+
+    public function packages()
+    {
+        return $this->hasMany(InventoryPackageConsume::class, "batch_id", "id");
+    }
 }
