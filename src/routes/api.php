@@ -148,6 +148,10 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::put('/order-item/{orderItem}', 'update')->middleware('permission:order.edit,sellerman');
         Route::delete('/order-item/{orderItem}', 'destroy')->middleware('permission:order.edit,sellerman');
     });
+    Route::controller(\App\Http\Controllers\ConsumedInputItemController::class)->group(function () {
+        Route::post('/order-item-consume', 'store')->middleware('permission:order.create,sellerman');
+        Route::put('/order-item-consume/{consumedInputItem}', 'update')->middleware('permission:order.edit,sellerman');
+    });
 
     Route::controller(\App\Http\Controllers\ProducedBatchController::class)->group(function () {
         Route::get('/order-item-batch', 'index')->middleware('permission:order.create,sellerman');

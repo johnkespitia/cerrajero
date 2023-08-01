@@ -35,4 +35,9 @@ class OrderItem extends Model
     {
         return $this->HasMany(ProducedBatch::class);
     }
+
+    public function consumedInputs()
+    {
+        return $this->HasMany(ConsumedInputItem::class);
+    }
 }

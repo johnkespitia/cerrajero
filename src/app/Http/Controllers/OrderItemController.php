@@ -62,21 +62,24 @@ class OrderItemController extends Controller
     }
 
     private function validateIngredientBatch(OrderItem $orderItem){
-        foreach ($orderItem->recipe->recipeIngredients as $ingredient) {
-            $batchs = inventoryBatch::whereDate('expiration_date', '>=', now())->where("quantity", ">", 0)->where("input_id", $ingredient->inventoryInput->id)->get();
-            Log::warning($batchs);
-            $totalInStock = $batchs->sum('quantity');
-            Log::warning($totalInStock);
-            if ($batchs->count() === 0) {
-                return false;
-            }
-            $calculatedQuantity = $this->getConvertedQty($ingredient, $batchs->first());
-            Log::warning($calculatedQuantity);
-            if(!$calculatedQuantity){
-                return false;
-            }
-            if($calculatedQuantity > $totalInStock){
-                return false;
+//consumedInputs
+        foreach ($orderItem->consumedInputs as $ingredient) {
+            if($ingredient->quantity > 0) {
+                $batchs = inventoryBatch::whereDate('expiration_date', '>=', now())->where("quantity", ">", 0)->where("input_id", $ingredient->recipeIngredient->inventoryInput->id)->get();
+                $totalInStock = $batchs->sum('quantity');
+                if ($batchs->count() === 0) {
+                    return false;
+                }
+                $calculatedQuantity = $this->getConvertedQty($ingredient, $batchs->first());
+                Log::warning($calculatedQuantity);
+                Log::warning($ingredient->recipeIngredient->inventoryInput->name);
+
+                if(!$calculatedQuantity){
+                    return false;
+                }
+                if($calculatedQuantity > $totalInStock){
+                    return false;
+                }
             }
         }
         return true;
@@ -88,8 +91,8 @@ class OrderItemController extends Controller
                 Log::error($orderItem);
                 return false;
             }
-            foreach ($orderItem->recipe->recipeIngredients as $ingredient){
-                $batchs = inventoryBatch::whereDate('expiration_date', '>=', now())->where("quantity",">",0)->where("input_id", $ingredient->inventoryInput->id)->get();
+            foreach ($orderItem->consumedInputs as $ingredient){
+                $batchs = inventoryBatch::whereDate('expiration_date', '>=', now())->where("quantity",">",0)->where("input_id", $ingredient->recipeIngredient->inventoryInput->id)->get();
                 $totalInStock = $batchs->sum('quantity');
                 $discountedAll = 0;
                 if($batchs->count() === 0){
@@ -97,7 +100,7 @@ class OrderItemController extends Controller
                 }
                 foreach ($batchs as $batch) {
                     $calculatedQuantity = $this->getConvertedQty($ingredient, $batch);
-                    if(!$calculatedQuantity){
+                    if($ingredient->quantity > 0  && !$calculatedQuantity){
                         return false;
                     }
                     if($calculatedQuantity > $totalInStock){
@@ -116,8 +119,8 @@ class OrderItemController extends Controller
                     }
                 }
                 $newTotalInStock = $batchs->sum('quantity');
-                if($newTotalInStock <= $ingredient->inventoryInput->min_inventory){
-                    Mail::to(env("MAIN_NOTIFICATION_EMAIL"))->send(new InventoryLimitEmail($ingredient->inventoryInput, $newTotalInStock));
+                if($newTotalInStock <= $ingredient->recipeIngredient->inventoryInput->min_inventory){
+                    Mail::to(env("MAIN_NOTIFICATION_EMAIL"))->send(new InventoryLimitEmail($ingredient->recipeIngredient->inventoryInput, $newTotalInStock));
                 }
             }
 
@@ -129,11 +132,11 @@ class OrderItemController extends Controller
     }
     private function getConvertedQty($ingredient, $itemInventory){
         $convertedQuantity = 0;
-        if($itemInventory->input->measure_id!=$ingredient->measure_id){
-            $conversion = InventoryMeasureConversion::where('origin_id', $ingredient->measure_id)
+        if($itemInventory->input->measure_id!=$ingredient->recipeIngredient->measure_id){
+            $conversion = InventoryMeasureConversion::where('origin_id', $ingredient->recipeIngredient->measure_id)
                 ->where('destination_id', $itemInventory->input->measure_id)
                 ->orWhere(function ($query) use ($ingredient, $itemInventory) {
-                    $query->where('destination_id', $ingredient->measure_id)
+                    $query->where('destination_id', $ingredient->recipeIngredient->measure_id)
                         ->where('origin_id', $itemInventory->input->measure_id);
                 })
                 ->first();
@@ -141,7 +144,7 @@ class OrderItemController extends Controller
                 Log::error("No Conversion");
                 return $convertedQuantity;
             }
-            if ($conversion->origin_id === $ingredient->measure_id) {
+            if ($conversion->origin_id === $ingredient->recipeIngredient->measure_id) {
                 $convertedQuantity = $ingredient->quantity * $conversion->factor;
             } else {
                 $convertedQuantity = $ingredient->quantity / $conversion->factor;

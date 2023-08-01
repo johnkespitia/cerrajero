@@ -11,11 +11,15 @@ class OrderController extends Controller
     public function index()
     {
         $orders = Order::with("orderItems.recipe")
+            ->with("orderItems.recipe.recipeIngredients.inventoryInput")
+            ->with("orderItems.recipe.recipeIngredients.inventoryMeasure")
             ->with("orderItems.batchs")
             ->with("orderItems.batchs.packages")
             ->with("orderItems.batchs.packages.package")
             ->with("orderItems.measure")
+            ->with("orderItems.consumedInputs.recipeIngredient.inventoryInput")
             ->with("user")
+            ->orderBy("id", "desc")
             ->get();
 
         return response()->json($orders);
