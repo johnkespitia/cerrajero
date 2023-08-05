@@ -23,7 +23,7 @@ class UserSeeder extends Seeder
             "active"=>1
         ]);
 
-        $rol = Role::findByName("root","cerrajero");
+        $rol = Role::findByName("root","user-manager");
         $user->assignRole($rol);
     }
 }

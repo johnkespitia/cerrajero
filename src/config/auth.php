@@ -44,7 +44,7 @@ return [
             'driver' => 'sanctum',
             'provider' => 'users',
         ],
-        'cerrajero' => [
+        'user_manager' => [
             'driver' => 'sanctum',
             'provider' => 'users',
         ]
