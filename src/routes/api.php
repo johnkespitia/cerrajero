@@ -14,7 +14,7 @@ use Illuminate\Support\Facades\Route;
 |
 */
 
-Route::get("/greating", function() {
+Route::get("/greeting", function() {
     return "HELLO WORLD!!";
 });
 
@@ -52,5 +52,16 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::get('/guard/{guard}', 'show')->middleware('permission:guard.list,cerrajero');
         Route::post('/guard', 'save')->middleware('permission:guard.create,cerrajero');
         Route::put('/guard/{guard}', 'update')->middleware('permission:guard.edit,cerrajero');
+    });
+
+    Route::prefix('hr-management')->group(function () {
+        Route::get('/professors', [\App\Http\Controllers\ProfessorController::class, 'index'])->middleware('permission:professor.list,hrManagement');
+        Route::post('/professors', [\App\Http\Controllers\ProfessorController::class, 'store'])->middleware('permission:professor.create,hrManagement');
+        Route::put('/professors/{professor}', [\App\Http\Controllers\ProfessorController::class, 'update'])->middleware('permission:professor.edit,hrManagement');
+
+        Route::get('/skills', [\App\Http\Controllers\SkillController::class, 'index'])->middleware('permission:skill.list,hrManagement');
+        Route::post('/skills', [\App\Http\Controllers\SkillController::class, 'store'])->middleware('permission:skill.create,hrManagement');
+        Route::put('/skills/{skill}', [\App\Http\Controllers\SkillController::class, 'update'])->middleware('permission:skill.edit,hrManagement');
+        Route::delete('/skills/{skill}', [\App\Http\Controllers\SkillController::class, 'destroy'])->middleware('permission:skill.delete,hrManagement');
     });
 });
