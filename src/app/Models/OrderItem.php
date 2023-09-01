@@ -40,4 +40,9 @@ class OrderItem extends Model
     {
         return $this->HasMany(ConsumedInputItem::class);
     }
+
+    public function notes()
+    {
+        return $this->HasMany(ProductionNotes::class);
+    }
 }
