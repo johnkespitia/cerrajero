@@ -14,7 +14,8 @@ class InventoryPackageConsume extends Model
         'spoilt',
         'consumed_date',
         'package_id',
-        'batch_id'
+        'batch_id',
+        'user_id'
     ];
 
     public function package()
@@ -25,5 +26,10 @@ class InventoryPackageConsume extends Model
     public function batch()
     {
         return $this->belongsTo(ProducedBatch::class, 'batch_id');
+    }
+
+    public function user()
+    {
+        return $this->belongsTo(User::class, 'user_id');
     }
 }

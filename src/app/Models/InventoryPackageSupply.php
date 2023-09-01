@@ -12,11 +12,16 @@ class InventoryPackageSupply extends Model
     protected $fillable = [
         'supply_date',
         'stock',
-        'package_id'
+        'package_id',
+        'user_id'
     ];
 
     public function package()
     {
         return $this->belongsTo(InventoryPackage::class, 'package_id');
+    }
+    public function user()
+    {
+        return $this->belongsTo(User::class, 'user_id');
     }
 }

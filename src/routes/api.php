@@ -158,4 +158,8 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::get('/order-item-batch/{producedBatch}', 'show')->middleware('permission:order.create,factory_manager');
         Route::put('/order-item-batch/{producedBatch}', 'update')->middleware('permission:order.edit,factory_manager');
     });
+
+    Route::controller(\App\Http\Controllers\ProductionNotesController::class)->group(function () {
+        Route::post('/order-item-notes', 'save')->middleware('permission:order.list,factory_manager');
+    });
 });

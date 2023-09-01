@@ -7,12 +7,14 @@ use App\Models\InventoryPackageSupply;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\Auth;
+
 
 class InventoryPackageSupplyController extends Controller
 {
     public function list(Request $request){
 
-        $packages = InventoryPackageSupply::all();
+        $packages = InventoryPackageSupply::with("user")->get();
         return response($packages, Response::HTTP_OK);
     }
     public function show(InventoryPackageSupply $package){
@@ -32,6 +34,7 @@ class InventoryPackageSupplyController extends Controller
         if ($validation->fails()) {
             return response($validation->errors()->toArray(), Response::HTTP_UNPROCESSABLE_ENTITY);
         }
+        $request["user_id"]=Auth::id();
         $package = InventoryPackageSupply::create($request->all());
         $pkg_base = InventoryPackage::find($request["package_id"]);
         $pkg_base->stock += $package->stock;

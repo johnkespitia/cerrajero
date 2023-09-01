@@ -34,7 +34,7 @@ class InventoryPackageController extends Controller
 
     public function list(Request $request){
 
-        $packages = InventoryPackage::with("supplies")->with("consumes.batch")->get();
+        $packages = InventoryPackage::with("supplies.user")->with(["consumes.batch","consumes.user"])->get();
         return response($packages, Response::HTTP_OK);
     }
 
