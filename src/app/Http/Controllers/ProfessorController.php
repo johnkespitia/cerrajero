@@ -34,13 +34,13 @@ class ProfessorController extends Controller
     public function update(Request $request, Professor $professor): \Illuminate\Http\JsonResponse
     {
         $validator = Validator::make($request->all(), [
-            'hourly_fee' => 'required|numeric',
+            'hourly_fee' => 'numeric',
             'main_photo' => 'sometimes|image|mimes:jpeg,png,jpg,gif|max:2048',
-            'brief_resume' => 'required|string',
+            'brief_resume' => 'string',
             'cv_url' => 'nullable|url',
-            'email' => 'sometimes|required|email|unique:users,email,' . $professor->user->id, // Agregar más reglas si es necesario
+            'email' => 'sometimes|email|unique:users,email,' . $professor->user->id, // Agregar más reglas si es necesario
             'name' => 'sometimes|min:6',
-            'password' => 'sometimes|required|min:6', // Agregar más reglas si es necesario
+            'password' => 'sometimes|min:6', // Agregar más reglas si es necesario
             'skills' => 'nullable|array',
             'skills.*' => 'exists:skills,id',
         ]);
