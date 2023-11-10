@@ -85,6 +85,30 @@ class ProfessorController extends Controller
         return response()->json(['message' => 'Professor updated successfully'], 200);
     }
 
+    public function updateImage(Request $request, Professor $professor): \Illuminate\Http\JsonResponse
+    {
+        $validator = Validator::make($request->all(), [
+            'main_photo' => 'required|image|mimes:jpeg,png,jpg,gif|max:2048',
+        ]);
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->errors()], 422);
+        }
+        $data = $validator->validated();
+        if ($request->hasFile('main_photo')) {
+            if ($professor->main_photo) {
+                $path=parse_url($professor->main_photo);
+                Storage::disk('public')->delete(substr($path['path'], 1));
+            }
+            $mainPhotoPath = $request->file('main_photo')->store('professor_photos', 'public');
+            $data['main_photo'] = env("APP_URL").Storage::url($mainPhotoPath);
+            $professor->update($data);
+
+            return response()->json(['message' => 'Professor photo updated successfully'], 200);
+        }else{
+            return response()->json(['message' => 'Professor photo can\'t updated successfully'], 500);
+        }
+    }
+
     /**
      * Store a newly created resource in storage.
      *

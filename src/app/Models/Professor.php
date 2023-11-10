@@ -22,6 +22,11 @@ class Professor extends Model
         return $this->belongsToMany(Skill::class, 'professor_skills');
     }
 
+    public function calendarSlots()
+    {
+        return $this->hasMany(CalendarSlot::class);
+    }
+
     public function user()
     {
         return $this->belongsTo(User::class);
