@@ -20,7 +20,7 @@ class ProfessorController extends Controller
      */
     public function index()
     {
-        $professors = Professor::with('skills')->with("user")->get();
+        $professors = Professor::with('skills')->with("user")->with('user.links')->get();
         return response()->json($professors, 200);
     }
 
@@ -38,9 +38,9 @@ class ProfessorController extends Controller
             'main_photo' => 'sometimes|image|mimes:jpeg,png,jpg,gif|max:2048',
             'brief_resume' => 'string',
             'cv_url' => 'nullable|url',
-            'email' => 'sometimes|email|unique:users,email,' . $professor->user->id, // Agregar más reglas si es necesario
+            'email' => 'sometimes|email|unique:users,email,' . $professor->user->id,
             'name' => 'sometimes|min:6',
-            'password' => 'sometimes|min:6', // Agregar más reglas si es necesario
+            'password' => 'sometimes|min:6',
             'skills' => 'nullable|array',
             'skills.*' => 'exists:skills,id',
         ]);
