@@ -19,4 +19,9 @@ class Student extends Model
     {
         return $this->belongsTo(User::class);
     }
+
+    public function contrated_plans()
+    {
+        return $this->belongsToMany(ContratedPlan::class, 'students_contrated_plans', 'contrated_plan_id', 'student_id');
+    }
 }

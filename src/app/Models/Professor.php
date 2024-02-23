@@ -31,4 +31,9 @@ class Professor extends Model
     {
         return $this->belongsTo(User::class);
     }
+
+    public function assigned_pans()
+    {
+        return $this->hasMany(ContratedPlan::class);
+    }
 }
