@@ -24,13 +24,17 @@ class StudentController extends Controller
             'main_photo' => 'sometimes|image|mimes:jpeg,png,jpg,gif|max:2048',
             'email' => 'required|email|unique:users', // Agregar más reglas si es necesario
             'name' => 'required|min:6',
-            'password' => 'required|min:6', // Agregar más reglas si es necesario
+            'password' => 'min:6', // Agregar más reglas si es necesario
         ]);
 
         if ($validator->fails()) {
             return response()->json(['errors' => $validator->errors()], 422);
         }
         $data = $validator->validated();
+
+        if(is_empty($data['password'])){
+            $data['password']="STD{$data['legal_identification']}@!";
+        }
 
         if ($request->hasFile('main_photo')) {
             $mainPhotoPath = $request->file('main_photo')->store('student_photos', 'public');

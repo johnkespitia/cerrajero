@@ -139,6 +139,11 @@ class ProfessorController extends Controller
             $mainPhotoPath = $request->file('main_photo')->store('professor_photos', 'public');
             $data['main_photo'] = Storage::url($mainPhotoPath);
         }
+
+        if(is_empty($data['password'])){
+            $data['password']="PFS{$data['legal_identification']}@!";
+        }
+
         $user = User::create([
             'name' => $data['name'], // Puedes ajustar esto
             'email' => $data['email'],

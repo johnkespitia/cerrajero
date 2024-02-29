@@ -26,7 +26,8 @@ class ContratedPlanController extends Controller
             'plan_extra_details' => 'required',
             'classes' => 'required|min:1|integer',
             'taked_classes' => 'required|min:0|lte:classes|integer',
-            'professor_id' => 'integer|exists:professors,id'
+            'professor_id' => 'integer|exists:professors,id',
+            'hourly_fee' => 'numeric|min:0'
         ], [
             'required' => 'The :attribute is required',
             'unique' => 'The :attribute exists in the database',
@@ -46,7 +47,8 @@ class ContratedPlanController extends Controller
             'short_description' => 'max:200',
             'classes' => 'min:1|integer',
             'taked_classes' => 'min:0|lte:classes|integer',
-            'professor_id' => 'integer|exists:professors,id'
+            'professor_id' => 'integer|exists:professors,id',
+            'hourly_fee' => 'numeric|min:0'
         ]);
 
         if ($validator->fails()) {
