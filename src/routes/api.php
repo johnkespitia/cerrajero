@@ -67,6 +67,11 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::put('/skills/{skill}', [\App\Http\Controllers\SkillController::class, 'update'])->middleware('permission:skill.edit,hrManagement');
         Route::delete('/skills/{skill}', [\App\Http\Controllers\SkillController::class, 'destroy'])->middleware('permission:skill.delete,hrManagement');
 
+        Route::get('/tags', [\App\Http\Controllers\TagController::class, 'index'])->middleware('permission:tag.list,hrManagement');
+        Route::post('/tags', [\App\Http\Controllers\TagController::class, 'store'])->middleware('permission:tag.create,hrManagement');
+        Route::put('/tags/{tag}', [\App\Http\Controllers\TagController::class, 'update'])->middleware('permission:tag.edit,hrManagement');
+        Route::delete('/tags/{tag}', [\App\Http\Controllers\TagController::class, 'destroy'])->middleware('permission:tag.delete,hrManagement');
+
         Route::get('/students', [\App\Http\Controllers\StudentController::class, 'index'])->middleware('permission:student.list,hrManagement');
         Route::post('/students', [\App\Http\Controllers\StudentController::class, 'store'])->middleware('permission:student.create,hrManagement');
         Route::post('/students-image/{student}', [\App\Http\Controllers\StudentController::class, 'updateImage'])->middleware('permission:student.edit,hrManagement');

@@ -29,4 +29,9 @@ class ContratedPlan extends Model
     {
         return $this->belongsTo(Professor::class);
     }
+
+    public function tags()
+    {
+        return $this->belongsToMany(ContratedPlan::class, 'contrated_plans_tags');
+    }
 }
