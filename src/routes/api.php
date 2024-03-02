@@ -84,6 +84,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::post('/contrated-plan', [\App\Http\Controllers\ContratedPlanController::class, 'create'])->middleware('permission:contratedPlan.create,hrManagement');
         Route::put('/contrated-plan/{cplan}', [\App\Http\Controllers\ContratedPlanController::class, 'update'])->middleware('permission:contratedPlan.edit,hrManagement');
         Route::post('/students-contrated-plan/{cplan}', [\App\Http\Controllers\ContratedPlanController::class, 'addStudents'])->middleware('permission:contratedPlan.edit,hrManagement');
+        Route::post('/tags-contrated-plan/{cplan}', [\App\Http\Controllers\ContratedPlanController::class, 'addTags'])->middleware('permission:contratedPlan.edit,hrManagement');
 
 
     });

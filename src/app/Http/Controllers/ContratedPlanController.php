@@ -13,7 +13,7 @@ class ContratedPlanController extends Controller
 
     public function list(Request $request){
 
-        $cps = ContratedPlan::with("professor.user")->with("students.user")->get();
+        $cps = ContratedPlan::with("professor.user")->with("students.user")->with("tags")->get();
         return response($cps, Response::HTTP_OK);
     }
 
@@ -78,6 +78,20 @@ class ContratedPlanController extends Controller
         }
         $cplan->students()->sync($request->input('students'));
         return response()->json(['message' => 'students added successfully'], 200);
+    }
+
+    public function addTags(Request $request, ContratedPlan $cplan)
+    {
+        $validator = Validator::make($request->all(), [
+            'tags' => 'nullable|array',
+            'tags.*' => 'exists:tags,id',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->errors()], 422);
+        }
+        $cplan->tags()->sync($request->input('tags'));
+        return response()->json(['message' => 'tags added successfully'], 200);
     }
 
 }

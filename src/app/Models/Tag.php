@@ -15,6 +15,6 @@ class Tag extends Model
 
     public function contrated_plans()
     {
-        return $this->belongsToMany(ContratedPlan::class, 'contrated_plans_tags');
+        return $this->belongsToMany(ContratedPlan::class, 'contrated_plans_tags', 'contrated_plan_id', 'tag_id');
     }
 }
