@@ -66,15 +66,6 @@ class ProfessorController extends Controller
                 'name' => $data['name'],
             ]);
         }
-        if ($request->hasFile('main_photo')) {
-            // Delete old photo if exists
-            if ($professor->main_photo) {
-                Storage::disk('public')->delete($professor->main_photo);
-            }
-
-            $mainPhotoPath = $request->file('main_photo')->store('professor_photos', 'public');
-            $data['main_photo'] = Storage::url($mainPhotoPath);
-        }
 
         $professor->update($data);
 

@@ -147,6 +147,12 @@ class UserController extends Controller
         $user->permissions;
         $user->superior;
         $user->dependency;
+        $user->professor;
+        if($user->professor){
+            $user->professor->skills;
+        }
+        $user->links;
+        $user->student;
         return response($user, Response::HTTP_OK);
     }
 

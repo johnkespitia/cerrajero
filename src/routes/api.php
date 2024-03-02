@@ -88,4 +88,34 @@ Route::middleware(['auth:sanctum'])->group(function () {
 
 
     });
+
+    Route::prefix('professor-app')->group(function () {
+        Route::post('/professors-image/{professor}', [\App\Http\Controllers\ProfessorController::class, 'updateImage'])->middleware('permission:professor-rol.edit,professorApp');
+        Route::put('/professors/{professor}',[\App\Http\Controllers\ProfessorController::class, 'update'])->middleware('permission:professor-rol.edit,professorApp');
+        Route::post('/professors-link',[\App\Http\Controllers\LinksController::class, 'store'])->middleware('permission:professor-rol.edit,professorApp');
+        Route::put('/professors-link/{link}',[\App\Http\Controllers\LinksController::class, 'update'])->middleware('permission:professor-rol.edit,professorApp');
+        Route::delete('/professors-link/{link}',[\App\Http\Controllers\LinksController::class, 'destroy'])->middleware('permission:professor-rol.edit,professorApp');
+        Route::get('/skills', [\App\Http\Controllers\SkillController::class, 'index'])->middleware('permission:professor-rol.edit,professorApp');
+
+        Route::get('/tags', [\App\Http\Controllers\TagController::class, 'index'])->middleware('permission:tag.list,hrManagement');
+        Route::post('/tags', [\App\Http\Controllers\TagController::class, 'store'])->middleware('permission:tag.create,hrManagement');
+        Route::put('/tags/{tag}', [\App\Http\Controllers\TagController::class, 'update'])->middleware('permission:tag.edit,hrManagement');
+        Route::delete('/tags/{tag}', [\App\Http\Controllers\TagController::class, 'destroy'])->middleware('permission:tag.delete,hrManagement');
+
+        Route::get('/students', [\App\Http\Controllers\StudentController::class, 'index'])->middleware('permission:student.list,hrManagement');
+        Route::post('/students', [\App\Http\Controllers\StudentController::class, 'store'])->middleware('permission:student.create,hrManagement');
+        Route::post('/students-image/{student}', [\App\Http\Controllers\StudentController::class, 'updateImage'])->middleware('permission:student.edit,hrManagement');
+        Route::put('/students/{student}',[\App\Http\Controllers\StudentController::class, 'update'])->middleware('permission:student.edit,hrManagement');
+        Route::post('/students-link',[\App\Http\Controllers\LinksController::class, 'store'])->middleware('permission:student.edit,hrManagement');
+        Route::put('/students-link/{link}',[\App\Http\Controllers\LinksController::class, 'update'])->middleware('permission:student.edit,hrManagement');
+        Route::delete('/students-link/{link}',[\App\Http\Controllers\LinksController::class, 'destroy'])->middleware('permission:student.edit,hrManagement');
+
+        Route::get('/contrated-plan', [\App\Http\Controllers\ContratedPlanController::class, 'list'])->middleware('permission:contratedPlan.list,hrManagement');
+        Route::post('/contrated-plan', [\App\Http\Controllers\ContratedPlanController::class, 'create'])->middleware('permission:contratedPlan.create,hrManagement');
+        Route::put('/contrated-plan/{cplan}', [\App\Http\Controllers\ContratedPlanController::class, 'update'])->middleware('permission:contratedPlan.edit,hrManagement');
+        Route::post('/students-contrated-plan/{cplan}', [\App\Http\Controllers\ContratedPlanController::class, 'addStudents'])->middleware('permission:contratedPlan.edit,hrManagement');
+        Route::post('/tags-contrated-plan/{cplan}', [\App\Http\Controllers\ContratedPlanController::class, 'addTags'])->middleware('permission:contratedPlan.edit,hrManagement');
+
+
+    });
 });
