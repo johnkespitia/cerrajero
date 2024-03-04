@@ -16,6 +16,16 @@ class ContratedPlanController extends Controller
         $cps = ContratedPlan::with("professor.user")->with("students.user")->with("tags")->get();
         return response($cps, Response::HTTP_OK);
     }
+    public function filteredList(Request $request, Professor $professor){
+        $cps = ContratedPlan::with("professor.user.links")
+                ->with("students.user.links")
+                ->with("tags")
+                ->where('professor_id','=',$professor->id)
+                ->orderBy('expiration_date', 'DESC')
+                ->orderByRaw('(classes - taked_classes) DESC')
+                ->get();
+        return response($cps, Response::HTTP_OK);
+    }
 
     public function create(Request $request){
 
