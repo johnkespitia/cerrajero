@@ -19,6 +19,8 @@ class ContratedPlanController extends Controller
     public function filteredList(Request $request, Professor $professor){
         $cps = ContratedPlan::with("professor.user.links")
                 ->with("students.user.links")
+                ->with("imparted_classes.links")
+                ->with("imparted_classes.students_attendance")
                 ->with("tags")
                 ->where('professor_id','=',$professor->id)
                 ->orderBy('expiration_date', 'DESC')

@@ -97,18 +97,9 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::delete('/professors-link/{link}',[\App\Http\Controllers\LinksController::class, 'destroy'])->middleware('permission:professor-rol.edit,professorApp');
         Route::get('/skills', [\App\Http\Controllers\SkillController::class, 'index'])->middleware('permission:professor-rol.edit,professorApp');
 
-        Route::get('/tags', [\App\Http\Controllers\TagController::class, 'index'])->middleware('permission:tag.list,hrManagement');
-        Route::post('/tags', [\App\Http\Controllers\TagController::class, 'store'])->middleware('permission:tag.create,hrManagement');
-        Route::put('/tags/{tag}', [\App\Http\Controllers\TagController::class, 'update'])->middleware('permission:tag.edit,hrManagement');
-        Route::delete('/tags/{tag}', [\App\Http\Controllers\TagController::class, 'destroy'])->middleware('permission:tag.delete,hrManagement');
-
-        Route::get('/students', [\App\Http\Controllers\StudentController::class, 'index'])->middleware('permission:student.list,hrManagement');
-        Route::post('/students', [\App\Http\Controllers\StudentController::class, 'store'])->middleware('permission:student.create,hrManagement');
-        Route::post('/students-image/{student}', [\App\Http\Controllers\StudentController::class, 'updateImage'])->middleware('permission:student.edit,hrManagement');
-        Route::put('/students/{student}',[\App\Http\Controllers\StudentController::class, 'update'])->middleware('permission:student.edit,hrManagement');
-        Route::post('/students-link',[\App\Http\Controllers\LinksController::class, 'store'])->middleware('permission:student.edit,hrManagement');
-        Route::put('/students-link/{link}',[\App\Http\Controllers\LinksController::class, 'update'])->middleware('permission:student.edit,hrManagement');
-        Route::delete('/students-link/{link}',[\App\Http\Controllers\LinksController::class, 'destroy'])->middleware('permission:student.edit,hrManagement');
+        Route::post('/class-start', [\App\Http\Controllers\ImpartedClassController::class, 'store'])->middleware('permission:professor-cls.start,professorApp');
+        Route::put('/class-edit/{ic}', [\App\Http\Controllers\ImpartedClassController::class, 'update'])->middleware('permission:professor-cls.edit,professorApp');
+        Route::put('/class-link/{ic}', [\App\Http\Controllers\ImpartedClassController::class, 'addLink'])->middleware('permission:professor-cls.edit,professorApp');
 
         Route::get('/contrated-plan/{professor}', [\App\Http\Controllers\ContratedPlanController::class, 'filteredList'])->middleware('permission:professor-plans.list,professorApp');
     });
