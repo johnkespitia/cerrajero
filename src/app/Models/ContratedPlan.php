@@ -22,7 +22,7 @@ class ContratedPlan extends Model
 
     public function students()
     {
-        return $this->belongsToMany(Student::class, 'students_contrated_plans', 'student_id', 'contrated_plan_id');
+        return $this->belongsToMany(Student::class, 'students_contrated_plans', 'contrated_plan_id', 'student_id');
     }
 
     public function professor()
@@ -32,7 +32,7 @@ class ContratedPlan extends Model
 
     public function tags()
     {
-        return $this->belongsToMany(Tag::class, 'contrated_plans_tags', 'tag_id', 'contrated_plan_id');
+        return $this->belongsToMany(Tag::class, 'contrated_plans_tags', 'contrated_plan_id', 'tag_id');
     }
 
     public function imparted_classes()

@@ -116,7 +116,7 @@ class ProfessorController extends Controller
             'cv_url' => 'nullable|url',
             'email' => 'required|email|unique:users', // Agregar más reglas si es necesario
             'name' => 'required|min:6',
-            'password' => 'required|min:6', // Agregar más reglas si es necesario
+            'password' => 'sometimes|min:6', // Agregar más reglas si es necesario
             'skills' => 'nullable|array',
             'skills.*' => 'exists:skills,id',
         ]);
@@ -131,7 +131,7 @@ class ProfessorController extends Controller
             $data['main_photo'] = Storage::url($mainPhotoPath);
         }
 
-        if(is_empty($data['password'])){
+        if(empty($data['password'])){
             $data['password']="PFS{$data['legal_identification']}@!";
         }
 
