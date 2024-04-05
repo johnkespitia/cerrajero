@@ -155,6 +155,45 @@ class ImpartedClassController extends Controller
                 $ic->contrated_plan->save();
             }
             $ic->students_attendance()->syncWithoutDetaching([$request->student_id]);
+            if(($ic->contrated_plan->classes -1) === $ic->contrated_plan->taked_classes){
+                foreach ($ctdPlan->students as $student) {
+                    $data = [
+                        'bg' => asset('storage/mail_assets/mail-bg1.png'),
+                        'main_title' => "Te queda una clase por tomar",
+                        'subtitle' => "Ya casi termina tu plan, no dejes que se detenga tu progreso y adquiere un nuevo ciclo.",
+                        'main_btn_url' => "https://dashboard.plgeducation.com/",
+                        'main_btn_title' => "Ingresar a la platafoma",
+                        'plan' => $ctdPlan,
+                        'class' => $ic,
+                        "student"=> $student,
+                    ];
+                    Mail::send('email.last-class-student', $data, function($message) use ($student, $linkICS){
+                        $message->to($student->user->email)->subject('Se te está acabando el plan :o');
+                        $message->attachData($linkICS, 'event.ics', [
+                            'mime' => 'text/calendar',
+                        ]);
+                        $message->getSwiftMessage()->getHeaders()->addTextHeader('Content-class', 'urn:content-classes:calendarmessage');
+
+                    });
+                }
+            }
+            if($ic->contrated_plan->classes === $ic->contrated_plan->taked_classes){
+                foreach ($ctdPlan->students as $student) {
+                    $data = [
+                        'bg' => asset('storage/mail_assets/mail-bg1.png'),
+                        'main_title' => "Se ha terminado el plan",
+                        'subtitle' => "No dejes que se detenga tu progreso y adquiere un nuevo ciclo.",
+                        'main_btn_url' => "https://dashboard.plgeducation.com/",
+                        'main_btn_title' => "Ingresar a la platafoma",
+                        'plan' => $ctdPlan,
+                        'class' => $ic,
+                        "student"=> $student,
+                    ];
+                    Mail::send('email.end-plan-student', $data, function($message) use ($student, $linkICS){
+                        $message->to($student->user->email)->subject('Se acabó tu plan pero no tu proceso :)');
+                    });
+                }
+            }
             return response()->json(['message' => 'Imparted Class updated successfully', 'data' => $ic->students_attendance ], 200);
         }else{
             return response()->json(['errors' => "Student invalid for this plan"], 422);
