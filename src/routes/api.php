@@ -103,4 +103,13 @@ Route::middleware(['auth:sanctum'])->group(function () {
 
         Route::get('/contrated-plan/{professor}', [\App\Http\Controllers\ContratedPlanController::class, 'filteredList'])->middleware('permission:professor-plans.list,professorApp');
     });
+
+    Route::prefix('student-app')->group(function () {
+        Route::post('/students-image/{student}', [\App\Http\Controllers\StudentController::class, 'updateImage'])->middleware('permission:student-rol.edit,studentApp');
+        Route::put('/students/{student}',[\App\Http\Controllers\StudentController::class, 'update'])->middleware('permission:student-rol.edit,studentApp');
+
+        Route::post('/class-start/{ic}', [\App\Http\Controllers\ImpartedClassController::class, 'syncStudent'])->middleware('permission:student-cls.start,studentApp');
+
+        Route::get('/contrated-plan/{student}', [\App\Http\Controllers\ContratedPlanController::class, 'filteredByStudentList'])->middleware('permission:student-plans.list,studentApp');
+    });
 });

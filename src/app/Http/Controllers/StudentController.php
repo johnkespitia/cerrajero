@@ -8,6 +8,7 @@ use Illuminate\Http\Request;
 use App\Models\Student;
 use App\Models\User;
 use Spatie\Permission\Models\Role;
+use Illuminate\Support\Facades\Mail;
 
 class StudentController extends Controller
 {
@@ -32,7 +33,7 @@ class StudentController extends Controller
         }
         $data = $validator->validated();
 
-        if(is_empty($data['password'])){
+        if(empty($data['password'])){
             $data['password']="STD{$data['legal_identification']}@!";
         }
 
@@ -53,7 +54,18 @@ class StudentController extends Controller
 
         $student = $user->student()->create($data);
 
+        $data = [
+            'bg' => asset('storage/mail_assets/mail-bg1.png'),
+            'main_title' => "Bienvenido Estudiante",
+            'subtitle' => "Tu cuenta ha sido activada",
+            'main_btn_url' => "https://dashboard.plgeducation.com/",
+            'main_btn_title' => "Ingresar a la platafoma",
+            'student' => $student
+          ];
 
+          Mail::send('email.welcome-student', $data, function($message) use ($student){
+            $message->to($student->user->email)->subject('Bienvenido a PLG');
+          });
         return response()->json(['message' => 'Student created successfully'], 201);
     }
 
@@ -84,7 +96,7 @@ class StudentController extends Controller
     public function update(Request $request, Student $student): \Illuminate\Http\JsonResponse
     {
         $validator = Validator::make($request->all(), [
-            'legal_identification' => 'required|unique:students',
+            'legal_identification' => 'required|unique:students,legal_identification,'.$student->id,
             'main_photo' => 'sometimes|image|mimes:jpeg,png,jpg,gif|max:2048',
             'email' => 'required|email|unique:users,email,'.$student->user->id, // Agregar más reglas si es necesario
             'name' => 'required|min:6',

@@ -9,6 +9,7 @@ use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 use Spatie\Permission\Models\Role;
+use Illuminate\Support\Facades\Mail;
 
 
 class ProfessorController extends Controller
@@ -151,6 +152,18 @@ class ProfessorController extends Controller
         if ($request->has('skills')) {
             $professor->skills()->sync($request->input('skills'));
         }
+        $data = [
+            'bg' => asset('storage/mail_assets/mail-bg1.png'),
+            'main_title' => "Bienvenido Profesor",
+            'subtitle' => "Tu cuenta ha sido activada",
+            'main_btn_url' => "https://dashboard.plgeducation.com/",
+            'main_btn_title' => "Ingresar a la platafoma",
+            'professor' => $professor
+          ];
+
+          Mail::send('email.welcome-professor', $data, function($message) use ($professor){
+            $message->to($professor->user->email)->subject('Bienvenido Profesor a PLG');
+          });
 
         return response()->json(['message' => 'Professor created successfully'], 201);
     }
