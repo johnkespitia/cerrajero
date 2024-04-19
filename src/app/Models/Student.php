@@ -22,6 +22,6 @@ class Student extends Model
 
     public function contrated_plans()
     {
-        return $this->belongsToMany(ContratedPlan::class, 'students_contrated_plans', 'contrated_plan_id', 'student_id');
+        return $this->belongsToMany(ContratedPlan::class, 'students_contrated_plans');
     }
 }

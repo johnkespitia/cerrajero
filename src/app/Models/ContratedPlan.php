@@ -39,4 +39,9 @@ class ContratedPlan extends Model
     {
         return $this->hasMany(ImpartedClass::class);
     }
+
+    public function substitutes()
+    {
+        return $this->hasMany(SubstitutePlan::class);
+    }
 }

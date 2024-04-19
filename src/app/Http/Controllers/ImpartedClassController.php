@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 use Spatie\CalendarLinks\Link;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Auth;
 
 class ImpartedClassController extends Controller
 {
@@ -121,7 +122,15 @@ class ImpartedClassController extends Controller
             return response()->json(['errors' => $validator->errors()], 422);
         }
 
-        $ic->update($validator->validated());
+        $data = $validator->validated();
+
+        if($data["professor_atendance"]){
+            $user = Auth::user();
+            $user->professor;
+            $data["professor_id"] = $user->professor->id;
+        }
+
+        $ic->update($data);
 
         return response()->json(['message' => 'Imparted Class updated successfully'], 200);
     }

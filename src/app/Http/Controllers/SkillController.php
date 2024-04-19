@@ -19,7 +19,6 @@ class SkillController extends Controller
     {
         $validator = Validator::make($request->all(), [
             'name' => 'required|unique:skills',
-            // Add more validation rules as needed
         ]);
 
         if ($validator->fails()) {
@@ -35,7 +34,6 @@ class SkillController extends Controller
     {
         $validator = Validator::make($request->all(), [
             'name' => 'required|unique:skills,name,' . $skill->id,
-            // Add more validation rules as needed
         ]);
 
         if ($validator->fails()) {

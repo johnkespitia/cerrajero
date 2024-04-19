@@ -85,7 +85,9 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::put('/contrated-plan/{cplan}', [\App\Http\Controllers\ContratedPlanController::class, 'update'])->middleware('permission:contratedPlan.edit,hrManagement');
         Route::post('/students-contrated-plan/{cplan}', [\App\Http\Controllers\ContratedPlanController::class, 'addStudents'])->middleware('permission:contratedPlan.edit,hrManagement');
         Route::post('/tags-contrated-plan/{cplan}', [\App\Http\Controllers\ContratedPlanController::class, 'addTags'])->middleware('permission:contratedPlan.edit,hrManagement');
-
+        Route::get('/substitute-plan', [\App\Http\Controllers\SubstitutePlanController::class, 'list'])->middleware('permission:contratedPlan.list,hrManagement');
+        Route::post('/substitute-plan', [\App\Http\Controllers\SubstitutePlanController::class, 'create'])->middleware('permission:contratedPlan.create,hrManagement');
+        Route::put('/substitute-plan/{cplan}', [\App\Http\Controllers\SubstitutePlanController::class, 'update'])->middleware('permission:contratedPlan.edit,hrManagement');
 
     });
 
@@ -102,6 +104,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::put('/class-link/{ic}', [\App\Http\Controllers\ImpartedClassController::class, 'addLink'])->middleware('permission:professor-cls.edit,professorApp');
 
         Route::get('/contrated-plan/{professor}', [\App\Http\Controllers\ContratedPlanController::class, 'filteredList'])->middleware('permission:professor-plans.list,professorApp');
+        Route::get('/substitute-plan/{professor}', [\App\Http\Controllers\SubstitutePlanController::class, 'filteredList'])->middleware('permission:professor-plans.list,professorApp');
     });
 
     Route::prefix('student-app')->group(function () {

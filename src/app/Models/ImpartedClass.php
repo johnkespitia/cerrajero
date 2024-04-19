@@ -15,6 +15,7 @@ class ImpartedClass extends Model
         'professor_atendance',
         'comments',
         'class_time',
+        'professor_id',
 
     ];
 
