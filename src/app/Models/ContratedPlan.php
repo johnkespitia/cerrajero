@@ -17,7 +17,8 @@ class ContratedPlan extends Model
         'taked_classes',
         'professor_id',
         'plan_extra_details',
-        'hourly_fee'
+        'hourly_fee',
+        'estimated_class_duration'
     ];
 
     public function students()

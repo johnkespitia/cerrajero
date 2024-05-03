@@ -11,9 +11,75 @@ use Illuminate\Support\Facades\Validator;
 use Spatie\CalendarLinks\Link;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
+use Carbon\Carbon;
+
 
 class ImpartedClassController extends Controller
 {
+
+    const DAYS_WEEK = [
+        "SUNDAY",
+        "MONDAY",
+        "TUESDAY",
+        "WEDNESDAY",
+        "THURSDAY",
+        "FRIDAY",
+        "SATURDAY",
+    ];
+
+    public function massiveClassCreation(Request $request){
+        $validator = Validator::make($request->all(), [
+            'days' => 'nullable|array',
+            'days.*' => 'in:'.implode(self::DAYS_WEEK,','),
+            'hours' => 'nullable|array',
+            'hours.*' => 'date_format:H:i',
+            'contrated_plan_id' => 'required|exists:contrated_plans,id',
+        ]);
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->errors()], 422);
+        }
+
+        $ctdPlan = ContratedPlan::find($validator->validated()["contrated_plan_id"]);
+        $ctdPlan->imparted_classes;
+        $missingContratedHours = $ctdPlan->classes - $ctdPlan->imparted_classes->sum('class_duration');
+        $startDate = Carbon::parse($ctdPlan->starting_date);
+        $preparedRecordsData = [];
+        // return response()->json(['errors' => $startDate->dayName], 422);
+        $daysWeek = $validator->validated()["days"];
+        $hoursWeek = $validator->validated()["hours"];
+
+        $weeksCalculated = ceil($missingContratedHours/$ctdPlan->estimated_class_duration/sizeof($daysWeek));
+        $dateNextClass = $startDate;
+
+        for ($weekUsed=0; $weekUsed < $weeksCalculated; $weekUsed++) {
+            if($missingContratedHours === 0 ){
+                break;
+            }
+            foreach($daysWeek as $keyD => $day){
+                $dateNextClass = $dateNextClass->next(array_search($day,self::DAYS_WEEK));
+                if($missingContratedHours > 0 ){
+                    $preparedRecordsData[] = [
+                        'contrated_plan_id' => $ctdPlan->id,
+                        'scheduled_class' => $dateNextClass->format('Y-m-d'),
+                        'comments' => "",
+                        'class_time' => $hoursWeek[$keyD],
+                        'class_duration' => $ctdPlan->estimated_class_duration,
+                        'professor_atendance' => false,
+                        'class_closed'=>false
+                    ];
+                    $missingContratedHours -= $ctdPlan->estimated_class_duration;
+                }
+            }
+        }
+        try {
+            $result = DB::table('imparted_classes')->insert($preparedRecordsData);
+            return response()->json(['data' => $preparedRecordsData, "result"=>  $result], 200);
+        } catch (\Exception $e) {
+            return response()->json(['error' => $e->getMessage()], 500);
+        }
+    }
+
     public function store(Request $request)
     {
         $validator = Validator::make($request->all(), [
@@ -116,6 +182,8 @@ class ImpartedClassController extends Controller
             'comments' => 'min:3',
             'professor_atendance' => 'boolean',
             'class_time'=> 'date_format:H:i',
+            'class_duration' => 'min:1|lte:classes|decimal:4,1',
+            'class_closed' => 'boolean'
         ]);
 
         if ($validator->fails()) {
@@ -131,6 +199,17 @@ class ImpartedClassController extends Controller
         }
 
         $ic->update($data);
+
+        if($data['class_closed'] && $data['class_duration']>0){
+            if($ic->professor_atendance
+            // && $ic->students_attendance->count() > 0
+            ){
+                $ic->contrated_plan->taked_classes += $data['class_duration'];
+                $ic->contrated_plan->save();
+            }
+        }
+
+
 
         return response()->json(['message' => 'Imparted Class updated successfully'], 200);
     }
@@ -159,12 +238,8 @@ class ImpartedClassController extends Controller
             return response()->json(['errors' => $validator->errors()], 422);
         }
         if($ic->contrated_plan->students->contains('id',$request->student_id)){
-            if($ic->professor_atendance && $ic->students_attendance->count() === 0){
-                $ic->contrated_plan->taked_classes += 1;
-                $ic->contrated_plan->save();
-            }
             $ic->students_attendance()->syncWithoutDetaching([$request->student_id]);
-            if(($ic->contrated_plan->classes -1) === $ic->contrated_plan->taked_classes){
+            if(($ic->contrated_plan->classes - $ic->contrated_plan->estimated_class_duration) <= $ic->contrated_plan->taked_classes){
                 foreach ($ctdPlan->students as $student) {
                     $data = [
                         'bg' => asset('storage/mail_assets/mail-bg1.png'),

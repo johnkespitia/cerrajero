@@ -16,6 +16,8 @@ class ImpartedClass extends Model
         'comments',
         'class_time',
         'professor_id',
+        'class_duration',
+        'class_closed'
 
     ];
 

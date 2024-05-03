@@ -54,14 +54,15 @@ class ContratedPlanController extends Controller
     }
 
     public function create(Request $request){
-
+        $this->addCustomValidation();
         $validation = Validator::make($request->all(), [
             'starting_date' => 'required|date',
             'expiration_date' => 'required|date|after:starting_date',
             'short_description' => 'required|max:200',
             'plan_extra_details' => 'required',
-            'classes' => 'required|min:1|integer',
-            'taked_classes' => 'required|min:0|lte:classes|integer',
+            'classes' => 'required|min:1|positive_decimal',
+            'taked_classes' => 'min:0|lte:classes|positive_decimal',
+            'estimated_class_duration' => 'min:0|lte:classes|positive_decimal',
             'professor_id' => 'integer|exists:professors,id',
             'hourly_fee' => 'numeric|min:0'
         ], [
@@ -92,12 +93,14 @@ class ContratedPlanController extends Controller
 
     public function update(Request $request, ContratedPlan $cplan)
     {
+        $this->addCustomValidation();
         $validator = Validator::make($request->all(), [
             'starting_date' => 'date',
             'expiration_date' => 'date|after:starting_date',
             'short_description' => 'max:200',
-            'classes' => 'min:1|integer',
-            'taked_classes' => 'min:0|lte:classes|integer',
+            'classes' => 'min:1|positive_decimal',
+            'taked_classes' => 'min:0|lte:classes|positive_decimal',
+            'estimated_class_duration' => 'min:0|lte:classes|positive_decimal',
             'professor_id' => 'integer|exists:professors,id',
             'hourly_fee' => 'numeric|min:0'
         ]);

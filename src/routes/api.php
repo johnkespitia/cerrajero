@@ -89,6 +89,9 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::post('/substitute-plan', [\App\Http\Controllers\SubstitutePlanController::class, 'create'])->middleware('permission:contratedPlan.create,hrManagement');
         Route::put('/substitute-plan/{cplan}', [\App\Http\Controllers\SubstitutePlanController::class, 'update'])->middleware('permission:contratedPlan.edit,hrManagement');
 
+        Route::post('/massive-class-creation', [\App\Http\Controllers\ImpartedClassController::class, 'massiveClassCreation'])->middleware('permission:contratedPlan.edit,hrManagement');
+        Route::put('/class-edit/{ic}', [\App\Http\Controllers\ImpartedClassController::class, 'update'])->middleware('permission:contratedPlan.edit,hrManagement');
+
     });
 
     Route::prefix('professor-app')->group(function () {
@@ -116,3 +119,8 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::get('/contrated-plan/{student}', [\App\Http\Controllers\ContratedPlanController::class, 'filteredByStudentList'])->middleware('permission:student-plans.list,studentApp');
     });
 });
+
+
+// Route::get('/webhook/create-student', [\App\Http\Controllers\ContratedPlanController::class, 'webhookCre'])->middleware('permission:professor-plans.list,professorApp');
+// Route::get('/webhook/create-professor', [\App\Http\Controllers\ContratedPlanController::class, 'webhookCre'])->middleware('permission:professor-plans.list,professorApp');
+// Route::get('/webhook/create-plan', [\App\Http\Controllers\ContratedPlanController::class, 'webhookCre'])->middleware('permission:professor-plans.list,professorApp');
