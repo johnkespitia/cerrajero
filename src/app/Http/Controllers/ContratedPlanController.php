@@ -21,6 +21,7 @@ class ContratedPlanController extends Controller
         ->with("substitutes.professor.user")
         ->with("imparted_classes.links")
         ->with("imparted_classes.students_attendance.user")
+        ->with("imparted_classes.atended_professor.user")
         ->get();
         return response($cps, Response::HTTP_OK);
     }
@@ -29,6 +30,7 @@ class ContratedPlanController extends Controller
                 ->with("students.user.links")
                 ->with("imparted_classes.links")
                 ->with("imparted_classes.students_attendance.user")
+                ->with("imparted_classes.atended_professor.user")
                 ->with("tags")
                 ->where('professor_id','=',$professor->id)
                 ->orderBy('expiration_date', 'DESC')
@@ -43,6 +45,7 @@ class ContratedPlanController extends Controller
             "professor.user.links",
             "imparted_classes.links",
             "imparted_classes.students_attendance.user",
+            "imparted_classes.atended_professor.user",
             "substitutes.professor.user",
             "substitutes.professor.skills",
             "students.user",

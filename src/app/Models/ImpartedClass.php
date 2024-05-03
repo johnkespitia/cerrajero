@@ -35,4 +35,9 @@ class ImpartedClass extends Model
     {
         return $this->belongsTo(ContratedPlan::class);
     }
+
+    public function atended_professor()
+    {
+        return $this->belongsTo(Professor::class);
+    }
 }

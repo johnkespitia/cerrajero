@@ -176,13 +176,14 @@ class ImpartedClassController extends Controller
 
     public function update(Request $request, ImpartedClass $ic)
     {
+        $this->addCustomValidation();
         $validator = Validator::make($request->all(), [
             'contrated_plan_id' => 'exists:contrated_plans,id',
             'scheduled_class' => 'date',
             'comments' => 'min:3',
             'professor_atendance' => 'boolean',
             'class_time'=> 'date_format:H:i',
-            'class_duration' => 'min:1|lte:classes|decimal:4,1',
+            'class_duration' => 'min:1|positive_decimal',
             'class_closed' => 'boolean'
         ]);
 
@@ -192,7 +193,7 @@ class ImpartedClassController extends Controller
 
         $data = $validator->validated();
 
-        if($data["professor_atendance"]){
+        if(!empty($data["professor_atendance"])){
             $user = Auth::user();
             $user->professor;
             $data["professor_id"] = $user->professor->id;
