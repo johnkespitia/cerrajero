@@ -14,10 +14,8 @@ use Illuminate\Support\Facades\Route;
 |
 */
 
-Route::get("/greeting", function() {
-    return "HELLO WORLD!!";
-});
-
+Route::post('/diagnostic-class-access', [\App\Http\Controllers\DiagnosticClassController::class, 'indexCandidate']);
+Route::get('/diagnostic-class-attend/{dg}', [\App\Http\Controllers\DiagnosticClassController::class, 'attendCandidate']);
 Route::post('/login', [\App\Http\Controllers\UserController::class, 'apiLogin']);
 
 Route::middleware(['auth:sanctum'])->group(function () {
@@ -92,6 +90,10 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::post('/massive-class-creation', [\App\Http\Controllers\ImpartedClassController::class, 'massiveClassCreation'])->middleware('permission:contratedPlan.edit,hrManagement');
         Route::put('/class-edit/{ic}', [\App\Http\Controllers\ImpartedClassController::class, 'update'])->middleware('permission:contratedPlan.edit,hrManagement');
 
+        Route::get('/diagnostic-class', [\App\Http\Controllers\DiagnosticClassController::class, 'index'])->middleware('permission:contratedPlan.list,hrManagement');
+        Route::post('/diagnostic-class', [\App\Http\Controllers\DiagnosticClassController::class, 'store'])->middleware('permission:contratedPlan.create,hrManagement');
+        Route::put('/diagnostic-class/{diagClass}', [\App\Http\Controllers\DiagnosticClassController::class, 'update'])->middleware('permission:contratedPlan.edit,hrManagement');
+        Route::delete('/diagnostic-class/{diagClass}', [\App\Http\Controllers\DiagnosticClassController::class, 'destroy'])->middleware('permission:contratedPlan.edit,hrManagement');
     });
 
     Route::prefix('professor-app')->group(function () {
@@ -108,6 +110,9 @@ Route::middleware(['auth:sanctum'])->group(function () {
 
         Route::get('/contrated-plan/{professor}', [\App\Http\Controllers\ContratedPlanController::class, 'filteredList'])->middleware('permission:professor-plans.list,professorApp');
         Route::get('/substitute-plan/{professor}', [\App\Http\Controllers\SubstitutePlanController::class, 'filteredList'])->middleware('permission:professor-plans.list,professorApp');
+
+        Route::put('/diagnostic-class/{diagClass}', [\App\Http\Controllers\DiagnosticClassController::class, 'update'])->middleware('permission:professor-plans.list,professorApp');
+        Route::get('/diagnostic-class/{professor}', [\App\Http\Controllers\DiagnosticClassController::class, 'indexProfessor'])->middleware('permission:professor-plans.list,professorApp');
     });
 
     Route::prefix('student-app')->group(function () {

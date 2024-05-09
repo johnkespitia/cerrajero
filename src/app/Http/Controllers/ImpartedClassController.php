@@ -101,7 +101,7 @@ class ImpartedClassController extends Controller
         $ctdPlan->students;
         $ctdPlan->professor;
         $ic = ImpartedClass::create($validator->validated());
-        $endTimeClass = date('Y-m-d H:i', strtotime("{$ic->scheduled_class} {$ic->class_time}".'+1 hour'));
+        $endTimeClass = date('Y-m-d H:i', strtotime("{$ic->scheduled_class} {$ic->class_time}".'+'.$ctdPlan->estimated_class_duration.' hour'));
         $from = \DateTime::createFromFormat('Y-m-d H:i', "{$ic->scheduled_class} {$ic->class_time}");
         $to = \DateTime::createFromFormat('Y-m-d H:i', $endTimeClass);
         $link = Link::create("Clase #{$impartedClasses} con el profesor {$ctdPlan->professor->user->name}", $from, $to)
@@ -201,7 +201,7 @@ class ImpartedClassController extends Controller
 
         $ic->update($data);
 
-        if($data['class_closed'] && $data['class_duration']>0){
+        if(!empty($data['class_closed']) && $data['class_duration']>0){
             if($ic->professor_atendance
             // && $ic->students_attendance->count() > 0
             ){
