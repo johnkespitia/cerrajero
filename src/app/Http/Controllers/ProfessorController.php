@@ -111,7 +111,7 @@ class ProfessorController extends Controller
     {
         $validator = Validator::make($request->all(), [
             'legal_identification' => 'required|unique:professors',
-            'hourly_fee' => 'required|numeric',
+            'hourly_fee' => 'numeric',
             'main_photo' => 'sometimes|image|mimes:jpeg,png,jpg,gif|max:2048',
             'brief_resume' => 'required|string',
             'cv_url' => 'nullable|url',
@@ -134,6 +134,9 @@ class ProfessorController extends Controller
 
         if(empty($data['password'])){
             $data['password']="PFS{$data['legal_identification']}@!";
+        }
+        if(empty($data['hourly_fee'])){
+            $data['hourly_fee']=18500;
         }
 
         $user = User::create([
