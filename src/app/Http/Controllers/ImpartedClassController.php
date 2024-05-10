@@ -12,6 +12,8 @@ use Spatie\CalendarLinks\Link;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use App\Services\WebhookNotificationService;
+use Illuminate\Support\Facades\Log;
 use Carbon\Carbon;
 
 
@@ -27,6 +29,14 @@ class ImpartedClassController extends Controller
         "FRIDAY",
         "SATURDAY",
     ];
+
+    private $webhookNotificationService;
+
+    public function __construct(WebhookNotificationService $webhookNotificationService)
+    {
+        $this->webhookNotificationService = $webhookNotificationService;
+    }
+
 
     public function massiveClassCreation(Request $request){
         $validator = Validator::make($request->all(), [
@@ -180,7 +190,7 @@ class ImpartedClassController extends Controller
         $validator = Validator::make($request->all(), [
             'contrated_plan_id' => 'exists:contrated_plans,id',
             'scheduled_class' => 'date',
-            'comments' => 'min:3',
+            'comments' => 'sometimes',
             'professor_atendance' => 'boolean',
             'class_time'=> 'date_format:H:i',
             'class_duration' => 'min:1|positive_decimal',
@@ -240,41 +250,52 @@ class ImpartedClassController extends Controller
         }
         if($ic->contrated_plan->students->contains('id',$request->student_id)){
             $ic->students_attendance()->syncWithoutDetaching([$request->student_id]);
-            if(($ic->contrated_plan->classes - $ic->contrated_plan->estimated_class_duration) <= $ic->contrated_plan->taked_classes){
-                foreach ($ctdPlan->students as $student) {
+            if(($ic->contrated_plan->classes - $ic->contrated_plan->estimated_class_duration) <= $ic->contrated_plan->taked_classes+$ic->contrated_plan->estimated_class_duration){
+                foreach ($ic->contrated_plan->students as $student) {
+                    $notificationData = [
+                        "customer"=> $student->user->email,
+                        "title"=> "El plan del estudiante está cerca de terminar",
+                        "message"=> "El estudiante está a una clase de {$ic->contrated_plan->estimated_class_duration} horas para finalizar su plan, es buen momento para inicar el contacto"
+
+                    ];
+                    $this->webhookNotificationService->sendNotification($notificationData);
                     $data = [
                         'bg' => asset('storage/mail_assets/mail-bg1.png'),
                         'main_title' => "Te queda una clase por tomar",
                         'subtitle' => "Ya casi termina tu plan, no dejes que se detenga tu progreso y adquiere un nuevo ciclo.",
                         'main_btn_url' => "https://dashboard.plgeducation.com/",
                         'main_btn_title' => "Ingresar a la platafoma",
-                        'plan' => $ctdPlan,
+                        'plan' => $ic->contrated_plan,
                         'class' => $ic,
                         "student"=> $student,
                     ];
-                    Mail::send('email.last-class-student', $data, function($message) use ($student, $linkICS){
+                    Mail::send('email.last-class-student', $data, function($message) use ($student){
                         $message->to($student->user->email)->subject('Se te está acabando el plan :o');
-                        $message->attachData($linkICS, 'event.ics', [
-                            'mime' => 'text/calendar',
-                        ]);
                         $message->getSwiftMessage()->getHeaders()->addTextHeader('Content-class', 'urn:content-classes:calendarmessage');
 
                     });
                 }
             }
-            if($ic->contrated_plan->classes === $ic->contrated_plan->taked_classes){
-                foreach ($ctdPlan->students as $student) {
+            if($ic->contrated_plan->classes <= $ic->contrated_plan->taked_classes+$ic->contrated_plan->estimated_class_duration){
+                foreach ($ic->contrated_plan->students as $student) {
+                    $notificationData = [
+                        "customer"=> $student->user->email,
+                        "title"=> "El plan del estudiante está cerca de terminar",
+                        "message"=> "El estudiante ha finalizado su plan horas, contáctalo para que pueda continuar su proceso."
+
+                    ];
+                    $this->webhookNotificationService->sendNotification($notificationData);
                     $data = [
                         'bg' => asset('storage/mail_assets/mail-bg1.png'),
                         'main_title' => "Se ha terminado el plan",
                         'subtitle' => "No dejes que se detenga tu progreso y adquiere un nuevo ciclo.",
                         'main_btn_url' => "https://dashboard.plgeducation.com/",
                         'main_btn_title' => "Ingresar a la platafoma",
-                        'plan' => $ctdPlan,
+                        'plan' => $ic->contrated_plan,
                         'class' => $ic,
                         "student"=> $student,
                     ];
-                    Mail::send('email.end-plan-student', $data, function($message) use ($student, $linkICS){
+                    Mail::send('email.end-plan-student', $data, function($message) use ($student){
                         $message->to($student->user->email)->subject('Se acabó tu plan pero no tu proceso :)');
                     });
                 }
