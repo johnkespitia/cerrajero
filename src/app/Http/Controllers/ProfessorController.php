@@ -109,18 +109,23 @@ class ProfessorController extends Controller
      */
     public function store(Request $request): \Illuminate\Http\JsonResponse
     {
-        $validator = Validator::make($request->all(), [
+        $validatorRules=[
             'legal_identification' => 'required|unique:professors',
             'hourly_fee' => 'numeric',
             'main_photo' => 'sometimes|image|mimes:jpeg,png,jpg,gif|max:2048',
             'brief_resume' => 'required|string',
             'cv_url' => 'nullable|url',
-            'email' => 'required|email|unique:users', // Agregar más reglas si es necesario
+            'email' => 'required|email|unique:users',
             'name' => 'required|min:6',
-            'password' => 'sometimes|min:6', // Agregar más reglas si es necesario
+            'password' => 'sometimes|min:6',
             'skills' => 'nullable|array',
             'skills.*' => 'exists:skills,id',
-        ]);
+        ];
+        if($request->has('webhook')){
+           $validator = Validator::make($request->get("customData"),$validatorRules);
+        }else{
+            $validator = Validator::make($request->all(), $validatorRules);
+        }
 
         if ($validator->fails()) {
             return response()->json(['errors' => $validator->errors()], 422);

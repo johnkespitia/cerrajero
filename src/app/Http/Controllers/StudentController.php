@@ -20,13 +20,18 @@ class StudentController extends Controller
 
     public function store(Request $request): \Illuminate\Http\JsonResponse
     {
-        $validator = Validator::make($request->all(), [
+        $validatorRules=[
             'legal_identification' => 'required|unique:students',
             'main_photo' => 'sometimes|image|mimes:jpeg,png,jpg,gif|max:2048',
             'email' => 'required|email|unique:users', // Agregar más reglas si es necesario
             'name' => 'required|min:6',
             'password' => 'min:6', // Agregar más reglas si es necesario
-        ]);
+        ];
+        if($request->has('webhook')){
+           $validator = Validator::make($request->get("customData"),$validatorRules);
+        }else{
+            $validator = Validator::make($request->all(), $validatorRules);
+        }
 
         if ($validator->fails()) {
             return response()->json(['errors' => $validator->errors()], 422);

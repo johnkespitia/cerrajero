@@ -58,7 +58,7 @@ class ContratedPlanController extends Controller
 
     public function create(Request $request){
         $this->addCustomValidation();
-        $validation = Validator::make($request->all(), [
+        $validationRules = [
             'starting_date' => 'required|date',
             'expiration_date' => 'required|date|after:starting_date',
             'short_description' => 'required|max:200',
@@ -68,28 +68,32 @@ class ContratedPlanController extends Controller
             'estimated_class_duration' => 'min:0|lte:classes|positive_decimal',
             'professor_id' => 'integer|exists:professors,id',
             'hourly_fee' => 'numeric|min:0'
-        ], [
-            'required' => 'The :attribute is required',
-            'unique' => 'The :attribute exists in the database',
-        ]);
+        ];
+        if($request->has('webhook')){
+            $validation = Validator::make($request->get("customData"),$validationRules);
+        }else{
+            $validation = Validator::make($request->all(), $validationRules);
+        }
         if ($validation->fails()) {
             return response($validation->errors()->toArray(), Response::HTTP_UNPROCESSABLE_ENTITY);
         }
         $cplan = ContratedPlan::create($validation->validated());
-        $cplan->professor->user;
+        if(!empty( $cplan->professor)){
+            $cplan->professor->user;
 
-        $data = [
-            'bg' => asset('storage/mail_assets/mail-bg1.png'),
-            'main_title' => "Te hemos asignado un plan de clases",
-            'subtitle' => "Ya puedes agendar las clases clases, a continuación encontraras detalles del plan",
-            'main_btn_url' => "https://dashboard.plgeducation.com/",
-            'main_btn_title' => "Ingresar a la platafoma",
-            'plan' => $cplan
-        ];
+            $data = [
+                'bg' => asset('storage/mail_assets/mail-bg1.png'),
+                'main_title' => "Te hemos asignado un plan de clases",
+                'subtitle' => "Ya puedes agendar las clases clases, a continuación encontraras detalles del plan",
+                'main_btn_url' => "https://dashboard.plgeducation.com/",
+                'main_btn_title' => "Ingresar a la platafoma",
+                'plan' => $cplan
+            ];
 
-        Mail::send('email.created-plan-professor', $data, function($message) use ($cplan){
-            $message->to($cplan->professor->user->email)->subject('Tu plan de clases en PLG ha sido creado');
-        });
+            Mail::send('email.created-plan-professor', $data, function($message) use ($cplan){
+                $message->to($cplan->professor->user->email)->subject('Tu plan de clases en PLG ha sido creado');
+            });
+        }
 
         return response(['msg' => "Plan saved", 'rol'=>$cplan], Response::HTTP_OK);
     }
@@ -113,7 +117,22 @@ class ContratedPlanController extends Controller
         }
 
         $cplan->update($validator->validated());
+        if(!empty( $cplan->professor)){
+            $cplan->professor->user;
 
+            $data = [
+                'bg' => asset('storage/mail_assets/mail-bg1.png'),
+                'main_title' => "Te hemos asignado un plan de clases",
+                'subtitle' => "Ya puedes agendar las clases clases, a continuación encontraras detalles del plan",
+                'main_btn_url' => "https://dashboard.plgeducation.com/",
+                'main_btn_title' => "Ingresar a la platafoma",
+                'plan' => $cplan
+            ];
+
+            Mail::send('email.created-plan-professor', $data, function($message) use ($cplan){
+                $message->to($cplan->professor->user->email)->subject('Tu plan de clases en PLG ha sido creado');
+            });
+        }
         return response()->json(['message' => 'Plan updated successfully'], 200);
     }
 

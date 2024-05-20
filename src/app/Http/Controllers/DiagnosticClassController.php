@@ -56,7 +56,7 @@ class DiagnosticClassController extends Controller
     public function store(Request $request)
     {
         $this->addCustomValidation();
-        $validator = Validator::make($request->all(), [
+        $validationRules = [
             'starting_date' => 'required|date',
             'starting_time' => 'required|date_format:H:i',
             'candidate_name' => 'required|min:5',
@@ -64,10 +64,15 @@ class DiagnosticClassController extends Controller
             'class_duration' => 'positive_decimal|min:1',
             'class_closed' => 'boolean',
             'comments' => 'min:0',
-            'professor_id' => 'required|exists:professors,id',
+            'professor_id' => 'exists:professors,id',
             'candidate_attended' => 'boolean',
             'hourly_fee' => 'numeric|min:0',
-        ]);
+        ];
+        if($request->has('webhook')){
+            $validator = Validator::make($request->get("customData"),$validationRules);
+        }else{
+            $validator = Validator::make($request->all(), $validationRules);
+        }
 
         if ($validator->fails()) {
             return response()->json(['errors' => $validator->errors()], 422);

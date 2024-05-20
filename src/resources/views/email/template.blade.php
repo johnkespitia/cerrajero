@@ -134,6 +134,21 @@
             list-style: none;
             padding: 0;
         }
+        @media (max-width: 600px) {
+            .container .right-section{
+                width: 5%;
+                background-color:#eaf0f6;
+            }
+            .container .center-section{
+                width: 90%;
+                margin: 0px auto;
+                background-color:#ffffff;
+            }
+            .container .left-section{
+                width: 5%;
+                background-color:#eaf0f6;
+            }
+        }
     </style>
 </head>
 <body>
