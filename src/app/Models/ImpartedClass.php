@@ -17,7 +17,8 @@ class ImpartedClass extends Model
         'class_time',
         'professor_id',
         'class_duration',
-        'class_closed'
+        'class_closed',
+        'professor_invoice_id'
 
     ];
 
@@ -39,5 +40,10 @@ class ImpartedClass extends Model
     public function atended_professor()
     {
         return $this->belongsTo(Professor::class);
+    }
+
+    public function professor_invoices()
+    {
+        return $this->belongsTo(ProfessorInvoice::class);
     }
 }

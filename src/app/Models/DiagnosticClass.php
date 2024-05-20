@@ -19,11 +19,17 @@ class DiagnosticClass extends Model
         'comments',
         'hourly_fee',
         'candidate_attended',
-        'professor_id'
+        'professor_id',
+        'professor_invoice_id'
     ];
 
     public function professor()
     {
         return $this->belongsTo(Professor::class);
+    }
+
+    public function professor_invoices()
+    {
+        return $this->belongsTo(ProfessorInvoice::class);
     }
 }

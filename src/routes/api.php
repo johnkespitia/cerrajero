@@ -94,6 +94,11 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::post('/diagnostic-class', [\App\Http\Controllers\DiagnosticClassController::class, 'store'])->middleware('permission:contratedPlan.create,hrManagement');
         Route::put('/diagnostic-class/{diagClass}', [\App\Http\Controllers\DiagnosticClassController::class, 'update'])->middleware('permission:contratedPlan.edit,hrManagement');
         Route::delete('/diagnostic-class/{diagClass}', [\App\Http\Controllers\DiagnosticClassController::class, 'destroy'])->middleware('permission:contratedPlan.edit,hrManagement');
+
+        Route::post('/invoice-update/{pinvoice}', [\App\Http\Controllers\ProfessorInvoiceController::class, 'update'])->middleware('permission:invoices.edit,hrManagement');
+        Route::get('/invoice-preview/{professor}/{start_date}/{end_date}', [\App\Http\Controllers\ProfessorInvoiceController::class, 'previewClasses'])->middleware('permission:invoices.list,hrManagement');
+        Route::get('/invoice-list', [\App\Http\Controllers\ProfessorInvoiceController::class, 'listAll'])->middleware('permission:invoices.edit,hrManagement');
+        Route::get('/invoice/{pinvoice}', [\App\Http\Controllers\ProfessorInvoiceController::class, 'generatePDF'])->middleware('permission:invoices.list,hrManagement');
     });
 
     Route::prefix('professor-app')->group(function () {
@@ -113,6 +118,13 @@ Route::middleware(['auth:sanctum'])->group(function () {
 
         Route::put('/diagnostic-class/{diagClass}', [\App\Http\Controllers\DiagnosticClassController::class, 'update'])->middleware('permission:professor-plans.list,professorApp');
         Route::get('/diagnostic-class/{professor}', [\App\Http\Controllers\DiagnosticClassController::class, 'indexProfessor'])->middleware('permission:professor-plans.list,professorApp');
+
+        Route::post('/invoice-create', [\App\Http\Controllers\ProfessorInvoiceController::class, 'store']);
+        Route::delete('/invoice-delete/{pinvoice}', [\App\Http\Controllers\ProfessorInvoiceController::class, 'delete']);
+        Route::post('/invoice-update/{pinvoice}', [\App\Http\Controllers\ProfessorInvoiceController::class, 'update']);
+        Route::get('/invoice-preview/{professor}/{start_date}/{end_date}', [\App\Http\Controllers\ProfessorInvoiceController::class, 'previewClasses']);
+        Route::get('/invoices-professor/{professor}', [\App\Http\Controllers\ProfessorInvoiceController::class, 'listByProfessor']);
+        Route::get('/invoice/{pinvoice}', [\App\Http\Controllers\ProfessorInvoiceController::class, 'generatePDF']);
     });
 
     Route::prefix('student-app')->group(function () {
