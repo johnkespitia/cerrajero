@@ -84,8 +84,8 @@
         </tr>
         <tr>
             <td>
-            Personal Learning Group<br/>
-               <strong><sub>NIT. 900.954.523-9</sub></strong>
+                Personal Learning Group<br/>
+                <strong><sub>NIT. 901778510-2 </sub></strong>
             </td>
             <td>
                 <strong>Tel/WP:</strong> <a href="https://wa.me/+573237608867">+57 3237608867</a><br/>

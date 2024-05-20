@@ -80,6 +80,6 @@
     <a class="custom-button {{$key}}" href="{{$link}}">{{$key}}</a>
   @endforeach
     <p>Puedes ingresar a tu cuenta haciendo clic en el siguiente enlace:</p>
-    <a href="{{$main_btn_url}}">Ingresar</a>
+    <a href="{{$main_btn_url}}">Ingresa</a>
 
 @endsection

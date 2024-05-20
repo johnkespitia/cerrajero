@@ -102,7 +102,7 @@ class DiagnosticClassController extends Controller
             'main_title' => "Clase Diagnostico agendada",
             'subtitle' => "Hemos agendado una clase de diagnistico para conocer tu proceso.",
             'main_btn_url' => "https://dashboard.plgeducation.com/diagnostic-class",
-            'main_btn_title' => "Ingresar a la platafoma",
+            'main_btn_title' => "Ingresa a la platafoma",
             'class' => $diagClass,
             "event_links" => [
                 "google" => $link->google(),
@@ -116,7 +116,7 @@ class DiagnosticClassController extends Controller
             'main_title' => "Clase Diagnostico agendada",
             'subtitle' => "Hemos agendado una clase de diagnistico.",
             'main_btn_url' => "https://dashboard.plgeducation.com",
-            'main_btn_title' => "Ingresar a la platafoma",
+            'main_btn_title' => "Ingresa a la platafoma",
             'class' => $diagClass,
             "event_links" => [
                 "google" => $linkProf->google(),

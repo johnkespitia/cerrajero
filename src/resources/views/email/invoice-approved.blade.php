@@ -12,6 +12,6 @@
       <li><strong>Comentarios</strong> {{$invoice->comments}}</li>
     </ul>
     <p>Puedes ingresar a validar la información haciendo clic en el siguiente enlace:</p>
-    <a href="{{$main_btn_url}}">Ingresar</a>
+    <a href="{{$main_btn_url}}"></a>
 
 @endsection

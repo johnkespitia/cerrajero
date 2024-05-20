@@ -54,7 +54,7 @@ class SubstitutePlanController extends Controller
             'main_title' => "Tienes un plan asignado como sustituto",
             'subtitle' => "Ya puedes agendar las clases clases, a continuación encontraras detalles del plan",
             'main_btn_url' => "https://dashboard.plgeducation.com/",
-            'main_btn_title' => "Ingresar a la platafoma",
+            'main_btn_title' => "Ingresa a la platafoma",
             'plan' => $cplan
         ];
 

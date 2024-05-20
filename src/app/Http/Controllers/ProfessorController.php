@@ -165,7 +165,7 @@ class ProfessorController extends Controller
             'main_title' => "Bienvenido Profesor",
             'subtitle' => "Tu cuenta ha sido activada",
             'main_btn_url' => "https://dashboard.plgeducation.com/",
-            'main_btn_title' => "Ingresar a la platafoma",
+            'main_btn_title' => "Ingresa a la platafoma",
             'professor' => $professor
           ];
 

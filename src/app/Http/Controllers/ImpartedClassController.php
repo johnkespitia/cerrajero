@@ -127,7 +127,7 @@ class ImpartedClassController extends Controller
                 'main_title' => "Clase agendada",
                 'subtitle' => "Hemos agendado una clase de tu plan y continuar con tu proceso.",
                 'main_btn_url' => "https://dashboard.plgeducation.com/",
-                'main_btn_title' => "Ingresar a la platafoma",
+                'main_btn_title' => "Ingresa a la platafoma",
                 'plan' => $ctdPlan,
                 'class' => $ic,
                 "student"=> $student,
@@ -163,7 +163,7 @@ class ImpartedClassController extends Controller
             'main_title' => "Clase agendada",
             'subtitle' => "Has completado el agendadamiento de una clase para el plan {$ctdPlan->short_description}.",
             'main_btn_url' => "https://dashboard.plgeducation.com/",
-            'main_btn_title' => "Ingresar a la platafoma",
+            'main_btn_title' => "Ingresa a la platafoma",
             'plan' => $ctdPlan,
             'class' => $ic,
             "event_links" => [
@@ -255,7 +255,7 @@ class ImpartedClassController extends Controller
                     $notificationData = [
                         "customer"=> $student->user->email,
                         "title"=> "El plan del estudiante está cerca de terminar",
-                        "message"=> "El estudiante está a una clase de {$ic->contrated_plan->estimated_class_duration} horas para finalizar su plan, es buen momento para inicar el contacto"
+                        "message"=> "El estudiante está a una clase de {$ic->contrated_plan->estimated_class_duration} horas para finalizar tu plan, es buen momento para iniciar el contacto"
 
                     ];
                     $this->webhookNotificationService->sendNotification($notificationData);
@@ -264,7 +264,7 @@ class ImpartedClassController extends Controller
                         'main_title' => "Te queda una clase por tomar",
                         'subtitle' => "Ya casi termina tu plan, no dejes que se detenga tu progreso y adquiere un nuevo ciclo.",
                         'main_btn_url' => "https://dashboard.plgeducation.com/",
-                        'main_btn_title' => "Ingresar a la platafoma",
+                        'main_btn_title' => "Ingresa a la platafoma",
                         'plan' => $ic->contrated_plan,
                         'class' => $ic,
                         "student"=> $student,
@@ -281,7 +281,7 @@ class ImpartedClassController extends Controller
                     $notificationData = [
                         "customer"=> $student->user->email,
                         "title"=> "El plan del estudiante está cerca de terminar",
-                        "message"=> "El estudiante ha finalizado su plan horas, contáctalo para que pueda continuar su proceso."
+                        "message"=> "El estudiante ha finalizado tu plan horas, contáctalo para que pueda continuar tu proceso."
 
                     ];
                     $this->webhookNotificationService->sendNotification($notificationData);
@@ -290,7 +290,7 @@ class ImpartedClassController extends Controller
                         'main_title' => "Se ha terminado el plan",
                         'subtitle' => "No dejes que se detenga tu progreso y adquiere un nuevo ciclo.",
                         'main_btn_url' => "https://dashboard.plgeducation.com/",
-                        'main_btn_title' => "Ingresar a la platafoma",
+                        'main_btn_title' => "Ingresa a la platafoma",
                         'plan' => $ic->contrated_plan,
                         'class' => $ic,
                         "student"=> $student,

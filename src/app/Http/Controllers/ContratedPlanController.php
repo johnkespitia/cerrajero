@@ -86,7 +86,7 @@ class ContratedPlanController extends Controller
                 'main_title' => "Te hemos asignado un plan de clases",
                 'subtitle' => "Ya puedes agendar las clases clases, a continuación encontraras detalles del plan",
                 'main_btn_url' => "https://dashboard.plgeducation.com/",
-                'main_btn_title' => "Ingresar a la platafoma",
+                'main_btn_title' => "Ingresa a la platafoma",
                 'plan' => $cplan
             ];
 
@@ -125,7 +125,7 @@ class ContratedPlanController extends Controller
                 'main_title' => "Te hemos asignado un plan de clases",
                 'subtitle' => "Ya puedes agendar las clases clases, a continuación encontraras detalles del plan",
                 'main_btn_url' => "https://dashboard.plgeducation.com/",
-                'main_btn_title' => "Ingresar a la platafoma",
+                'main_btn_title' => "Ingresa a la platafoma",
                 'plan' => $cplan
             ];
 
@@ -161,7 +161,7 @@ class ContratedPlanController extends Controller
                 'main_title' => "Tu plan ha sido asignado ",
                 'subtitle' => "Ya puedes acceder a iniciar tus clases, a continuación encontraras detalles del plan y el profesor",
                 'main_btn_url' => "https://dashboard.plgeducation.com/",
-                'main_btn_title' => "Ingresar a la platafoma",
+                'main_btn_title' => "Ingresa a la platafoma",
                 'plan' => $cplan,
                 'student' => $student
             ];

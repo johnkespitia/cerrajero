@@ -220,7 +220,7 @@ class ProfessorInvoiceController extends Controller
             'main_title' => "Cuenta de cobro enviada",
             'subtitle' => "Se ha realizado el envío de la cuenta de cobro del profesor y está lista para aprobación",
             'main_btn_url' => "https://dashboard.plgeducation.com/",
-            'main_btn_title' => "Ingresar a la platafoma",
+            'main_btn_title' => "Ingresa a la platafoma",
             'invoice' => $invoice
           ];
 
@@ -236,7 +236,7 @@ class ProfessorInvoiceController extends Controller
             'main_title' => "Cuenta de cobro aprobada",
             'subtitle' => "Se ha aprobado la cuenta de cobro y está pendiente para pago.",
             'main_btn_url' => "https://dashboard.plgeducation.com/",
-            'main_btn_title' => "Ingresar a la platafoma",
+            'main_btn_title' => "Ingresa a la platafoma",
             'invoice' => $invoice
           ];
 
@@ -252,7 +252,7 @@ class ProfessorInvoiceController extends Controller
             'main_title' => "Cuenta de cobro pagada",
             'subtitle' => "Se ha realizado el pago de la cuenta de cobro.",
             'main_btn_url' => "https://dashboard.plgeducation.com/",
-            'main_btn_title' => "Ingresar a la platafoma",
+            'main_btn_title' => "Ingresa a la platafoma",
             'invoice' => $invoice
           ];
 
