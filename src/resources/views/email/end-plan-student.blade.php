@@ -46,7 +46,7 @@
 
 </style>
   <p>{{ $student->user->name }} Tu plan se terminó.</p>
-  <p>Pero queremos que continus tu proceso y no te detengas por lo que te invitamos a adquirir un nuevo ciclo y continuar fortaleciendo tu nuevo idioma</p>
+  <p>Pero queremos que continues tu proceso y no te detengas por lo que te invitamos a adquirir un nuevo ciclo y continuar fortaleciendo tu nuevo idioma</p>
 
     <p>Puedes ingresar a tu cuenta haciendo clic en el siguiente enlace:</p>
     <a href="{{$main_btn_url}}">Ingresa</a>
