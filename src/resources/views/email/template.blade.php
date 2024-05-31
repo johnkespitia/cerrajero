@@ -149,6 +149,51 @@
                 background-color:#eaf0f6;
             }
         }
+
+        .container-details{
+        display:flex;
+        justify-content: space-between;
+    }
+    .container-plan{
+
+    }
+    .container-plan ul{
+        list-style: none;
+	    padding: 0;
+    }
+    .container-plan ul li + li {
+        margin-top: 1rem;
+    }
+    .container-plan ul li {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        background: aliceblue;
+        padding: 1.5rem;
+        border-radius: 1rem;
+        width: calc(100% - 2rem);
+        box-shadow: 0.25rem 0.25rem 0.75rem rgb(0 0 0 / 0.1);
+    }
+    .container-plan ul li:nth-child(even) {
+        flex-direction: row-reverse;
+        background: honeydew;
+        margin-right: -2rem;
+        margin-left: 2rem;
+    }
+    .container-professor{
+        display:flex;
+        justify-content: space-between;
+    }
+    .professor-image{
+        aspect-ratio: 1 / 1;
+        max-width: 20%;
+        border-radius: 10px;
+    }
+    .professor-details{
+        min-width: 70%;
+        margin-left: 20px;
+        text-align:center;
+    }
     </style>
 </head>
 <body>

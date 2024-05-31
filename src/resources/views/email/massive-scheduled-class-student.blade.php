@@ -45,24 +45,33 @@
     }
 
 </style>
-  <p>{{ $class->candidate_name }} Hemos agendado una clase de Diagnóstico.</p>
-  <p>Puedes verificarlo ingresando a nuestra plataforma, los detalles de la clase son los siguientes:</p>
+  <p>{{ $student->user->name }} Hemos agregado clases a tu plan.</p>
+  <p>Puedes verificarlas ingresando a nuestra plataforma, los detalles de la clase son los siguientes:</p>
   <div class="container-details">
     <div class="container-plan">
+        @foreach($plan->imparted_classes as $k=>$class)
+        <?php $n =  $k+1; ?>
         <ul>
-            <li><strong>Fecha de Clase: </strong>{{$class->starting_date}}</li>
-            <li><strong>Hora de la Clase: </strong>{{$class->starting_time}}</li>
+            <li><strong>Clase #{{$n}} </strong></li>
+            <li><strong>Fecha de Clase: </strong>{{$class->scheduled_class}}</li>
+            <li><strong>Hora de la Clase: </strong>{{$class->class_time}}</li>
             <li><strong>Observaciones: </strong>{{$class->comments}}</li>
-            <li><strong>Profesor: </strong>{{$class->professor->user->name}} <a href='mailto:{{$class->professor->user->email}}'>Enviar Mensaje</a></li>
         </ul>
+        @endforeach
     </div>
   </div>
-  <p>Agregalo a tu calendario:</p>
-
-  @foreach($event_links as $key => $link)
-    <a class="custom-button {{$key}}" href="{{$link}}">{{$key}}</a>
+  <p>Agregalas a tu calendario:</p>
+<ul>
+  @foreach($classes as $key => $link)
+  <?php $n =  $key+1; ?>
+  <li> <strong>Clase #{{$n}}:  </strong>
+  <a class="custom-button google" href="{{$link->google()}}">google</a>
+  <a class="custom-button yahoo" href="{{$link->yahoo()}}">yahoo</a>
+  <a class="custom-button office" href="{{$link->webOffice()}}">office</a>
+  <a class="custom-button hotmail" href="{{$link->webOutlook()}}">hotmail</a>
+</li>
   @endforeach
-
+</ul>
     <p>Puedes ingresar a tu cuenta haciendo clic en el siguiente enlace:</p>
     <a href="{{$main_btn_url}}">Ingresa</a>
 

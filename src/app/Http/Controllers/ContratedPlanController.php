@@ -82,7 +82,7 @@ class ContratedPlanController extends Controller
             $cplan->professor->user;
 
             $data = [
-                'bg' => asset('storage/mail_assets/mail-bg1.png'),
+                'bg' => asset('storage/mail_assets/mail-bg2.png'),
                 'main_title' => "Te hemos asignado un plan de clases",
                 'subtitle' => "Ya puedes agendar las clases clases, a continuación encontraras detalles del plan",
                 'main_btn_url' => "https://dashboard.plgeducation.com/",
@@ -121,7 +121,7 @@ class ContratedPlanController extends Controller
             $cplan->professor->user;
 
             $data = [
-                'bg' => asset('storage/mail_assets/mail-bg1.png'),
+                'bg' => asset('storage/mail_assets/mail-bg2.png'),
                 'main_title' => "Te hemos asignado un plan de clases",
                 'subtitle' => "Ya puedes agendar las clases clases, a continuación encontraras detalles del plan",
                 'main_btn_url' => "https://dashboard.plgeducation.com/",
@@ -157,7 +157,7 @@ class ContratedPlanController extends Controller
         foreach ($request->input('students') as $std) {
             $student = Student::find($std);
             $data = [
-                'bg' => asset('storage/mail_assets/mail-bg1.png'),
+                'bg' => asset('storage/mail_assets/mail-bg2.png'),
                 'main_title' => "Tu plan ha sido asignado ",
                 'subtitle' => "Ya puedes acceder a iniciar tus clases, a continuación encontraras detalles del plan y el profesor",
                 'main_btn_url' => "https://dashboard.plgeducation.com/",

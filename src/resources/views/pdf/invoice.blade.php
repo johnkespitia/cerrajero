@@ -135,7 +135,7 @@
         @endforeach
         @foreach ($data->diagnostic_class as $item)
             <tr>
-                <td>Clase Diagnostico del {{ $item->starting_date }} <br/>para: {{$item->candidate_name}} [{{$item->candidate_email}}]</td>
+                <td>Clase Diagnóstico del {{ $item->starting_date }} <br/>para: {{$item->candidate_name}} [{{$item->candidate_email}}]</td>
                 <td>{{ $item->comments }}</td>
                 <td>$ {{ ceil($item->hourly_fee) }}</td>
                 <td>{{ $item->class_duration }}</td>

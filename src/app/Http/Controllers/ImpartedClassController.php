@@ -84,6 +84,65 @@ class ImpartedClassController extends Controller
         }
         try {
             $result = DB::table('imparted_classes')->insert($preparedRecordsData);
+            $ctdPlan = ContratedPlan::find($ctdPlan->id);
+            $ctdPlan->load('imparted_classes');
+            $ctdPlan->load('professor.user');
+            $ctdPlan->load('students.user');
+            $classesLinksSt = [];
+            $classesLinksPr = [];
+            foreach ($ctdPlan->imparted_classes as $key => $ic) {
+                $classNum = $key +1;
+                $hours = (int)floor($ctdPlan->estimated_class_duration);
+                $minutes = (int)floor(($ctdPlan->estimated_class_duration - $hours) * 60);
+                $duration = new \DateInterval("PT".($hours>0?($hours."H"):"").($minutes>0?($minutes."M"):""));
+                $from = new \DateTime( "{$ic->scheduled_class} {$ic->class_time}");
+                $to = clone $from; // Clone the start time to avoid modifying the original
+                $to->add($duration);
+                $link = Link::create("Clase #{$classNum} con el profesor {$ctdPlan->professor->user->name}", $from, $to)
+                    ->description("Clase del plan {$ctdPlan->short_description} con el profesor  {$ctdPlan->professor->user->name} si deseas modificar la clase o tiienes alguna inquietud puedes comunicarte directamente con el profedor al correo  {$ctdPlan->professor->user->email}, puedes ingresar a través de nuestra plataforma https://dashboard.plgeducation.com/");
+                $classesLinksSt[]=$link;
+
+                $emailsWithNames = $ctdPlan->students->map(function ($student) {
+                    return "{$student->user->name} ({$student->user->email})";
+                })->implode("\n");
+
+                $linkProfessor = Link::create("Clase #{$classNum} del plan {$ctdPlan->short_description}", $from, $to)
+                    ->description("Clase del plan {$ctdPlan->short_description} con el/los estudiante(s): \n {$emailsWithNames}, puedes ingresar a través de nuestra plataforma https://dashboard.plgeducation.com/");
+                $classesLinksPr[] = $linkProfessor;
+            }
+
+            foreach ($ctdPlan->students as $student) {
+                $data = [
+                    'bg' => asset('storage/mail_assets/mail-bg4.png'),
+                    'main_title' => "Clase agendada",
+                    'subtitle' => "Hemos agendado una clase de tu plan y continuar con tu proceso.",
+                    'main_btn_url' => "https://dashboard.plgeducation.com/",
+                    'main_btn_title' => "Ingresa a la platafoma",
+                    'plan' => $ctdPlan,
+                    'classes' => $classesLinksSt,
+                    "student"=> $student,
+                ];
+                Mail::send('email.massive-scheduled-class-student', $data, function($message) use ($student){
+                    $message->to($student->user->email)->subject('Tienes una clase agendada en nuestra plaraforma :)');
+                    $message->getSwiftMessage()->getHeaders()->addTextHeader('Content-class', 'urn:content-classes:calendarmessage');
+
+                });
+            }
+            $data = [
+                'bg' => asset('storage/mail_assets/mail-bg4.png'),
+                'main_title' => "Clase agendada",
+                'subtitle' => "Has completado el agendadamiento de una clase para el plan {$ctdPlan->short_description}.",
+                'main_btn_url' => "https://dashboard.plgeducation.com/",
+                'main_btn_title' => "Ingresa a la platafoma",
+                'plan' => $ctdPlan,
+                'classes' => $classesLinksPr
+            ];
+            Mail::send('email.massive-scheduled-class-professor', $data, function($message) use ($ctdPlan){
+                $message->to($ctdPlan->professor->user->email)->subject('Has agendado una clase en la plaraforma :)');
+                $message->getSwiftMessage()->getHeaders()->addTextHeader('Content-class', 'urn:content-classes:calendarmessage');
+
+            });
+
             return response()->json(['data' => $preparedRecordsData, "result"=>  $result], 200);
         } catch (\Exception $e) {
             return response()->json(['error' => $e->getMessage()], 500);
@@ -123,7 +182,7 @@ class ImpartedClassController extends Controller
 
         foreach ($ctdPlan->students as $student) {
             $data = [
-                'bg' => asset('storage/mail_assets/mail-bg1.png'),
+                'bg' => asset('storage/mail_assets/mail-bg4.png'),
                 'main_title' => "Clase agendada",
                 'subtitle' => "Hemos agendado una clase de tu plan y continuar con tu proceso.",
                 'main_btn_url' => "https://dashboard.plgeducation.com/",
@@ -159,7 +218,7 @@ class ImpartedClassController extends Controller
             'format' => 'file'
         ]);
         $data = [
-            'bg' => asset('storage/mail_assets/mail-bg1.png'),
+            'bg' => asset('storage/mail_assets/mail-bg4.png'),
             'main_title' => "Clase agendada",
             'subtitle' => "Has completado el agendadamiento de una clase para el plan {$ctdPlan->short_description}.",
             'main_btn_url' => "https://dashboard.plgeducation.com/",
@@ -260,7 +319,7 @@ class ImpartedClassController extends Controller
                     ];
                     $this->webhookNotificationService->sendNotification($notificationData);
                     $data = [
-                        'bg' => asset('storage/mail_assets/mail-bg1.png'),
+                        'bg' => asset('storage/mail_assets/mail-bg5.png'),
                         'main_title' => "Te queda una clase por tomar",
                         'subtitle' => "Ya casi termina tu plan, no dejes que se detenga tu progreso y adquiere un nuevo ciclo.",
                         'main_btn_url' => "https://dashboard.plgeducation.com/",
@@ -286,7 +345,7 @@ class ImpartedClassController extends Controller
                     ];
                     $this->webhookNotificationService->sendNotification($notificationData);
                     $data = [
-                        'bg' => asset('storage/mail_assets/mail-bg1.png'),
+                        'bg' => asset('storage/mail_assets/mail-bg5.png'),
                         'main_title' => "Se ha terminado el plan",
                         'subtitle' => "No dejes que se detenga tu progreso y adquiere un nuevo ciclo.",
                         'main_btn_url' => "https://dashboard.plgeducation.com/",

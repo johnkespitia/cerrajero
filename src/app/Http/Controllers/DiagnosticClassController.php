@@ -80,68 +80,9 @@ class DiagnosticClassController extends Controller
 
         $diagClass = DiagnosticClass::create($validator->validated());
         $diagClass->professor;
-        $endTimeClass = date('Y-m-d H:i', strtotime("{$diagClass->starting_date} {$diagClass->starting_time}".'+'.$diagClass->class_duration.' hour'));
-        $from = \DateTime::createFromFormat('Y-m-d H:i', "{$diagClass->starting_date} {$diagClass->starting_time}");
-        $to = \DateTime::createFromFormat('Y-m-d H:i', $endTimeClass);
-        $link = Link::create("Clase Diagnistica con el profesor {$diagClass->professor->user->name}", $from, $to)
-            ->description("Clase de diagnostico con el profesor  {$diagClass->professor->user->name} si deseas modificar la clase o tienes alguna inquietud puedes comunicarte directamente con el profedor al correo  {$diagClass->professor->user->email}, puedes ingresar a través de nuestra plataforma https://dashboard.plgeducation.com/diagnostic-class");
-        $linkICS = $link->ics([
-            'UID' => md5($diagClass->candidate_email.".".$diagClass->starting_date),
-            'format' => 'file'
-        ]);
-
-        $linkProf = Link::create("Clase Diagnistica con el estudiante {$diagClass->candidate_name}", $from, $to)
-            ->description("Clase de diagnostico con el estudiante  {$diagClass->candidate_name} si deseas modificar la clase o tienes alguna inquietud puedes comunicarte directamente con el estudiante al correo  {$diagClass->candidate_email}, puedes ingresar a través de nuestra plataforma https://dashboard.plgeducation.com");
-        $linkICSProf = $linkProf->ics([
-            'UID' => md5($diagClass->candidate_email.".".$diagClass->starting_date),
-            'format' => 'file'
-        ]);
-
-        $data = [
-            'bg' => asset('storage/mail_assets/mail-bg1.png'),
-            'main_title' => "Clase Diagnostico agendada",
-            'subtitle' => "Hemos agendado una clase de diagnistico para conocer tu proceso.",
-            'main_btn_url' => "https://dashboard.plgeducation.com/diagnostic-class",
-            'main_btn_title' => "Ingresa a la platafoma",
-            'class' => $diagClass,
-            "event_links" => [
-                "google" => $link->google(),
-                "yahoo" => $link->yahoo(),
-                "office" => $link->webOffice(),
-                "hotmail" => $link->webOutlook()
-            ]
-        ];
-        $dataP = [
-            'bg' => asset('storage/mail_assets/mail-bg1.png'),
-            'main_title' => "Clase Diagnostico agendada",
-            'subtitle' => "Hemos agendado una clase de diagnistico.",
-            'main_btn_url' => "https://dashboard.plgeducation.com",
-            'main_btn_title' => "Ingresa a la platafoma",
-            'class' => $diagClass,
-            "event_links" => [
-                "google" => $linkProf->google(),
-                "yahoo" => $linkProf->yahoo(),
-                "office" => $linkProf->webOffice(),
-                "hotmail" => $linkProf->webOutlook()
-            ]
-        ];
-        Mail::send('email.scheduled-diagnostic-class-student', $data, function($message) use ($diagClass, $linkICS){
-            $message->to($diagClass->candidate_email)->subject('Tienes una clase de diagnostico agendada en nuestra plaraforma :)');
-            $message->attachData($linkICS, 'event.ics', [
-                'mime' => 'text/calendar',
-            ]);
-            $message->getSwiftMessage()->getHeaders()->addTextHeader('Content-class', 'urn:content-classes:calendarmessage');
-
-        });
-        Mail::send('email.scheduled-diagnostic-class-professor', $dataP, function($message) use ($diagClass, $linkICSProf){
-            $message->to($diagClass->professor->user->email)->subject('Tienes una clase de diagnostico agendada en nuestra plaraforma :)');
-            $message->attachData($linkICSProf, 'event.ics', [
-                'mime' => 'text/calendar',
-            ]);
-            $message->getSwiftMessage()->getHeaders()->addTextHeader('Content-class', 'urn:content-classes:calendarmessage');
-
-        });
-
+        if(!empty($diagClass->professor)){
+            $this->sendEmail($diagClass);
+        }
         return response()->json(['message' => 'Diagnostic Class created successfully'], 201);
     }
 
@@ -166,7 +107,10 @@ class DiagnosticClassController extends Controller
         }
 
         $diagClass->update($validator->validated());
-
+        $diagClass->professor;
+        if(!empty($diagClass->professor)){
+            $this->sendEmail($diagClass);
+        }
         return response()->json(['message' => 'Diagnostic Class updated successfully'], 200);
     }
 
@@ -174,5 +118,72 @@ class DiagnosticClassController extends Controller
     {
         $diagClass->delete();
         return response()->json(['message' => 'Diagnostic Class deleted successfully'], 200);
+    }
+
+    private function sendEmail($diagClass){
+        $hours = (int)floor($diagClass->class_duration);
+        $minutes = (int)floor(($diagClass->class_duration - $hours) * 60);
+        $duration = new \DateInterval("PT".($hours>0?($hours."H"):"").($minutes>0?($minutes."M"):""));
+        $from = new \DateTime( "{$diagClass->starting_date} {$diagClass->starting_time}");
+        $to = clone $from;
+        $to->add($duration);
+        $link = Link::create("Clase Diagnóstico con el profesor {$diagClass->professor->user->name}", $from, $to)
+            ->description("Clase de Diagnóstico con el profesor  {$diagClass->professor->user->name} si deseas modificar la clase o tienes alguna inquietud puedes comunicarte directamente con el profedor al correo  {$diagClass->professor->user->email}, puedes ingresar a través de nuestra plataforma https://dashboard.plgeducation.com/diagnostic-class");
+        $linkICS = $link->ics([
+            'UID' => md5($diagClass->candidate_email.".".$diagClass->starting_date),
+            'format' => 'file'
+        ]);
+
+        $linkProf = Link::create("Clase Diagnóstico con el estudiante {$diagClass->candidate_name}", $from, $to)
+            ->description("Clase de Diagnóstico con el estudiante  {$diagClass->candidate_name} si deseas modificar la clase o tienes alguna inquietud puedes comunicarte directamente con el estudiante al correo  {$diagClass->candidate_email}, puedes ingresar a través de nuestra plataforma https://dashboard.plgeducation.com");
+        $linkICSProf = $linkProf->ics([
+            'UID' => md5($diagClass->candidate_email.".".$diagClass->starting_date),
+            'format' => 'file'
+        ]);
+
+        $data = [
+            'bg' => asset('storage/mail_assets/mail-bg3.png'),
+            'main_title' => "Clase Diagnóstico agendada",
+            'subtitle' => "Hemos agendado una clase de Diagnóstico para conocer tu proceso.",
+            'main_btn_url' => "https://dashboard.plgeducation.com/diagnostic-class",
+            'main_btn_title' => "Ingresa a la platafoma",
+            'class' => $diagClass,
+            "event_links" => [
+                "google" => $link->google(),
+                "yahoo" => $link->yahoo(),
+                "office" => $link->webOffice(),
+                "hotmail" => $link->webOutlook()
+            ]
+        ];
+        $dataP = [
+            'bg' => asset('storage/mail_assets/mail-bg3.png'),
+            'main_title' => "Clase Diagnóstico agendada",
+            'subtitle' => "Hemos agendado una clase de Diagnóstico.",
+            'main_btn_url' => "https://dashboard.plgeducation.com",
+            'main_btn_title' => "Ingresa a la platafoma",
+            'class' => $diagClass,
+            "event_links" => [
+                "google" => $linkProf->google(),
+                "yahoo" => $linkProf->yahoo(),
+                "office" => $linkProf->webOffice(),
+                "hotmail" => $linkProf->webOutlook()
+            ]
+        ];
+        Mail::send('email.scheduled-diagnostic-class-student', $data, function($message) use ($diagClass, $linkICS){
+            $message->to($diagClass->candidate_email)->subject('Tienes una clase de Diagnóstico agendada en nuestra plaraforma :)');
+            $message->attachData($linkICS, 'event.ics', [
+                'mime' => 'text/calendar',
+            ]);
+            $message->getSwiftMessage()->getHeaders()->addTextHeader('Content-class', 'urn:content-classes:calendarmessage');
+
+        });
+        Mail::send('email.scheduled-diagnostic-class-professor', $dataP, function($message) use ($diagClass, $linkICSProf){
+            $message->to($diagClass->professor->user->email)->subject('Tienes una clase de Diagnóstico agendada en nuestra plaraforma :)');
+            $message->attachData($linkICSProf, 'event.ics', [
+                'mime' => 'text/calendar',
+            ]);
+            $message->getSwiftMessage()->getHeaders()->addTextHeader('Content-class', 'urn:content-classes:calendarmessage');
+
+        });
     }
 }

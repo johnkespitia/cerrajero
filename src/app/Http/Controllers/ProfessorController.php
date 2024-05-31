@@ -161,7 +161,7 @@ class ProfessorController extends Controller
             $professor->skills()->sync($request->input('skills'));
         }
         $data = [
-            'bg' => asset('storage/mail_assets/mail-bg1.png'),
+            'bg' => asset('storage/mail_assets/mail-bg6.png'),
             'main_title' => "Bienvenido Profesor",
             'subtitle' => "Tu cuenta ha sido activada",
             'main_btn_url' => "https://dashboard.plgeducation.com/",

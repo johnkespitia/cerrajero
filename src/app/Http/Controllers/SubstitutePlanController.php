@@ -50,7 +50,7 @@ class SubstitutePlanController extends Controller
         $cplan->professor->user;
 
         $data = [
-            'bg' => asset('storage/mail_assets/mail-bg1.png'),
+            'bg' => asset('storage/mail_assets/mail-bg9.png'),
             'main_title' => "Tienes un plan asignado como sustituto",
             'subtitle' => "Ya puedes agendar las clases clases, a continuación encontraras detalles del plan",
             'main_btn_url' => "https://dashboard.plgeducation.com/",

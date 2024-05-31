@@ -216,7 +216,7 @@ class ProfessorInvoiceController extends Controller
     private function emailSendInvoice(ProfessorInvoice $invoice) {
         $invoice->load("professor.user");
         $data = [
-            'bg' => asset('storage/mail_assets/mail-bg1.png'),
+            'bg' => asset('storage/mail_assets/mail-bg7.png'),
             'main_title' => "Cuenta de cobro enviada",
             'subtitle' => "Se ha realizado el envío de la cuenta de cobro del profesor y está lista para aprobación",
             'main_btn_url' => "https://dashboard.plgeducation.com/",
@@ -232,7 +232,7 @@ class ProfessorInvoiceController extends Controller
     private function emailApproveInvoice(ProfessorInvoice $invoice) {
         $invoice->load("professor.user");
         $data = [
-            'bg' => asset('storage/mail_assets/mail-bg1.png'),
+            'bg' => asset('storage/mail_assets/mail-bg7.png'),
             'main_title' => "Cuenta de cobro aprobada",
             'subtitle' => "Se ha aprobado la cuenta de cobro y está pendiente para pago.",
             'main_btn_url' => "https://dashboard.plgeducation.com/",
@@ -248,7 +248,7 @@ class ProfessorInvoiceController extends Controller
     private function emailPayedInvoice(ProfessorInvoice $invoice) {
         $invoice->load("professor.user");
         $data = [
-            'bg' => asset('storage/mail_assets/mail-bg1.png'),
+            'bg' => asset('storage/mail_assets/mail-bg7.png'),
             'main_title' => "Cuenta de cobro pagada",
             'subtitle' => "Se ha realizado el pago de la cuenta de cobro.",
             'main_btn_url' => "https://dashboard.plgeducation.com/",

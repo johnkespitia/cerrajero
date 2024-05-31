@@ -60,7 +60,7 @@ class StudentController extends Controller
         $student = $user->student()->create($data);
 
         $data = [
-            'bg' => asset('storage/mail_assets/mail-bg1.png'),
+            'bg' => asset('storage/mail_assets/mail-bg8.png'),
             'main_title' => "Bienvenido Estudiante",
             'subtitle' => "Tu cuenta ha sido activada",
             'main_btn_url' => "https://dashboard.plgeducation.com/",
