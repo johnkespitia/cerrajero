@@ -1,0 +1,7 @@
+[12-Mar-2023 14:52:04 America/Bogota] PHP Fatal error:  Uncaught InvalidArgumentException: Type is not supported in /home/crqv4873m0sx/public_html/centrovacacionalcampoverde.com/api/vendor/laravel/framework/src/Illuminate/Http/JsonResponse.php:75
+Stack trace:
+#0 /home/crqv4873m0sx/public_html/centrovacacionalcampoverde.com/api/vendor/symfony/http-foundation/JsonResponse.php(54): Illuminate\Http\JsonResponse->setData(Array)
+#1 /home/crqv4873m0sx/public_html/centrovacacionalcampoverde.com/api/vendor/laravel/framework/src/Illuminate/Http/JsonResponse.php(31): Symfony\Component\HttpFoundation\JsonResponse->__construct(Array, 500, Array)
+#2 /home/crqv4873m0sx/public_html/centrovacacionalcampoverde.com/api/vendor/laravel/framework/src/Illuminate/Routing/ResponseFactory.php(99): Illuminate\Http\JsonResponse->__construct(Array, 500, Array, 0)
+#3 /home/crqv4873m0sx/public_html/centrovacacionalcampoverde.com/api/app/Exceptions/Handler.php(127): Illuminate\Routing\ResponseFactory->json(Array, 500)
+#4 /home/crqv4873m0sx/public_html/centrovacacionalcampoverde.com/api/app/Excep in /home/crqv4873m0sx/public_html/centrovacacionalcampoverde.com/api/vendor/laravel/framework/src/Illuminate/Http/JsonResponse.php on line 75
