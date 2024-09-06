@@ -14,125 +14,179 @@ use Illuminate\Support\Facades\Route;
 |
 */
 
-Route::post('/diagnostic-class-access', [\App\Http\Controllers\DiagnosticClassController::class, 'indexCandidate']);
-Route::get('/diagnostic-class-attend/{dg}', [\App\Http\Controllers\DiagnosticClassController::class, 'attendCandidate']);
+Route::get("/greating", function() {
+    return "HELLO WORLD!!";
+});
+
 Route::post('/login', [\App\Http\Controllers\UserController::class, 'apiLogin']);
 
 Route::middleware(['auth:sanctum'])->group(function () {
     Route::controller(\App\Http\Controllers\RolController::class)->group(function () {
-        Route::get('/rol', 'list')->middleware('permission:rol.edit,cerrajero');
-        Route::get('/rol/{rol}', 'show')->middleware('permission:rol.edit,cerrajero');
-        Route::post('/rol', 'save')->middleware('permission:rol.edit,cerrajero');
-        Route::put('/rol/{rol}', 'update')->middleware('permission:rol.edit,cerrajero');
-        Route::post('/rol/grant-permission/{rol}', 'grantPermission')->middleware('permission:rol.grantpermission,cerrajero');
-        Route::post('/rol/revoke-permission/{rol}', 'revokePermission')->middleware('permission:rol.revokepermission,cerrajero');
+        Route::get('/rol', 'list')->middleware('permission:rol.edit,usuarios');
+        Route::get('/rol/{rol}', 'show')->middleware('permission:rol.edit,usuarios');
+        Route::post('/rol', 'save')->middleware('permission:rol.edit,usuarios');
+        Route::put('/rol/{rol}', 'update')->middleware('permission:rol.edit,usuarios');
+        Route::post('/rol/grant-permission/{rol}', 'grantPermission')->middleware('permission:rol.grantpermission,usuarios');
+        Route::post('/rol/revoke-permission/{rol}', 'revokePermission')->middleware('permission:rol.revokepermission,usuarios');
     });
     Route::controller(\App\Http\Controllers\PermissionsController::class)->group(function () {
-        Route::get('/permission', 'list')->middleware('permission:permission.edit,cerrajero');
-        Route::get('/permission/{permission}', 'show')->middleware('permission:permission.edit,cerrajero');
-        Route::post('/permission', 'save')->middleware('permission:permission.edit,cerrajero');
-        Route::put('/permission/{permission}', 'update')->middleware('permission:permission.edit,cerrajero');
+        Route::get('/permission', 'list')->middleware('permission:permission.edit,usuarios');
+        Route::get('/permission/{permission}', 'show')->middleware('permission:permission.edit,usuarios');
+        Route::post('/permission', 'save')->middleware('permission:permission.edit,usuarios');
+        Route::put('/permission/{permission}', 'update')->middleware('permission:permission.edit,usuarios');
     });
     Route::controller(\App\Http\Controllers\UserController::class)->group(function () {
-        Route::get('/accounts', 'list')->middleware('permission:user.list,cerrajero');
-        Route::get('/accounts/{user}', 'show')->middleware('permission:user.list,cerrajero');
-        Route::post('/accounts', 'save')->middleware('permission:user.create,cerrajero');
-        Route::put('/accounts/{user}', 'update')->middleware('permission:user.edit,cerrajero');
-        Route::post('/accounts/role/{user}', 'assignRole')->middleware('permission:user.edit,cerrajero');
-        Route::delete('/accounts/role/{user}/{rol}', 'removeRole')->middleware('permission:user.edit,cerrajero');
-        Route::post('/accounts/superior/{user}', 'assignSuperior')->middleware('permission:user.edit,cerrajero');
-        Route::delete('/accounts/superior/{user}/{superior}', 'removeSuperior')->middleware('permission:user.edit,cerrajero');
+        Route::get('/accounts', 'list')->middleware('permission:user.list,usuarios');
+        Route::get('/accounts/{user}', 'show')->middleware('permission:user.list,usuarios');
+        Route::post('/accounts', 'save')->middleware('permission:user.create,usuarios');
+        Route::put('/accounts/{user}', 'update')->middleware('permission:user.edit,usuarios');
+        Route::post('/accounts/role/{user}', 'assignRole')->middleware('permission:user.edit,usuarios');
+        Route::delete('/accounts/role/{user}/{rol}', 'removeRole')->middleware('permission:user.edit,usuarios');
+        Route::post('/accounts/superior/{user}', 'assignSuperior')->middleware('permission:user.edit,usuarios');
+        Route::delete('/accounts/superior/{user}/{superior}', 'removeSuperior')->middleware('permission:user.edit,usuarios');
         Route::get('/my-account', 'mydata');
         Route::get('/can-i/{guard}/{permission}', 'cani');
     });
     Route::controller(\App\Http\Controllers\GuardController::class)->group(function () {
-        Route::get('/guard', 'list')->middleware('permission:guard.list,cerrajero');
-        Route::get('/guard/{guard}', 'show')->middleware('permission:guard.list,cerrajero');
-        Route::post('/guard', 'save')->middleware('permission:guard.create,cerrajero');
-        Route::put('/guard/{guard}', 'update')->middleware('permission:guard.edit,cerrajero');
+        Route::get('/guard', 'list')->middleware('permission:guard.list,usuarios');
+        Route::get('/guard/{guard}', 'show')->middleware('permission:guard.list,usuarios');
+        Route::post('/guard', 'save')->middleware('permission:guard.create,usuarios');
+        Route::put('/guard/{guard}', 'update')->middleware('permission:guard.edit,usuarios');
     });
 
-    Route::prefix('hr-management')->group(function () {
-        Route::get('/professors', [\App\Http\Controllers\ProfessorController::class, 'index'])->middleware('permission:professor.list,hrManagement');
-        Route::post('/professors', [\App\Http\Controllers\ProfessorController::class, 'store'])->middleware('permission:professor.create,hrManagement');
-        Route::post('/professors-image/{professor}', [\App\Http\Controllers\ProfessorController::class, 'updateImage'])->middleware('permission:professor.edit,hrManagement');
-        Route::put('/professors/{professor}',[\App\Http\Controllers\ProfessorController::class, 'update'])->middleware('permission:professor.edit,hrManagement');
-        Route::post('/professors-link',[\App\Http\Controllers\LinksController::class, 'store'])->middleware('permission:professor.edit,hrManagement');
-        Route::put('/professors-link/{link}',[\App\Http\Controllers\LinksController::class, 'update'])->middleware('permission:professor.edit,hrManagement');
-        Route::delete('/professors-link/{link}',[\App\Http\Controllers\LinksController::class, 'destroy'])->middleware('permission:professor.edit,hrManagement');
-        Route::get('/skills', [\App\Http\Controllers\SkillController::class, 'index'])->middleware('permission:skill.list,hrManagement');
-        Route::post('/skills', [\App\Http\Controllers\SkillController::class, 'store'])->middleware('permission:skill.create,hrManagement');
-        Route::put('/skills/{skill}', [\App\Http\Controllers\SkillController::class, 'update'])->middleware('permission:skill.edit,hrManagement');
-        Route::delete('/skills/{skill}', [\App\Http\Controllers\SkillController::class, 'destroy'])->middleware('permission:skill.delete,hrManagement');
+    // restbodega
 
-        Route::get('/tags', [\App\Http\Controllers\TagController::class, 'index'])->middleware('permission:tag.list,hrManagement');
-        Route::post('/tags', [\App\Http\Controllers\TagController::class, 'store'])->middleware('permission:tag.create,hrManagement');
-        Route::put('/tags/{tag}', [\App\Http\Controllers\TagController::class, 'update'])->middleware('permission:tag.edit,hrManagement');
-        Route::delete('/tags/{tag}', [\App\Http\Controllers\TagController::class, 'destroy'])->middleware('permission:tag.delete,hrManagement');
-
-        Route::get('/students', [\App\Http\Controllers\StudentController::class, 'index'])->middleware('permission:student.list,hrManagement');
-        Route::post('/students', [\App\Http\Controllers\StudentController::class, 'store'])->middleware('permission:student.create,hrManagement');
-        Route::post('/students-image/{student}', [\App\Http\Controllers\StudentController::class, 'updateImage'])->middleware('permission:student.edit,hrManagement');
-        Route::put('/students/{student}',[\App\Http\Controllers\StudentController::class, 'update'])->middleware('permission:student.edit,hrManagement');
-        Route::post('/students-link',[\App\Http\Controllers\LinksController::class, 'store'])->middleware('permission:student.edit,hrManagement');
-        Route::put('/students-link/{link}',[\App\Http\Controllers\LinksController::class, 'update'])->middleware('permission:student.edit,hrManagement');
-        Route::delete('/students-link/{link}',[\App\Http\Controllers\LinksController::class, 'destroy'])->middleware('permission:student.edit,hrManagement');
-
-        Route::get('/contrated-plan', [\App\Http\Controllers\ContratedPlanController::class, 'list'])->middleware('permission:contratedPlan.list,hrManagement');
-        Route::post('/contrated-plan', [\App\Http\Controllers\ContratedPlanController::class, 'create'])->middleware('permission:contratedPlan.create,hrManagement');
-        Route::put('/contrated-plan/{cplan}', [\App\Http\Controllers\ContratedPlanController::class, 'update'])->middleware('permission:contratedPlan.edit,hrManagement');
-        Route::post('/students-contrated-plan/{cplan}', [\App\Http\Controllers\ContratedPlanController::class, 'addStudents'])->middleware('permission:contratedPlan.edit,hrManagement');
-        Route::post('/tags-contrated-plan/{cplan}', [\App\Http\Controllers\ContratedPlanController::class, 'addTags'])->middleware('permission:contratedPlan.edit,hrManagement');
-        Route::get('/substitute-plan', [\App\Http\Controllers\SubstitutePlanController::class, 'list'])->middleware('permission:contratedPlan.list,hrManagement');
-        Route::post('/substitute-plan', [\App\Http\Controllers\SubstitutePlanController::class, 'create'])->middleware('permission:contratedPlan.create,hrManagement');
-        Route::put('/substitute-plan/{cplan}', [\App\Http\Controllers\SubstitutePlanController::class, 'update'])->middleware('permission:contratedPlan.edit,hrManagement');
-
-        Route::post('/massive-class-creation', [\App\Http\Controllers\ImpartedClassController::class, 'massiveClassCreation'])->middleware('permission:contratedPlan.edit,hrManagement');
-        Route::put('/class-edit/{ic}', [\App\Http\Controllers\ImpartedClassController::class, 'update'])->middleware('permission:contratedPlan.edit,hrManagement');
-
-        Route::get('/diagnostic-class', [\App\Http\Controllers\DiagnosticClassController::class, 'index'])->middleware('permission:contratedPlan.list,hrManagement');
-        Route::post('/diagnostic-class', [\App\Http\Controllers\DiagnosticClassController::class, 'store'])->middleware('permission:contratedPlan.create,hrManagement');
-        Route::put('/diagnostic-class/{diagClass}', [\App\Http\Controllers\DiagnosticClassController::class, 'update'])->middleware('permission:contratedPlan.edit,hrManagement');
-        Route::delete('/diagnostic-class/{diagClass}', [\App\Http\Controllers\DiagnosticClassController::class, 'destroy'])->middleware('permission:contratedPlan.edit,hrManagement');
-
-        Route::post('/invoice-update/{pinvoice}', [\App\Http\Controllers\ProfessorInvoiceController::class, 'update'])->middleware('permission:invoices.edit,hrManagement');
-        Route::get('/invoice-preview/{professor}/{start_date}/{end_date}', [\App\Http\Controllers\ProfessorInvoiceController::class, 'previewClasses'])->middleware('permission:invoices.list,hrManagement');
-        Route::get('/invoice-list', [\App\Http\Controllers\ProfessorInvoiceController::class, 'listAll'])->middleware('permission:invoices.edit,hrManagement');
-        Route::get('/invoice/{pinvoice}', [\App\Http\Controllers\ProfessorInvoiceController::class, 'generatePDF'])->middleware('permission:invoices.list,hrManagement');
+    Route::controller(\App\Http\Controllers\InventoryCategoryController::class)->group(function () {
+        Route::get('/inventory-categories', 'index')->middleware('permission:category.list,restbodega');
+        Route::get('/inventory-categories/{inventoryCategory}', 'show')->middleware('permission:category.list,restbodega');
+        Route::post('/inventory-categories', 'store')->middleware('permission:category.create,restbodega');
+        Route::put('/inventory-categories/{inventoryCategory}', 'update')->middleware('permission:category.edit,restbodega');
+    });
+    Route::controller(\App\Http\Controllers\InventoryTypeInputController::class)->group(function () {
+        Route::get('/inventory-type-input', 'index')->middleware('permission:inventory-type.list,restbodega');
+        Route::get('/inventory-type-input/{inventoryTypeInput}', 'show')->middleware('permission:inventory-type.list,restbodega');
+        Route::post('/inventory-type-input', 'store')->middleware('permission:inventory-type.create,restbodega');
+        Route::put('/inventory-type-input/{inventoryTypeInput}', 'update')->middleware('permission:inventory-type.edit,restbodega');
     });
 
-    Route::prefix('professor-app')->group(function () {
-        Route::post('/professors-image/{professor}', [\App\Http\Controllers\ProfessorController::class, 'updateImage'])->middleware('permission:professor-rol.edit,professorApp');
-        Route::put('/professors/{professor}',[\App\Http\Controllers\ProfessorController::class, 'update'])->middleware('permission:professor-rol.edit,professorApp');
-        Route::post('/professors-link',[\App\Http\Controllers\LinksController::class, 'store'])->middleware('permission:professor-rol.edit,professorApp');
-        Route::put('/professors-link/{link}',[\App\Http\Controllers\LinksController::class, 'update'])->middleware('permission:professor-rol.edit,professorApp');
-        Route::delete('/professors-link/{link}',[\App\Http\Controllers\LinksController::class, 'destroy'])->middleware('permission:professor-rol.edit,professorApp');
-        Route::get('/skills', [\App\Http\Controllers\SkillController::class, 'index'])->middleware('permission:professor-rol.edit,professorApp');
-
-        Route::post('/class-start', [\App\Http\Controllers\ImpartedClassController::class, 'store'])->middleware('permission:professor-cls.start,professorApp');
-        Route::put('/class-edit/{ic}', [\App\Http\Controllers\ImpartedClassController::class, 'update'])->middleware('permission:professor-cls.edit,professorApp');
-        Route::put('/class-link/{ic}', [\App\Http\Controllers\ImpartedClassController::class, 'addLink'])->middleware('permission:professor-cls.edit,professorApp');
-
-        Route::get('/contrated-plan/{professor}', [\App\Http\Controllers\ContratedPlanController::class, 'filteredList'])->middleware('permission:professor-plans.list,professorApp');
-        Route::get('/substitute-plan/{professor}', [\App\Http\Controllers\SubstitutePlanController::class, 'filteredList'])->middleware('permission:professor-plans.list,professorApp');
-
-        Route::put('/diagnostic-class/{diagClass}', [\App\Http\Controllers\DiagnosticClassController::class, 'update'])->middleware('permission:professor-plans.list,professorApp');
-        Route::get('/diagnostic-class/{professor}', [\App\Http\Controllers\DiagnosticClassController::class, 'indexProfessor'])->middleware('permission:professor-plans.list,professorApp');
-
-        Route::post('/invoice-create', [\App\Http\Controllers\ProfessorInvoiceController::class, 'store']);
-        Route::delete('/invoice-delete/{pinvoice}', [\App\Http\Controllers\ProfessorInvoiceController::class, 'delete']);
-        Route::post('/invoice-update/{pinvoice}', [\App\Http\Controllers\ProfessorInvoiceController::class, 'update']);
-        Route::get('/invoice-preview/{professor}/{start_date}/{end_date}', [\App\Http\Controllers\ProfessorInvoiceController::class, 'previewClasses']);
-        Route::get('/invoices-professor/{professor}', [\App\Http\Controllers\ProfessorInvoiceController::class, 'listByProfessor']);
-        Route::get('/invoice/{pinvoice}', [\App\Http\Controllers\ProfessorInvoiceController::class, 'generatePDF']);
+    Route::controller(\App\Http\Controllers\InventoryInputController::class)->group(function () {
+        Route::get('/inventory-input', 'index')->middleware('permission:input.list,restbodega');
+        Route::get('/inventory-input/{inventoryInput}', 'show')->middleware('permission:input.list,restbodega');
+        Route::post('/inventory-input', 'store')->middleware('permission:input.create,restbodega');
+        Route::put('/inventory-input/{inventoryInput}', 'update')->middleware('permission:input.edit,restbodega');
     });
 
-    Route::prefix('student-app')->group(function () {
-        Route::post('/students-image/{student}', [\App\Http\Controllers\StudentController::class, 'updateImage'])->middleware('permission:student-rol.edit,studentApp');
-        Route::put('/students/{student}',[\App\Http\Controllers\StudentController::class, 'update'])->middleware('permission:student-rol.edit,studentApp');
+    Route::controller(\App\Http\Controllers\InventoryBatchController::class)->group(function () {
+        Route::get('/inventory-batch', 'index')->middleware('permission:batch.list,restbodega');
+        Route::get('/inventory-batch/{inventoryBatch}', 'show')->middleware('permission:batch.list,restbodega');
+        Route::post('/inventory-batch', 'store')->middleware('permission:batch.create,restbodega');
+        Route::put('/inventory-batch/{inventoryBatch}', 'update')->middleware('permission:batch.edit,restbodega');
+    });
 
-        Route::post('/class-start/{ic}', [\App\Http\Controllers\ImpartedClassController::class, 'syncStudent'])->middleware('permission:student-cls.start,studentApp');
+    Route::controller(\App\Http\Controllers\InventoryMeasureController::class)->group(function () {
+        Route::get('/inventory-measures', 'index')->middleware('permission:measures.list,restbodega');
+        Route::get('/inventory-measures/{inventoryMeasure}', 'show')->middleware('permission:measures.list,restbodega');
+        Route::post('/inventory-measures', 'store')->middleware('permission:measures.create,restbodega');
+        Route::put('/inventory-measures/{inventoryMeasure}', 'update')->middleware('permission:measures.edit,restbodega');
+        Route::get('/inventory-measures/conversion/{measureId}', 'show')->middleware('permission:measures.list,restbodega');
+        Route::post('/inventory-measures/conversion', 'storeConversion')->middleware('permission:measures.create,restbodega');
+        Route::put('/inventory-measures/conversion/{conversion}', 'updateConversion')->middleware('permission:measures.edit,restbodega');
+        Route::get('/convert-measures', 'convert');
+        Route::get('/convert-measure-list', 'conversions');
 
-        Route::get('/contrated-plan/{student}', [\App\Http\Controllers\ContratedPlanController::class, 'filteredByStudentList'])->middleware('permission:student-plans.list,studentApp');
+    });
+
+    Route::controller(\App\Http\Controllers\KitchenRecipeController::class)->group(function () {
+        Route::get('/kitchen-recipes', 'index')->middleware('permission:recipes.list,restcocina');
+        Route::get('/kitchen-recipes/{recipe}', 'show')->middleware('permission:recipes.list,restcocina');
+        Route::post('/kitchen-recipes', 'store')->middleware('permission:recipes.create,restcocina');
+        Route::put('/kitchen-recipes/{recipe}', 'update')->middleware('permission:recipes.edit,restcocina');
+    });
+
+    Route::controller(\App\Http\Controllers\RecipeStepController::class)->group(function () {
+        Route::post('/kitchen-recipe-steps', 'store')->middleware('permission:recipes.create,restcocina');
+        Route::put('/kitchen-recipe-steps/{recipeStep}', 'update')->middleware('permission:recipes.edit,restcocina');
+        Route::delete('/kitchen-recipe-steps/{recipeStep}', 'destroy')->middleware('permission:recipes.edit,restcocina');
+    });
+
+    Route::controller(\App\Http\Controllers\RecipeIngredientController::class)->group(function () {
+        Route::post('/kitchen-recipes-ingredient', 'store')->middleware('permission:recipes.create,restcocina');
+        Route::put('/kitchen-recipes-ingredient/{recipeIngredient}', 'update')->middleware('permission:recipes.edit,restcocina');
+        Route::delete('/kitchen-recipes-ingredient/{recipeIngredient}', 'destroy')->middleware('permission:recipes.edit,restcocina');
+    });
+
+
+    Route::controller(\App\Http\Controllers\OrderController::class)->group(function () {
+        Route::get('/order', 'index')->middleware('permission:order.list,restcaja');
+        Route::get('/order/{order}', 'show')->middleware('permission:order.list,restcaja');
+        Route::post('/order', 'store')->middleware('permission:order.create,restcaja');
+        Route::put('/order/{order}', 'update')->middleware('permission:order.edit,restcaja');
+        Route::delete('/order/{order}', 'destroy')->middleware('permission:order.edit,restcaja');
+    });
+    Route::controller(\App\Http\Controllers\OrderItemController::class)->group(function () {
+        Route::post('/order-item', 'store')->middleware('permission:order.create,restcaja');
+        Route::put('/order-item/{orderItem}', 'update')->middleware('permission:order.edit,restcaja');
+        Route::delete('/order-item/{orderItem}', 'destroy')->middleware('permission:order.edit,restcaja');
+    });
+
+    Route::controller(\App\Http\Controllers\ProducedBatchController::class)->group(function () {
+        Route::get('/order-item-batch', 'index')->middleware('permission:order.create,restcaja');
+        Route::get('/order-item-batch/{producedBatch}', 'show')->middleware('permission:order.create,restcaja');
+        Route::put('/order-item-batch/{producedBatch}', 'update')->middleware('permission:order.edit,restcaja');
+    });
+
+    Route::controller(\App\Http\Controllers\CustomerController::class)->group(function () {
+        Route::get('/customer', 'index')->middleware('permission:caja.list,kioskcaja');
+        Route::get('/customer/{customer}', 'show')->middleware('permission:caja.list,kioskcaja');
+        Route::post('/customer', 'store')->middleware('permission:caja.create,kioskcaja');
+        Route::put('/customer/{customer}', 'update')->middleware('permission:caja.edit,kioskcaja');
+        Route::delete('/customer/{customer}', 'destroy')->middleware('permission:caja.edit,kioskcaja');
+    });
+
+    Route::controller(\App\Http\Controllers\PaymentTypeController::class)->group(function () {
+        Route::get('/payment-type', 'index')->middleware('permission:payment_type.list,kioskcaja');
+        Route::get('/payment-type/{paymentType}', 'show')->middleware('permission:payment_type.list,kioskcaja');
+        Route::post('/payment-type', 'store')->middleware('permission:payment_type.create,kioskcaja');
+        Route::put('/payment-type/{paymentType}', 'update')->middleware('permission:payment_type.edit,kioskcaja');
+        Route::delete('/payment-type/{paymentType}', 'destroy')->middleware('permission:payment_type.edit,kioskcaja');
+    });
+
+    Route::controller(\App\Http\Controllers\KioskCategoryController::class)->group(function () {
+        Route::get('/kiosk/category', 'index')->name('index')->middleware('permission:kiosk_categories.list,kioskcaja');
+        Route::post('/kiosk/category', 'store')->name('store')->middleware('permission:kiosk_categories.create,kioskcaja');
+        Route::get('/kiosk/category/{kioskCategory}', 'show')->name('show')->middleware('permission:kiosk_categories.list,kioskcaja');
+        Route::put('/kiosk/category/{kioskCategory}', 'update')->name('update')->middleware('permission:kiosk_categories.edit,kioskcaja');
+        Route::delete('/kiosk/category/{kioskCategory}', 'destroy')->name('destroy')->middleware('permission:kiosk_categories.edit,kioskcaja');
+    });
+
+    Route::controller(\App\Http\Controllers\KioskProductController::class)->group(function () {
+        Route::get('/kiosk/product', 'index')->name('index')->middleware('permission:kiosk_products.list,kioskcaja');
+        Route::post('/kiosk/product', 'store')->name('store')->middleware('permission:kiosk_products.create,kioskcaja');
+        Route::get('/kiosk/product/{kioskProduct}', 'show')->name('show')->middleware('permission:kiosk_products.list,kioskcaja');
+        Route::post('/kiosk/product/{kioskProduct}', 'update')->name('update')->middleware('permission:kiosk_products.edit,kioskcaja');
+        Route::delete('/kiosk/product/{kioskProduct}', 'destroy')->name('destroy')->middleware('permission:kiosk_products.edit,kioskcaja');
+    });
+
+    Route::controller(\App\Http\Controllers\KioskUnitController::class)->group(function () {
+        Route::get('/kiosk/product/unit', 'index')->name('index')->middleware('permission:kiosk_products.list,kioskcaja');
+        Route::post('/kiosk/product/unit', 'store')->name('store')->middleware('permission:kiosk_products.create,kioskcaja');
+        Route::get('/kiosk/product/unit/{kioskUnit}', 'show')->name('show')->middleware('permission:kiosk_products.list,kioskcaja');
+        Route::post('/kiosk/product/unit/{kioskUnit}', 'update')->name('update')->middleware('permission:kiosk_products.edit,kioskcaja');
+        Route::delete('/kiosk/product/unit/{kioskUnit}', 'destroy')->name('destroy')->middleware('permission:kiosk_products.edit,kioskcaja');
+    });
+    
+    Route::controller(\App\Http\Controllers\KioskInvoiceController::class)->group(function () {
+        Route::get('/kiosk/caja', 'index')->name('index')->middleware('permission:caja.list,kioskcaja');
+        Route::post('/kiosk/caja', 'store')->name('store')->middleware('permission:caja.create,kioskcaja');
+        Route::get('/kiosk/caja/{kioskUnit}', 'show')->name('show')->middleware('permission:caja.list,kioskcaja');
+        Route::post('/kiosk/caja/{kioskUnit}', 'update')->name('update')->middleware('permission:caja.edit,kioskcaja');
+        Route::delete('/kiosk/caja/{kioskUnit}', 'destroy')->name('destroy')->middleware('permission:caja.edit,kioskcaja');
+    });
+    Route::controller(\App\Http\Controllers\KioskInvoiceDetailController::class)->group(function () {
+        Route::get('/kiosk/caja', 'index')->name('index')->middleware('permission:caja.list,kioskcaja');
+        Route::post('/kiosk/caja', 'store')->name('store')->middleware('permission:caja.create,kioskcaja');
+        Route::get('/kiosk/caja/{kioskUnit}', 'show')->name('show')->middleware('permission:caja.list,kioskcaja');
+        Route::post('/kiosk/caja/{kioskUnit}', 'update')->name('update')->middleware('permission:caja.edit,kioskcaja');
+        Route::delete('/kiosk/caja/{kioskUnit}', 'destroy')->name('destroy')->middleware('permission:caja.edit,kioskcaja');
     });
 });

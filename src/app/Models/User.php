@@ -4,8 +4,6 @@ namespace App\Models;
 
 use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
-use Illuminate\Database\Eloquent\Relations\HasOne;
-use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
@@ -52,18 +50,5 @@ class User extends Authenticatable
     public function superior()
     {
         return $this->belongsToMany(User::class, 'user_relation', 'dependency_id', 'superior_id');
-    }
-
-    public function professor(): HasOne
-    {
-        return $this->hasOne(Professor::class);
-    }
-    public function student(): HasOne
-    {
-        return $this->hasOne(Student::class);
-    }
-    public function links(): HasMany
-    {
-        return $this->hasMany(Links::class);
     }
 }
