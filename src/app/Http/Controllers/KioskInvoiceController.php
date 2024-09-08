@@ -13,7 +13,7 @@ class KioskInvoiceController extends Controller
      */
     public function index()
     {
-        return KioskInvoice::all();
+        return KioskInvoice::with(["customer","payment_type","details.kiosk_unit.product.tax","details.kiosk_unit.product.category"])->get();
     }
 
     /**

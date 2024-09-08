@@ -14,7 +14,7 @@ class KioskProductController extends Controller
      */
     public function index()
     {
-        return KioskProduct::all();
+        return KioskProduct::with('category')->with('tax')->get();
     }
 
     /**
@@ -25,10 +25,12 @@ class KioskProductController extends Controller
         $request->validate([
             'name' => 'required',
             'code' => 'required|unique:kiosk_products',
+            'sale_price' => 'required|min:0',
             'image' => 'nullable|image|max:2048', // Adjust validation rules for image uploads
             'description' => 'nullable',
             'active' => 'boolean',
             'category_id' => 'required|exists:kiosk_categories,id',
+            'tax_id' => 'required|exists:tax,id',
         ]);
 
         $kioskProduct = KioskProduct::create($request->all());
@@ -59,6 +61,8 @@ class KioskProductController extends Controller
             'description' => 'nullable',
             'active' => 'boolean',
             'category_id' => 'required|exists:kiosk_categories,id',
+            'tax_id' => 'required|exists:taxes,id',
+            'sale_price' => 'required|min:0',
         ]);
 
         if ($request->hasFile('image')) {

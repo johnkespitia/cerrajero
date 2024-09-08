@@ -15,11 +15,18 @@ class KioskProduct extends Model
         "image",
         "description",
         "active",
-        "category_id"
+        "category_id",
+        "sale_price",
+        "tax_id"
     ];
 
     public function category()
     {
         return $this->belongsTo(KioskCategory::class, 'category_id');
+    }
+
+    public function tax()
+    {
+        return $this->belongsTo(Tax::class, 'tax_id');
     }
 }

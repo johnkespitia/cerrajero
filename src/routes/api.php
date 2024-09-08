@@ -152,27 +152,27 @@ Route::middleware(['auth:sanctum'])->group(function () {
     });
 
     Route::controller(\App\Http\Controllers\KioskCategoryController::class)->group(function () {
-        Route::get('/kiosk/category', 'index')->name('index')->middleware('permission:kiosk_categories.list,kioskcaja');
-        Route::post('/kiosk/category', 'store')->name('store')->middleware('permission:kiosk_categories.create,kioskcaja');
-        Route::get('/kiosk/category/{kioskCategory}', 'show')->name('show')->middleware('permission:kiosk_categories.list,kioskcaja');
-        Route::put('/kiosk/category/{kioskCategory}', 'update')->name('update')->middleware('permission:kiosk_categories.edit,kioskcaja');
-        Route::delete('/kiosk/category/{kioskCategory}', 'destroy')->name('destroy')->middleware('permission:kiosk_categories.edit,kioskcaja');
+        Route::get('/kiosk/category', 'index')->name('index')->middleware('permission:kiosk_categories.list,kioskinvetario');
+        Route::post('/kiosk/category', 'store')->name('store')->middleware('permission:kiosk_categories.create,kioskinvetario');
+        Route::get('/kiosk/category/{kioskCategory}', 'show')->name('show')->middleware('permission:kiosk_categories.list,kioskinvetario');
+        Route::put('/kiosk/category/{kioskCategory}', 'update')->name('update')->middleware('permission:kiosk_categories.edit,kioskinvetario');
+        Route::delete('/kiosk/category/{kioskCategory}', 'destroy')->name('destroy')->middleware('permission:kiosk_categories.edit,kioskinvetario');
     });
 
     Route::controller(\App\Http\Controllers\KioskProductController::class)->group(function () {
-        Route::get('/kiosk/product', 'index')->name('index')->middleware('permission:kiosk_products.list,kioskcaja');
-        Route::post('/kiosk/product', 'store')->name('store')->middleware('permission:kiosk_products.create,kioskcaja');
-        Route::get('/kiosk/product/{kioskProduct}', 'show')->name('show')->middleware('permission:kiosk_products.list,kioskcaja');
-        Route::post('/kiosk/product/{kioskProduct}', 'update')->name('update')->middleware('permission:kiosk_products.edit,kioskcaja');
-        Route::delete('/kiosk/product/{kioskProduct}', 'destroy')->name('destroy')->middleware('permission:kiosk_products.edit,kioskcaja');
+        Route::get('/kiosk/product', 'index')->name('index')->middleware('permission:kiosk_products.list,kioskinvetario');
+        Route::post('/kiosk/product', 'store')->name('store')->middleware('permission:kiosk_products.create,kioskinvetario');
+        Route::get('/kiosk/product/{kioskProduct}', 'show')->name('show')->middleware('permission:kiosk_products.list,kioskinvetario');
+        Route::post('/kiosk/product/{kioskProduct}', 'update')->name('update')->middleware('permission:kiosk_products.edit,kioskinvetario');
+        Route::delete('/kiosk/product/{kioskProduct}', 'destroy')->name('destroy')->middleware('permission:kiosk_products.edit,kioskinvetario');
     });
 
     Route::controller(\App\Http\Controllers\KioskUnitController::class)->group(function () {
-        Route::get('/kiosk/product/unit', 'index')->name('index')->middleware('permission:kiosk_products.list,kioskcaja');
-        Route::post('/kiosk/product/unit', 'store')->name('store')->middleware('permission:kiosk_products.create,kioskcaja');
-        Route::get('/kiosk/product/unit/{kioskUnit}', 'show')->name('show')->middleware('permission:kiosk_products.list,kioskcaja');
-        Route::post('/kiosk/product/unit/{kioskUnit}', 'update')->name('update')->middleware('permission:kiosk_products.edit,kioskcaja');
-        Route::delete('/kiosk/product/unit/{kioskUnit}', 'destroy')->name('destroy')->middleware('permission:kiosk_products.edit,kioskcaja');
+        Route::get('/kiosk/products/unit', 'index')->name('index')->middleware('permission:kiosk_products.list,kioskinvetario');
+        Route::post('/kiosk/products/unit', 'store')->name('store')->middleware('permission:kiosk_products.create,kioskinvetario');
+        Route::get('/kiosk/products/unit/{kioskUnit}', 'show')->name('show')->middleware('permission:kiosk_products.list,kioskinvetario');
+        Route::put('/kiosk/products/unit/{kioskUnit}', 'update')->name('update')->middleware('permission:kiosk_products.edit,kioskinvetario');
+        Route::delete('/kiosk/products/unit/{kioskUnit}', 'destroy')->name('destroy')->middleware('permission:kiosk_products.edit,kioskinvetario');
     });
     
     Route::controller(\App\Http\Controllers\KioskInvoiceController::class)->group(function () {
@@ -188,5 +188,44 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::get('/kiosk/caja/{kioskUnit}', 'show')->name('show')->middleware('permission:caja.list,kioskcaja');
         Route::post('/kiosk/caja/{kioskUnit}', 'update')->name('update')->middleware('permission:caja.edit,kioskcaja');
         Route::delete('/kiosk/caja/{kioskUnit}', 'destroy')->name('destroy')->middleware('permission:caja.edit,kioskcaja');
+    });
+
+    Route::controller(\App\Http\Controllers\TaxController::class)->group(function () {
+        Route::get('/kiosk/tax', 'index')->name('index')->middleware('permission:tax.list,kioskcaja');
+        Route::post('/kiosk/tax', 'store')->name('store')->middleware('permission:tax.create,kioskcaja');
+        Route::get('/kiosk/tax/{tax}', 'show')->name('show')->middleware('permission:tax.list,kioskcaja');
+        Route::put('/kiosk/tax/{tax}', 'update')->name('update')->middleware('permission:tax.edit,kioskcaja');
+        Route::delete('/kiosk/tax/{tax}', 'destroy')->name('destroy')->middleware('permission:tax.edit,kioskcaja');
+    });
+
+    Route::controller(\App\Http\Controllers\CustomerController::class)->group(function () {
+        Route::get('/customer', 'index')->name('index')->middleware('permission:clientes.list,clientes');
+        Route::post('/customer', 'store')->name('store')->middleware('permission:clientes.create,clientes');
+        Route::get('/customer/{customer}', 'show')->name('show')->middleware('permission:clientes.list,clientes');
+        Route::put('/customer/{customer}', 'update')->name('update')->middleware('permission:clientes.edit,clientes');
+        Route::delete('/customer/{customer}', 'destroy')->name('destroy')->middleware('permission:clientes.edit,clientes');
+    });
+    Route::controller(\App\Http\Controllers\PaymentTypeController::class)->group(function () {
+        Route::get('/payment-methods', 'index')->name('index')->middleware('permission:paymenttypes.list,usuarios');
+        Route::post('/payment-methods', 'store')->name('store')->middleware('permission:paymenttypes.create,usuarios');
+        Route::get('/payment-methods/{paymentType}', 'show')->name('show')->middleware('permission:paymenttypes.list,usuarios');
+        Route::put('/payment-methods/{paymentType}', 'update')->name('update')->middleware('permission:paymenttypes.edit,usuarios');
+        Route::delete('/payment-methods/{paymentType}', 'destroy')->name('destroy')->middleware('permission:paymenttypes.edit,usuarios');
+    });
+    
+    Route::controller(\App\Http\Controllers\KioskInvoice::class)->group(function () {
+        Route::get('/kiosk/invoice', 'index')->name('index')->middleware('permission:compras.list,kioskcaja');
+        Route::post('/kiosk/invoice', 'store')->name('store')->middleware('permission:compras.create,kioskcaja');
+        Route::get('/kiosk/invoice/{kioskInvoice}', 'show')->name('show')->middleware('permission:compras.list,kioskcaja');
+        Route::put('/kiosk/invoice/{kioskInvoice}', 'update')->name('update')->middleware('permission:compras.edit,kioskcaja');
+        Route::delete('/kiosk/invoice/{kioskInvoice}', 'destroy')->name('destroy')->middleware('permission:compras.edit,kioskcaja');
+    });
+    
+    Route::controller(\App\Http\Controllers\KioskInvoiceDetailController::class)->group(function () {
+        Route::get('/kiosk/invoice-detail', 'index')->name('index')->middleware('permission:compras.list,kioskcaja');
+        Route::post('/kiosk/invoice-detail', 'store')->name('store')->middleware('permission:compras.create,kioskcaja');
+        Route::get('/kiosk/invoice-detail/{kioskInvoiceDetail}', 'show')->name('show')->middleware('permission:compras.list,kioskcaja');
+        Route::put('/kiosk/invoice-detail/{kioskInvoiceDetail}', 'update')->name('update')->middleware('permission:compras.edit,kioskcaja');
+        Route::delete('/kiosk/invoice-detail/{kioskInvoiceDetail}', 'destroy')->name('destroy')->middleware('permission:compras.edit,kioskcaja');
     });
 });

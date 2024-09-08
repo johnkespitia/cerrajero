@@ -24,7 +24,7 @@ class KioskUnitController extends Controller
         $request->validate([
             'code_complement' => 'required',
             'price' => 'required|numeric|min:0',
-            'expiration' => 'required|date',
+            'expiration' => 'date',
             'active' => 'boolean',
             'product_id' => 'required|exists:kiosk_products,id',
         ]);
@@ -47,11 +47,11 @@ class KioskUnitController extends Controller
     public function update(Request $request, KioskUnit $kioskUnit)
     {
         $request->validate([
-            'code_complement' => 'required',
-            'price' => 'required|numeric|min:0',
-            'expiration' => 'required|date',
+            'code_complement' => 'sometimes',
+            'price' => 'numeric|min:0',
+            'expiration' => 'date',
             'active' => 'boolean',
-            'product_id' => 'required|exists:kiosk_products,id',
+            'product_id' => 'exists:kiosk_products,id',
         ]);
 
         $kioskUnit->update($request->all());
