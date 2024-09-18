@@ -174,7 +174,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::put('/kiosk/products/unit/{kioskUnit}', 'update')->name('update')->middleware('permission:kiosk_products.edit,kioskinvetario');
         Route::delete('/kiosk/products/unit/{kioskUnit}', 'destroy')->name('destroy')->middleware('permission:kiosk_products.edit,kioskinvetario');
     });
-    
+
     Route::controller(\App\Http\Controllers\KioskInvoiceController::class)->group(function () {
         Route::get('/kiosk/caja', 'index')->name('index')->middleware('permission:caja.list,kioskcaja');
         Route::post('/kiosk/caja', 'store')->name('store')->middleware('permission:caja.create,kioskcaja');
@@ -212,15 +212,15 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::put('/payment-methods/{paymentType}', 'update')->name('update')->middleware('permission:paymenttypes.edit,usuarios');
         Route::delete('/payment-methods/{paymentType}', 'destroy')->name('destroy')->middleware('permission:paymenttypes.edit,usuarios');
     });
-    
-    Route::controller(\App\Http\Controllers\KioskInvoice::class)->group(function () {
+
+    Route::controller(\App\Http\Controllers\KioskInvoiceController::class)->group(function () {
         Route::get('/kiosk/invoice', 'index')->name('index')->middleware('permission:compras.list,kioskcaja');
         Route::post('/kiosk/invoice', 'store')->name('store')->middleware('permission:compras.create,kioskcaja');
         Route::get('/kiosk/invoice/{kioskInvoice}', 'show')->name('show')->middleware('permission:compras.list,kioskcaja');
         Route::put('/kiosk/invoice/{kioskInvoice}', 'update')->name('update')->middleware('permission:compras.edit,kioskcaja');
         Route::delete('/kiosk/invoice/{kioskInvoice}', 'destroy')->name('destroy')->middleware('permission:compras.edit,kioskcaja');
     });
-    
+
     Route::controller(\App\Http\Controllers\KioskInvoiceDetailController::class)->group(function () {
         Route::get('/kiosk/invoice-detail', 'index')->name('index')->middleware('permission:compras.list,kioskcaja');
         Route::post('/kiosk/invoice-detail', 'store')->name('store')->middleware('permission:compras.create,kioskcaja');

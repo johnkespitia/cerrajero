@@ -14,7 +14,8 @@ class KioskUnit extends Model
         "price",
         "expiration",
         "active",
-        "product_id"
+        "product_id",
+        'sold'
     ];
 
     public function product()

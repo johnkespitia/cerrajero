@@ -5,6 +5,8 @@ namespace App\Http\Controllers;
 use App\Models\KioskUnit;
 use Illuminate\Http\Request;
 use App\Http\Controllers\Controller;
+use Illuminate\Validation\ValidationException;
+
 
 class KioskUnitController extends Controller
 {
@@ -21,16 +23,23 @@ class KioskUnitController extends Controller
      */
     public function store(Request $request)
     {
-        $request->validate([
-            'code_complement' => 'required',
-            'price' => 'required|numeric|min:0',
-            'expiration' => 'date',
-            'active' => 'boolean',
-            'product_id' => 'required|exists:kiosk_products,id',
-        ]);
+        try{
+            $request->validate([
+                'code_complement' => 'required',
+                'price' => 'required|numeric|min:0',
+                'expiration' => 'date',
+                'active' => 'boolean',
+                'product_id' => 'required|exists:kiosk_products,id',
+            ]);
 
-        $kioskUnit = KioskUnit::create($request->all());
-        return response()->json($kioskUnit, 201);
+            $kioskUnit = KioskUnit::create($request->all());
+            return response()->json($kioskUnit, 201);
+        }catch(ValidationException $ve){
+            return response()->json([
+                'errors' => $ve->errors()
+            ], 422);
+        }
+
     }
 
     /**
