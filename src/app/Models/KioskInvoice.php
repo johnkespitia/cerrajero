@@ -13,7 +13,10 @@ class KioskInvoice extends Model
         'customer_id',
         'payed',
         'payment_code',
-        'payment_type_id'
+        'payment_type_id',
+        'payed_value',
+        'remain_money',
+        'electronic_invoice'
     ];
 
     public function customer()

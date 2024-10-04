@@ -11,6 +11,8 @@ class PaymentType extends Model
 
     protected $fillable = [
         "name",
-        "active"
+        "active",
+        "credit",
+        "calculator"
     ];
 }

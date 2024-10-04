@@ -30,9 +30,20 @@ class KioskUnitController extends Controller
                 'expiration' => 'date',
                 'active' => 'boolean',
                 'product_id' => 'required|exists:kiosk_products,id',
+                'quantity' => 'required|numeric'
             ]);
-
-            $kioskUnit = KioskUnit::create($request->all());
+            $units = [];
+            for ($i=0; $i < $request->get("quantity"); $i++) {
+                $values = $request->toArray();
+                $units[]=[
+                    'code_complement' => $values["code_complement"]."-{$i}",
+                    'price' => $values["price"],
+                    'expiration' => $values["expiration"],
+                    'active' => $values["active"],
+                    'product_id' => $values["product_id"],
+                ];
+            }
+            $kioskUnit = KioskUnit::insert($units);
             return response()->json($kioskUnit, 201);
         }catch(ValidationException $ve){
             return response()->json([

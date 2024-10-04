@@ -23,6 +23,8 @@ class PaymentTypeController extends Controller
     {
         $request->validate([
             'name' => 'required|unique:payment_types',
+            "credit" => 'required|boolean',
+            "calculator" => 'required|boolean',
             'active' => 'boolean',
         ]);
 
@@ -44,7 +46,9 @@ class PaymentTypeController extends Controller
     public function update(Request $request, PaymentType $paymentType)
     {
         $request->validate([
-            'name' => 'required|unique:payment_types,name,' . $paymentType->id,
+            'name' => 'unique:payment_types,name,' . $paymentType->id,
+            "credit" => 'boolean',
+            "calculator" => 'boolean',
             'active' => 'boolean',
         ]);
 

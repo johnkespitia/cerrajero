@@ -30,20 +30,28 @@ class KioskInvoiceController extends Controller
             $request->validate([
                 'customer_id' => 'required|exists:customers,id',
                 'payed' => 'required|boolean',
-                'payment_code' => 'required|unique:kiosk_invoices',
+                'payment_code' => 'required',
                 'payment_type_id' => 'required|exists:payment_types,id',
                 'units'=> 'required|array',
                 'units.*.kiosk_units_id' => 'required|exists:kiosk_units,id',
                 'units.*.price' => 'required|numeric|min:0',
+                'electronic_invoice' => 'required|boolean',
+                'payed_value' => 'numeric'
             ]);
             $kioskInvoice = KioskInvoice::create($request->all());
             $units = $request->get("units");
+            $total_invoice = 0;
             foreach ($units as $key => $unit) {
                 $unitModel = KioskUnit::find($unit['kiosk_units_id']);
                 $unit['kiosk_invoices_id'] = $kioskInvoice->id;
-                KioskInvoiceDetail::create($unit);
+                $unit_saved = KioskInvoiceDetail::create($unit);
                 $unitModel->sold = true;
                 $unitModel->save();
+                $total_invoice += $unitModel->product->sale_price;
+            }
+            if($request->get('payed_value') > 0){
+                $kioskInvoice->remain_money = $kioskInvoice->payed_value - $total_invoice;
+                $kioskInvoice->save();
             }
             $kioskInvoice->details;
             $kioskInvoice->payment_type;
