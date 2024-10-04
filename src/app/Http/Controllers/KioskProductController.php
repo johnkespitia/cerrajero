@@ -30,7 +30,7 @@ class KioskProductController extends Controller
             'description' => 'nullable',
             'active' => 'boolean',
             'category_id' => 'required|exists:kiosk_categories,id',
-            'tax_id' => 'required|exists:tax,id',
+            'tax_id' => 'required|exists:taxes,id',
         ]);
 
         $kioskProduct = KioskProduct::create($request->all());
