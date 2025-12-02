@@ -21,37 +21,48 @@ Route::get("/greating", function() {
 Route::post('/login', [\App\Http\Controllers\UserController::class, 'apiLogin']);
 
 Route::middleware(['auth:sanctum'])->group(function () {
+    // ============================================
+    // Módulo de Gestión de Usuarios y Permisos
+    // ============================================
+    
+    // Rutas de Roles
     Route::controller(\App\Http\Controllers\RolController::class)->group(function () {
-        Route::get('/rol', 'list')->middleware('permission:rol.edit,usuarios');
-        Route::get('/rol/{rol}', 'show')->middleware('permission:rol.edit,usuarios');
-        Route::post('/rol', 'save')->middleware('permission:rol.edit,usuarios');
-        Route::put('/rol/{rol}', 'update')->middleware('permission:rol.edit,usuarios');
-        Route::post('/rol/grant-permission/{rol}', 'grantPermission')->middleware('permission:rol.grantpermission,usuarios');
-        Route::post('/rol/revoke-permission/{rol}', 'revokePermission')->middleware('permission:rol.revokepermission,usuarios');
+        Route::get('/rol', 'list')->middleware('permission:role.list,cerrajero');
+        Route::get('/rol/{rol}', 'show')->middleware('permission:role.view,cerrajero');
+        Route::post('/rol', 'save')->middleware('permission:role.create,cerrajero');
+        Route::put('/rol/{rol}', 'update')->middleware('permission:role.edit,cerrajero');
+        Route::post('/rol/grant-permission/{rol}', 'grantPermission')->middleware('permission:role.grant_permission,cerrajero');
+        Route::post('/rol/revoke-permission/{rol}', 'revokePermission')->middleware('permission:role.revoke_permission,cerrajero');
     });
+
+    // Rutas de Permisos
     Route::controller(\App\Http\Controllers\PermissionsController::class)->group(function () {
-        Route::get('/permission', 'list')->middleware('permission:permission.edit,usuarios');
-        Route::get('/permission/{permission}', 'show')->middleware('permission:permission.edit,usuarios');
-        Route::post('/permission', 'save')->middleware('permission:permission.edit,usuarios');
-        Route::put('/permission/{permission}', 'update')->middleware('permission:permission.edit,usuarios');
+        Route::get('/permission', 'list')->middleware('permission:permission.list,cerrajero');
+        Route::get('/permission/{permission}', 'show')->middleware('permission:permission.view,cerrajero');
+        Route::post('/permission', 'save')->middleware('permission:permission.create,cerrajero');
+        Route::put('/permission/{permission}', 'update')->middleware('permission:permission.edit,cerrajero');
     });
+
+    // Rutas de Usuarios
     Route::controller(\App\Http\Controllers\UserController::class)->group(function () {
-        Route::get('/accounts', 'list')->middleware('permission:user.list,usuarios');
-        Route::get('/accounts/{user}', 'show')->middleware('permission:user.list,usuarios');
-        Route::post('/accounts', 'save')->middleware('permission:user.create,usuarios');
-        Route::put('/accounts/{user}', 'update')->middleware('permission:user.edit,usuarios');
-        Route::post('/accounts/role/{user}', 'assignRole')->middleware('permission:user.edit,usuarios');
-        Route::delete('/accounts/role/{user}/{rol}', 'removeRole')->middleware('permission:user.edit,usuarios');
-        Route::post('/accounts/superior/{user}', 'assignSuperior')->middleware('permission:user.edit,usuarios');
-        Route::delete('/accounts/superior/{user}/{superior}', 'removeSuperior')->middleware('permission:user.edit,usuarios');
+        Route::get('/accounts', 'list')->middleware('permission:user.list,cerrajero');
+        Route::get('/accounts/{user}', 'show')->middleware('permission:user.view,cerrajero');
+        Route::post('/accounts', 'save')->middleware('permission:user.create,cerrajero');
+        Route::put('/accounts/{user}', 'update')->middleware('permission:user.edit,cerrajero');
+        Route::post('/accounts/role/{user}', 'assignRole')->middleware('permission:user.assign_role,cerrajero');
+        Route::delete('/accounts/role/{user}/{rol}', 'removeRole')->middleware('permission:user.remove_role,cerrajero');
+        Route::post('/accounts/superior/{user}', 'assignSuperior')->middleware('permission:user.assign_superior,cerrajero');
+        Route::delete('/accounts/superior/{user}/{superior}', 'removeSuperior')->middleware('permission:user.remove_superior,cerrajero');
         Route::get('/my-account', 'mydata');
         Route::get('/can-i/{guard}/{permission}', 'cani');
     });
+
+    // Rutas de Guards
     Route::controller(\App\Http\Controllers\GuardController::class)->group(function () {
-        Route::get('/guard', 'list')->middleware('permission:guard.list,usuarios');
-        Route::get('/guard/{guard}', 'show')->middleware('permission:guard.list,usuarios');
-        Route::post('/guard', 'save')->middleware('permission:guard.create,usuarios');
-        Route::put('/guard/{guard}', 'update')->middleware('permission:guard.edit,usuarios');
+        Route::get('/guard', 'list')->middleware('permission:guard.list,cerrajero');
+        Route::get('/guard/{guard}', 'show')->middleware('permission:guard.view,cerrajero');
+        Route::post('/guard', 'save')->middleware('permission:guard.create,cerrajero');
+        Route::put('/guard/{guard}', 'update')->middleware('permission:guard.edit,cerrajero');
     });
 
     // restbodega
@@ -173,6 +184,8 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::get('/kiosk/products/unit/{kioskUnit}', 'show')->name('show')->middleware('permission:kiosk_products.list,kioskinvetario');
         Route::put('/kiosk/products/unit/{kioskUnit}', 'update')->name('update')->middleware('permission:kiosk_products.edit,kioskinvetario');
         Route::delete('/kiosk/products/unit/{kioskUnit}', 'destroy')->name('destroy')->middleware('permission:kiosk_products.edit,kioskinvetario');
+        Route::post('/kiosk/products/unit/bulk-update', 'bulkUpdate')->middleware('permission:kiosk_products.edit,kioskinvetario');
+        Route::post('/kiosk/products/unit/bulk-delete', 'bulkDelete')->middleware('permission:kiosk_products.edit,kioskinvetario');
     });
 
     Route::controller(\App\Http\Controllers\KioskInvoiceController::class)->group(function () {
@@ -227,5 +240,76 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::get('/kiosk/invoice-detail/{kioskInvoiceDetail}', 'show')->name('show')->middleware('permission:compras.list,kioskcaja');
         Route::put('/kiosk/invoice-detail/{kioskInvoiceDetail}', 'update')->name('update')->middleware('permission:compras.edit,kioskcaja');
         Route::delete('/kiosk/invoice-detail/{kioskInvoiceDetail}', 'destroy')->name('destroy')->middleware('permission:compras.edit,kioskcaja');
+    });
+
+    Route::controller(\App\Http\Controllers\CashRegisterClosureController::class)->group(function () {
+        Route::get('/cash-register/closure', 'index')->middleware('permission:caja.list,kioskcaja');
+        Route::get('/cash-register/closure/current', 'getCurrentClosure')->middleware('permission:caja.list,kioskcaja');
+        Route::get('/cash-register/closure/{cashRegisterClosure}', 'show')->middleware('permission:caja.list,kioskcaja');
+        Route::post('/cash-register/closure', 'store')->middleware('permission:caja.create,kioskcaja');
+        Route::put('/cash-register/closure/{cashRegisterClosure}', 'update')->middleware('permission:caja.edit,kioskcaja');
+        Route::post('/cash-register/closure/{cashRegisterClosure}/close', 'close')->middleware('permission:caja.close,kioskcaja');
+        Route::get('/cash-register/daily-report/{date}', 'getDailyReport')->middleware('permission:caja.report,kioskcaja');
+        Route::delete('/cash-register/closure/{cashRegisterClosure}', 'destroy')->middleware('permission:caja.delete,kioskcaja');
+    });
+
+    // =========================
+    // Módulo de Reservas
+    // Guard: reservas
+    // =========================
+    
+    // Rutas de clientes para el módulo de reservas (deben ir ANTES de las rutas de reservas)
+    Route::controller(\App\Http\Controllers\CustomerController::class)->group(function () {
+        Route::get('/reservations/customers', 'index')->middleware('permission:customer.list,reservas');
+        Route::get('/reservations/customers/{customer}', 'show')->middleware('permission:customer.view,reservas');
+        Route::post('/reservations/customers', 'store')->middleware('permission:customer.create,reservas');
+        Route::put('/reservations/customers/{customer}', 'update')->middleware('permission:customer.edit,reservas');
+        Route::delete('/reservations/customers/{customer}', 'destroy')->middleware('permission:customer.delete,reservas');
+    });
+
+    Route::controller(\App\Http\Controllers\ReservationController::class)->group(function () {
+        Route::get('/reservations', 'index')->middleware('permission:reservation.list,reservas');
+        Route::get('/reservations/availability', 'checkAvailability')->middleware('permission:reservation.list,reservas');
+        Route::get('/reservations/marketing/report', 'marketingReport')->middleware('permission:reservation.report,reservas');
+        Route::post('/reservations', 'store')->middleware('permission:reservation.create,reservas');
+        Route::get('/reservations/{reservation}', 'show')->middleware('permission:reservation.view,reservas');
+        Route::put('/reservations/{reservation}', 'update')->middleware('permission:reservation.edit,reservas');
+        Route::delete('/reservations/{reservation}', 'destroy')->middleware('permission:reservation.delete,reservas');
+        Route::post('/reservations/{reservation}/certificate', 'generateCertificate')->middleware('permission:reservation.view,reservas');
+        Route::get('/reservations/{reservation}/certificate/download', 'downloadCertificate')->middleware('permission:reservation.view,reservas');
+        Route::post('/reservations/{reservation}/resend-email', 'resendEmail')->middleware('permission:reservation.edit,reservas');
+    });
+
+    Route::controller(\App\Http\Controllers\ReservationGuestController::class)->group(function () {
+        Route::get('/reservations/{reservation}/guests', 'index')->middleware('permission:reservation.list,reservas');
+        Route::post('/reservations/{reservation}/guests', 'store')->middleware('permission:reservation.edit,reservas');
+        Route::put('/reservations/{reservation}/guests/{guest}', 'update')->middleware('permission:reservation.edit,reservas');
+        Route::delete('/reservations/{reservation}/guests/{guest}', 'destroy')->middleware('permission:reservation.edit,reservas');
+    });
+
+    Route::controller(\App\Http\Controllers\RoomController::class)->group(function () {
+        Route::get('/rooms', 'index')->middleware('permission:room.list,reservas');
+        Route::get('/rooms/{room}', 'show')->middleware('permission:room.view,reservas');
+        Route::post('/rooms', 'store')->middleware('permission:room.create,reservas');
+        Route::put('/rooms/{room}', 'update')->middleware('permission:room.edit,reservas');
+        Route::delete('/rooms/{room}', 'destroy')->middleware('permission:room.delete,reservas');
+    });
+
+    Route::controller(\App\Http\Controllers\RoomTypeController::class)->group(function () {
+        Route::get('/room-types', 'index')->middleware('permission:room_type.list,reservas');
+        Route::get('/room-types/{roomType}', 'show')->middleware('permission:room_type.view,reservas');
+        Route::post('/room-types', 'store')->middleware('permission:room_type.create,reservas');
+        Route::put('/room-types/{roomType}', 'update')->middleware('permission:room_type.edit,reservas');
+        Route::delete('/room-types/{roomType}', 'destroy')->middleware('permission:room_type.delete,reservas');
+    });
+
+    // Rutas de aforo de pasadía
+    Route::controller(\App\Http\Controllers\DayPassCapacityController::class)->group(function () {
+        Route::get('/day-pass-capacities', 'index')->middleware('permission:reservation.list,reservas');
+        Route::get('/day-pass-capacities/availability', 'checkAvailability')->middleware('permission:reservation.list,reservas');
+        Route::get('/day-pass-capacities/{dayPassCapacity}', 'show')->middleware('permission:reservation.list,reservas');
+        Route::post('/day-pass-capacities', 'store')->middleware('permission:reservation.edit,reservas');
+        Route::put('/day-pass-capacities/{dayPassCapacity}', 'update')->middleware('permission:reservation.edit,reservas');
+        Route::delete('/day-pass-capacities/{dayPassCapacity}', 'destroy')->middleware('permission:reservation.edit,reservas');
     });
 });

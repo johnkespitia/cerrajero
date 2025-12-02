@@ -2,245 +2,289 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\StoreUserRequest;
+use App\Http\Requests\UpdateUserRequest;
+use App\Models\User;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use \App\Models\User;
-use \Illuminate\Http\Response;
+use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Validator;
-use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
 
 /**
- * Class UserController
- *
- * @package App\Http\Controllers
+ * Controlador para gestión de usuarios
  */
 class UserController extends Controller
 {
     /**
-     * Login user
+     * Login de usuario
      *
      * @param Request $request
-     * @return \Illuminate\Http\JsonResponse
+     * @return JsonResponse
      */
-    public function apiLogin(Request $request){
+    public function apiLogin(Request $request): JsonResponse
+    {
+        $request->validate([
+            'email' => 'required|email',
+            'password' => 'required|string',
+        ]);
+
         $user = User::where('email', $request->email)->first();
+
         if (!$user || !Hash::check($request->password, $user->password)) {
-            return response('unauthorized', Response::HTTP_UNAUTHORIZED)
-                ->header('Content-Type', 'text/json');
+            return response()->json(
+                ['message' => 'Credenciales inválidas'],
+                Response::HTTP_UNAUTHORIZED
+            );
         }
+
+        if (!$user->active) {
+            return response()->json(
+                ['message' => 'Usuario inactivo'],
+                Response::HTTP_FORBIDDEN
+            );
+        }
+
         $token = $user->createToken($user->email);
-        return response(['token' => $token->plainTextToken], Response::HTTP_OK);
+        
+        return response()->json([
+            'token' => $token->plainTextToken,
+            'user' => $user->load('roles')
+        ], Response::HTTP_OK);
     }
 
     /**
-     * Save a new user
+     * Crear un nuevo usuario
      *
-     * @param Request $request
-     * @return \Illuminate\Http\JsonResponse
-     *
-     * @throws \Illuminate\Validation\ValidationException
+     * @param StoreUserRequest $request
+     * @return JsonResponse
      */
-    public function save(Request $request){
-        $validation = Validator::make($request->all(), [
-            'name' => 'required|string|max:255',
-            'email' => 'required|string|email|max:255|unique:users',
-            'password' => 'required|string|min:8|confirmed',
-            'rol' => 'required|exists:roles,id',
-            'active' => 'boolean',
-            'superior' => 'exists:users,id'
+    public function save(StoreUserRequest $request): JsonResponse
+    {
+        $user = User::create([
+            'name' => $request->name,
+            'email' => $request->email,
+            'password' => Hash::make($request->password),
+            'active' => $request->active ?? true,
         ]);
-        if ($validation->fails()) {
-            return response($validation->errors()->toArray(), Response::HTTP_UNPROCESSABLE_ENTITY);
+
+        // Asignar rol
+        if ($request->rol) {
+            $role = Role::findOrFail($request->rol);
+            $user->assignRole($role);
         }
-        // Crear un nuevo usuario
-        $user = new User();
-        $user->name = $request->name;
-        $user->email = $request->email;
-        $user->password = bcrypt($request->password);
-        $user->active = $request->active;
-        $user->save();
-        $rol = Role::find($request->rol);
-        $user->assignRole($rol);
-        if(!empty($request->superior)){
+
+        // Asignar superior
+        if ($request->superior) {
             $user->superior()->attach($request->superior);
         }
-        return response(['user' => $user], Response::HTTP_OK);
+
+        return response()->json([
+            'message' => 'Usuario creado exitosamente',
+            'user' => $user->load(['roles', 'superior'])
+        ], Response::HTTP_CREATED);
     }
 
     /**
-     * Update a user
+     * Actualizar un usuario
      *
-     * @param Request $request
+     * @param UpdateUserRequest $request
      * @param User $user
-     * @return \Illuminate\Http\JsonResponse
-     *
-     * @throws \Illuminate\Validation\ValidationException
+     * @return JsonResponse
      */
-    public function update(Request $request, User $user){
-        $validation = Validator::make($request->all(), [
-            'name' => 'string|max:255',
-            'email' => 'string|email|max:255|unique:users,email,'.$user->id,
-            'password' => 'string|min:8|confirmed',
-            'rol' => 'sometimes|exists:roles,id',
-            'active' => 'boolean',
-            'superior' => 'sometimes|exists:users,id'
-        ]);
-        if ($validation->fails()) {
-            return response($validation->errors()->toArray(), Response::HTTP_UNPROCESSABLE_ENTITY);
+    public function update(UpdateUserRequest $request, User $user): JsonResponse
+    {
+        $user->name = $request->name ?? $user->name;
+        $user->email = $request->email ?? $user->email;
+        
+        if ($request->filled('password')) {
+            $user->password = Hash::make($request->password);
         }
-        $user->name = $request->name??$user->name;
-        $user->email = $request->email??$user->email;
-        $user->password = bcrypt($request->password)??$user->password;
-        $user->active = $request->active??$user->active;
+        
+        if ($request->has('active')) {
+            $user->active = $request->active;
+        }
+        
         $user->save();
-        if(!empty($request->rol)){
-            $user->assignRole(Role::find($request->rol));
+
+        // Actualizar rol
+        if ($request->has('rol')) {
+            if ($request->rol) {
+                $role = Role::findOrFail($request->rol);
+                $user->syncRoles([$role]);
+            } else {
+                $user->syncRoles([]);
+            }
         }
-        if(!empty($request->superior)){
-            $user->superior()->sync([$request->superior]);
+
+        // Actualizar superior
+        if ($request->has('superior')) {
+            if ($request->superior) {
+                $user->superior()->sync([$request->superior]);
+            } else {
+                $user->superior()->detach();
+            }
         }
-        return response(['user' => $user], Response::HTTP_OK);
+
+        return response()->json([
+            'message' => 'Usuario actualizado exitosamente',
+            'user' => $user->load(['roles', 'superior', 'dependency'])
+        ], Response::HTTP_OK);
     }
 
     /**
-     * List all users
+     * Listar todos los usuarios
      *
      * @param Request $request
-     * @return \Illuminate\Http\JsonResponse
+     * @return JsonResponse
      */
-    public function list(Request $request){
+    public function list(Request $request): JsonResponse
+    {
+        $users = User::with(['roles.permissions', 'superior', 'dependency'])
+            ->get();
 
-        $users = User::with("roles")->with("superior")->get();
-        return response($users, Response::HTTP_OK);
+        return response()->json($users, Response::HTTP_OK);
     }
 
     /**
-     * Show a user
+     * Mostrar un usuario específico
      *
      * @param User $user
-     * @return \Illuminate\Http\JsonResponse
+     * @return JsonResponse
      */
-    public function show(User $user){
-        $roles = $user->roles;
-        foreach ($roles as $r){
-            $r->permissions;
-        }
-        $user->permissions;
-        $user->superior;
-        $user->dependency;
-        return response($user, Response::HTTP_OK);
+    public function show(User $user): JsonResponse
+    {
+        $user->load([
+            'roles.permissions',
+            'permissions',
+            'superior',
+            'dependency'
+        ]);
+
+        return response()->json($user, Response::HTTP_OK);
     }
 
     /**
-     * Get user data
+     * Obtener datos del usuario autenticado
      *
      * @param Request $request
-     * @return \Illuminate\Http\JsonResponse
+     * @return JsonResponse
      */
-    public function mydata(Request $request){
+    public function mydata(Request $request): JsonResponse
+    {
         $user = $request->user();
-        $roles = $user->roles;
-        foreach ($roles as $r){
-            $r->permissions;
-        }
-        $user->permissions;
-        $user->superior;
-        $user->dependency;
-        return response($user, Response::HTTP_OK);
-    }
-
-    /**
-     * Assign a role to a user
-     *
-     * @param Request $request
-     * @param User $user
-     * @return \Illuminate\Http\JsonResponse
-     *
-     * @throws \Illuminate\Validation\ValidationException
-     */
-    public function assignRole(Request $request, User $user){
-        $validation = Validator::make($request->all(), [
-            'rol' => 'required|exists:roles,id',
+        $user->load([
+            'roles.permissions',
+            'permissions',
+            'superior',
+            'dependency'
         ]);
-        if ($validation->fails()) {
-            return response($validation->errors()->toArray(), Response::HTTP_UNPROCESSABLE_ENTITY);
-        }
-        $rol = Role::find($request->rol);
-        $user->assignRole($rol);
-        $user->roles;
-        $user->superior;
-        return response($user, Response::HTTP_OK);
+
+        return response()->json($user, Response::HTTP_OK);
     }
 
     /**
-     * Assign a role to a user
+     * Asignar un rol a un usuario
      *
      * @param Request $request
      * @param User $user
-     * @return \Illuminate\Http\JsonResponse
-     *
-     * @throws \Illuminate\Validation\ValidationException
+     * @return JsonResponse
      */
-    public function assignSuperior(Request $request, User $user){
-        $validation = Validator::make($request->all(), [
-            'superior' => 'required|exists:users,id',
+    public function assignRole(Request $request, User $user): JsonResponse
+    {
+        $request->validate([
+            'rol' => ['required', 'exists:roles,id'],
         ]);
-        if ($validation->fails()) {
-            return response($validation->errors()->toArray(), Response::HTTP_UNPROCESSABLE_ENTITY);
-        }
-        $user->superior()->attach($request->superior);
-        $user->roles;
-        $user->superior;
-        return response($user, Response::HTTP_OK);
+
+        $role = Role::findOrFail($request->rol);
+        $user->assignRole($role);
+
+        return response()->json([
+            'message' => 'Rol asignado exitosamente',
+            'user' => $user->load(['roles', 'superior'])
+        ], Response::HTTP_OK);
     }
 
     /**
-     * Remove a role from a user
+     * Remover un rol de un usuario
      *
      * @param Request $request
      * @param User $user
-     * @return \Illuminate\Http\JsonResponse
-     *
-     * @throws \Illuminate\Validation\ValidationException
+     * @param int $rol
+     * @return JsonResponse
      */
-    public function removeRole(Request $request,User $user, $rol){
-        $rol = Role::find($rol);
-        $user->removeRole($rol);
-        $user->roles;
-        $user->superior;
-        return response($user, Response::HTTP_OK);
+    public function removeRole(Request $request, User $user, int $rol): JsonResponse
+    {
+        $role = Role::findOrFail($rol);
+        $user->removeRole($role);
 
+        return response()->json([
+            'message' => 'Rol removido exitosamente',
+            'user' => $user->load(['roles', 'superior'])
+        ], Response::HTTP_OK);
     }
-/**
-     * Remove a role from a user
+
+    /**
+     * Asignar un superior a un usuario
      *
      * @param Request $request
      * @param User $user
-     * @return \Illuminate\Http\JsonResponse
-     *
-     * @throws \Illuminate\Validation\ValidationException
+     * @return JsonResponse
      */
-    public function removeSuperior(Request $request,User $user, $superior){
+    public function assignSuperior(Request $request, User $user): JsonResponse
+    {
+        $request->validate([
+            'superior' => ['required', 'exists:users,id'],
+        ]);
+
+        $user->superior()->syncWithoutDetaching([$request->superior]);
+
+        return response()->json([
+            'message' => 'Superior asignado exitosamente',
+            'user' => $user->load(['roles', 'superior'])
+        ], Response::HTTP_OK);
+    }
+
+    /**
+     * Remover un superior de un usuario
+     *
+     * @param Request $request
+     * @param User $user
+     * @param int $superior
+     * @return JsonResponse
+     */
+    public function removeSuperior(Request $request, User $user, int $superior): JsonResponse
+    {
         $user->superior()->detach($superior);
-        $user->roles;
-        $user->superior;
-        return response($user, Response::HTTP_OK);
 
+        return response()->json([
+            'message' => 'Superior removido exitosamente',
+            'user' => $user->load(['roles', 'superior'])
+        ], Response::HTTP_OK);
     }
 
     /**
-     * Check if user have permission
+     * Verificar si el usuario tiene un permiso específico
      *
      * @param Request $request
      * @param string $guard
      * @param string $permission
-     * @return \Illuminate\Http\JsonResponse
+     * @return JsonResponse
      */
-    public function cani(Request $request, $guard, $permission){
-        if($request->user()->hasPermissionTo($permission, $guard)){
-            return response(["message"=>"you can to do {$permission}"], Response::HTTP_OK);
+    public function cani(Request $request, string $guard, string $permission): JsonResponse
+    {
+        $hasPermission = $request->user()->hasPermissionTo($permission, $guard);
+
+        if ($hasPermission) {
+            return response()->json([
+                'message' => "Tienes permiso para: {$permission}",
+                'has_permission' => true
+            ], Response::HTTP_OK);
         }
-        return response(["message"=>"you can not to do {$permission}"], Response::HTTP_UNAUTHORIZED);
+
+        return response()->json([
+            'message' => "No tienes permiso para: {$permission}",
+            'has_permission' => false
+        ], Response::HTTP_FORBIDDEN);
     }
 }

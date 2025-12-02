@@ -16,7 +16,8 @@ class KioskInvoice extends Model
         'payment_type_id',
         'payed_value',
         'remain_money',
-        'electronic_invoice'
+        'electronic_invoice',
+        'closure_id'
     ];
 
     public function customer()
@@ -30,5 +31,10 @@ class KioskInvoice extends Model
     public function details()
     {
         return $this->hasMany(KioskInvoiceDetail::class, 'kiosk_invoices_id');
+    }
+
+    public function closure()
+    {
+        return $this->belongsTo(CashRegisterClosure::class, 'closure_id');
     }
 }

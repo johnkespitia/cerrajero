@@ -3,12 +3,15 @@
 namespace App\Http\Controllers;
 
 use App\Models\KioskInvoice;
+use App\Models\PaymentType;
 use App\Models\KioskUnit;
 use App\Models\KioskInvoiceDetail;
+use App\Models\CashRegisterClosure;
 use Illuminate\Http\Request;
 use App\Http\Controllers\Controller;
 use Illuminate\Validation\ValidationException;
 use Illuminate\Support\Facades\Log;
+use Carbon\Carbon;
 
 
 class KioskInvoiceController extends Controller
@@ -29,7 +32,6 @@ class KioskInvoiceController extends Controller
         try{
             $request->validate([
                 'customer_id' => 'required|exists:customers,id',
-                'payed' => 'required|boolean',
                 'payment_code' => 'required',
                 'payment_type_id' => 'required|exists:payment_types,id',
                 'units'=> 'required|array',
@@ -38,7 +40,10 @@ class KioskInvoiceController extends Controller
                 'electronic_invoice' => 'required|boolean',
                 'payed_value' => 'numeric'
             ]);
-            $kioskInvoice = KioskInvoice::create($request->all());
+            $requestBody = $request->all();
+            $paymentType = PaymentType::find($requestBody['payment_type_id']);
+            $requestBody['payed'] = !$paymentType->credit;
+            $kioskInvoice = KioskInvoice::create($requestBody);
             $units = $request->get("units");
             $total_invoice = 0;
             foreach ($units as $key => $unit) {
@@ -53,6 +58,21 @@ class KioskInvoiceController extends Controller
                 $kioskInvoice->remain_money = $kioskInvoice->payed_value - $total_invoice;
                 $kioskInvoice->save();
             }
+
+            // Asignar a cierre de caja abierto del día
+            $user = $request->user();
+            $today = Carbon::today();
+
+            $closure = CashRegisterClosure::where('user_id', $user->id)
+                ->whereDate('closure_date', $today)
+                ->where('closed', false)
+                ->first();
+
+            if ($closure) {
+                $kioskInvoice->closure_id = $closure->id;
+                $kioskInvoice->save();
+            }
+
             $kioskInvoice->details;
             $kioskInvoice->payment_type;
             $kioskInvoice->customer;

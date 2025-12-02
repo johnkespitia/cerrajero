@@ -44,10 +44,42 @@ return [
             'driver' => 'sanctum',
             'provider' => 'users',
         ],
+        'cerrajero' => [
+            'driver' => 'sanctum',
+            'provider' => 'users',
+        ],
         'usuarios' => [
             'driver' => 'sanctum',
             'provider' => 'users',
-        ]
+        ],
+        'restbodega' => [
+            'driver' => 'sanctum',
+            'provider' => 'users',
+        ],
+        'restcocina' => [
+            'driver' => 'sanctum',
+            'provider' => 'users',
+        ],
+        'restcaja' => [
+            'driver' => 'sanctum',
+            'provider' => 'users',
+        ],
+        'kioskinvetario' => [
+            'driver' => 'sanctum',
+            'provider' => 'users',
+        ],
+        'kioskcaja' => [
+            'driver' => 'sanctum',
+            'provider' => 'users',
+        ],
+        'clientes' => [
+            'driver' => 'sanctum',
+            'provider' => 'users',
+        ],
+        'reservas' => [
+            'driver' => 'sanctum',
+            'provider' => 'users',
+        ],
     ],
 
     /*
