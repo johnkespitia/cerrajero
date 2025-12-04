@@ -5,6 +5,8 @@ namespace App\Http\Controllers;
 use App\Models\DayPassCapacity;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\Rule;
 use Carbon\Carbon;
 
@@ -28,7 +30,13 @@ class DayPassCapacityController extends Controller
         // Ordenar por fecha descendente
         $query->orderBy('date', 'desc');
 
-        return response()->json($query->get());
+        // Formatear fechas como Y-m-d para evitar problemas de timezone
+        $capacities = $query->get()->map(function ($capacity) {
+            $capacity->date = $capacity->date ? $capacity->date->format('Y-m-d') : null;
+            return $capacity;
+        });
+
+        return response()->json($capacities);
     }
 
     /**
@@ -36,8 +44,69 @@ class DayPassCapacityController extends Controller
      */
     public function store(Request $request)
     {
-        $validator = Validator::make($request->all(), [
-            'date' => 'required|date|unique:day_pass_capacities,date',
+        // Normalizar la fecha a formato Y-m-d (solo fecha, sin hora ni timezone)
+        // Esto evita problemas de timezone al comparar fechas
+        $normalizedDate = null;
+        if ($request->has('date') && $request->date) {
+            try {
+                // Si ya viene en formato Y-m-d, usarlo directamente
+                if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $request->date)) {
+                    $normalizedDate = $request->date;
+                } else {
+                    // Parsear la fecha y normalizarla a Y-m-d (solo fecha, sin hora)
+                    $normalizedDate = Carbon::parse($request->date)->startOfDay()->format('Y-m-d');
+                }
+            } catch (\Exception $e) {
+                \Log::error('Error parsing date in DayPassCapacity store: ' . $e->getMessage(), [
+                    'request_date' => $request->date,
+                    'exception' => $e
+                ]);
+                return response()->json([
+                    'date' => ['La fecha proporcionada no es válida.']
+                ], 422);
+            }
+        }
+
+        if (!$normalizedDate) {
+            return response()->json([
+                'date' => ['La fecha es requerida.']
+            ], 422);
+        }
+
+        // Verificar manualmente si la fecha ya existe usando múltiples métodos
+        // 1. whereDate (ignora hora y timezone) - método más robusto
+        $existingCapacity = DayPassCapacity::whereDate('date', $normalizedDate)->first();
+        
+        // 2. Si no encuentra, verificar con formato exacto (por si acaso)
+        if (!$existingCapacity) {
+            $existingCapacity = DayPassCapacity::whereRaw('DATE(date) = ?', [$normalizedDate])->first();
+        }
+        
+        if ($existingCapacity) {
+            // Log para debug
+            \Log::warning('Attempted to create duplicate DayPassCapacity', [
+                'requested_date' => $normalizedDate,
+                'request_raw_date' => $request->date,
+                'existing_id' => $existingCapacity->id,
+                'existing_date' => $existingCapacity->date,
+                'existing_date_formatted' => $existingCapacity->date ? $existingCapacity->date->format('Y-m-d') : null
+            ]);
+            
+            return response()->json([
+                'date' => ['La fecha ' . $normalizedDate . ' ya ha sido registrada.']
+            ], 422);
+        }
+
+        // Validar otros campos (sin validar unique en date, ya lo hicimos manualmente)
+        $validator = Validator::make([
+            'date' => $normalizedDate,
+            'max_capacity' => $request->max_capacity,
+            'consumed_capacity' => $request->consumed_capacity,
+            'adult_price' => $request->adult_price,
+            'child_price' => $request->child_price,
+            'notes' => $request->notes,
+        ], [
+            'date' => 'required|date',
             'max_capacity' => 'required|integer|min:0',
             'consumed_capacity' => 'integer|min:0',
             'adult_price' => 'required|numeric|min:0',
@@ -49,7 +118,13 @@ class DayPassCapacityController extends Controller
             return response()->json($validator->errors(), 422);
         }
 
-        $capacity = DayPassCapacity::create($request->all());
+        // Crear con la fecha normalizada
+        $data = $request->all();
+        $data['date'] = $normalizedDate;
+        $capacity = DayPassCapacity::create($data);
+
+        // Formatear la fecha en la respuesta para evitar problemas de timezone
+        $capacity->date = $capacity->date ? $capacity->date->format('Y-m-d') : null;
 
         return response()->json($capacity, 201);
     }
@@ -95,6 +170,12 @@ class DayPassCapacityController extends Controller
         ]);
 
         $dayPassCapacity->update($data);
+        
+        // Recargar para obtener datos actualizados
+        $dayPassCapacity->refresh();
+        
+        // Formatear la fecha en la respuesta para evitar problemas de timezone
+        $dayPassCapacity->date = $dayPassCapacity->date ? $dayPassCapacity->date->format('Y-m-d') : null;
 
         return response()->json($dayPassCapacity);
     }

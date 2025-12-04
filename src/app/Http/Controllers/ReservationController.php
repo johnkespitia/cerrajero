@@ -5,9 +5,15 @@ namespace App\Http\Controllers;
 use App\Models\Reservation;
 use App\Models\Room;
 use App\Models\RoomType;
+use App\Models\ReservationPayment;
+use App\Models\ReservationSetting;
 use App\Services\GoogleCalendarService;
 use App\Services\ReservationCertificateService;
 use App\Services\ReservationEmailService;
+use App\Services\ReservationPriceCalculator;
+use App\Services\ReservationAuditService;
+use App\Services\ReservationValidationService;
+use App\Services\ReservationNotificationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
@@ -18,20 +24,32 @@ class ReservationController extends Controller
     protected $googleCalendarService;
     protected $certificateService;
     protected $emailService;
+    protected $priceCalculator;
+    protected $auditService;
+    protected $validationService;
+    protected $notificationService;
 
     public function __construct(
         GoogleCalendarService $googleCalendarService,
         ReservationCertificateService $certificateService,
-        ReservationEmailService $emailService
+        ReservationEmailService $emailService,
+        ReservationPriceCalculator $priceCalculator,
+        ReservationAuditService $auditService,
+        ReservationValidationService $validationService,
+        ReservationNotificationService $notificationService
     ) {
         $this->googleCalendarService = $googleCalendarService;
         $this->certificateService = $certificateService;
         $this->emailService = $emailService;
+        $this->priceCalculator = $priceCalculator;
+        $this->auditService = $auditService;
+        $this->validationService = $validationService;
+        $this->notificationService = $notificationService;
     }
 
     public function index(Request $request)
     {
-        $query = Reservation::with([
+        $with = [
             'customer',
             'room',
             'room.roomType',
@@ -39,7 +57,14 @@ class ReservationController extends Controller
             'guests',
             'childReservations',
             'parentReservation'
-        ]);
+        ];
+
+        // Incluir pagos si se solicita
+        if ($request->has('include') && str_contains($request->include, 'payments')) {
+            $with[] = 'payments';
+        }
+
+        $query = Reservation::with($with);
 
         if ($request->has('status')) {
             $query->where('status', $request->status);
@@ -80,7 +105,10 @@ class ReservationController extends Controller
             'guests',
             'createdBy',
             'childReservations',
-            'parentReservation'
+            'parentReservation',
+            'payments',
+            'audits.user',
+            'promotion'
         ]);
 
         return response()->json($reservation);
@@ -456,39 +484,42 @@ class ReservationController extends Controller
                 }
             }
 
-            // Calcular total automáticamente si no se envía
+            // Calcular precio usando el servicio mejorado
             $chargeableGuests = $request->adults + ($request->children ?? 0);
-            $computedTotal = 0;
             
-            if ($request->reservation_type === 'day_pass') {
-                // Para pasadía, calcular según precios del día
-                $dayPassCapacity = \App\Models\DayPassCapacity::getOrCreateForDate($request->check_in_date, 0, 0, 0);
-                $adults = $request->adults ?? 1;
-                $children = $request->children ?? 0;
-                $computedTotal = $dayPassCapacity->calculatePrice($adults, $children);
-            } else {
-                // Para habitaciones: total = (adultos + niños) * precio_por_persona_por_noche * noches
-                $nights = 1;
-                if ($request->check_out_date) {
-                    $nights = Carbon::parse($request->check_in_date)
-                        ->diffInDays(Carbon::parse($request->check_out_date)) ?: 1;
-                }
-
-                $perPersonPrice = 0;
-                if ($request->room_id) {
-                    $roomForPrice = isset($room) ? $room : Room::find($request->room_id);
-                    $perPersonPrice = $roomForPrice ? $roomForPrice->room_price : 0;
-                } elseif ($request->room_type_id) {
-                    $roomTypeForPrice = RoomType::find($request->room_type_id);
-                    $perPersonPrice = $roomTypeForPrice && $roomTypeForPrice->base_price !== null
-                        ? $roomTypeForPrice->base_price
-                        : 0;
-                }
-
-                $computedTotal = $perPersonPrice * $chargeableGuests * $nights;
+            // Crear reserva temporal para calcular precio
+            $tempReservation = new Reservation([
+                'reservation_type' => $request->reservation_type,
+                'check_in_date' => $request->check_in_date,
+                'check_out_date' => $request->check_out_date,
+                'adults' => $request->adults,
+                'children' => $request->children ?? 0,
+                'infants' => $request->infants ?? 0,
+                'extra_beds' => $request->extra_beds ?? 0,
+                'promotion_code' => $request->promotion_code,
+                'discount_amount' => $request->discount_amount ?? 0,
+                'early_check_in' => $request->early_check_in ?? false,
+                'late_check_out' => $request->late_check_out ?? false,
+                'early_check_in_fee' => $request->early_check_in_fee ?? 0,
+                'late_check_out_fee' => $request->late_check_out_fee ?? 0,
+            ]);
+            
+            if ($request->room_id) {
+                $tempReservation->room_id = $request->room_id;
+                $tempReservation->setRelation('room', isset($room) ? $room : Room::find($request->room_id));
+            } elseif ($request->room_type_id) {
+                $tempReservation->room_type_id = $request->room_type_id;
+                $tempReservation->setRelation('roomType', RoomType::find($request->room_type_id));
             }
+
+            $priceCalculation = $this->priceCalculator->calculatePrice($tempReservation);
+            $calculatedPrice = $priceCalculation['calculated_price'];
+            $priceBreakdown = $priceCalculation['price_breakdown'];
             
-            $totalPrice = $request->total_price !== null ? $request->total_price : $computedTotal;
+            // Usar precio manual si se proporciona y hay override, sino usar el calculado
+            $totalPrice = ($request->manual_price_override && $request->total_price !== null) 
+                ? $request->total_price 
+                : $calculatedPrice;
 
             $reservation = Reservation::create([
                 'customer_id' => $request->customer_id,
@@ -500,13 +531,26 @@ class ReservationController extends Controller
                 'adults' => $request->adults,
                 'children' => $request->children ?? 0,
                 'infants' => $request->infants ?? 0,
+                'extra_beds' => $request->extra_beds ?? 0,
                 'total_price' => $totalPrice,
+                'calculated_price' => $calculatedPrice,
+                'manual_price_override' => $request->manual_price_override ?? false,
+                'price_breakdown' => $priceBreakdown,
+                'promotion_code' => $request->promotion_code,
+                'discount_amount' => $request->discount_amount ?? 0,
+                'final_price' => $calculatedPrice - ($request->discount_amount ?? 0),
                 'deposit_amount' => $request->deposit_amount ?? 0,
                 'special_requests' => $request->special_requests,
                 'status' => 'confirmed',
                 'payment_status' => $request->payment_status ?? 'pending',
                 'free_reservation_reason' => $request->free_reservation_reason,
                 'free_reservation_reference' => $request->free_reservation_reference,
+                'early_check_in' => $request->early_check_in ?? false,
+                'late_check_out' => $request->late_check_out ?? false,
+                'early_check_in_fee' => $request->early_check_in_fee ?? 0,
+                'late_check_out_fee' => $request->late_check_out_fee ?? 0,
+                'scheduled_check_in_time' => $request->scheduled_check_in_time,
+                'scheduled_check_out_time' => $request->scheduled_check_out_time,
                 'created_by' => $request->user()->id ?? null,
                 'contact_channel' => $request->contact_channel,
                 'referral_source' => $request->referral_source,
@@ -515,6 +559,9 @@ class ReservationController extends Controller
                 'tracking_code' => $request->tracking_code,
                 'marketing_notes' => $request->marketing_notes,
             ]);
+
+            // Registrar auditoría de creación
+            $this->auditService->logCreation($reservation, $request);
 
             // Actualizar aforo de pasadía si es una reserva de pasadía
             if ($request->reservation_type === 'day_pass') {
@@ -569,6 +616,19 @@ class ReservationController extends Controller
 
     public function update(Request $request, Reservation $reservation)
     {
+        // Restricción: No se puede editar una reserva en estado checked_in o checked_out
+        if ($reservation->status === 'checked_in') {
+            return response()->json([
+                'message' => 'No se puede editar una reserva que ya tiene check-in realizado. Debe hacer check-out primero.'
+            ], 403);
+        }
+
+        if ($reservation->status === 'checked_out') {
+            return response()->json([
+                'message' => 'No se puede editar una reserva que ya tiene check-out realizado.'
+            ], 403);
+        }
+
         // Ajustar check_out_date para pasadía antes de validar
         if ($reservation->reservation_type === 'day_pass' && $request->has('check_in_date')) {
             $request->merge(['check_out_date' => $request->check_in_date]);
@@ -689,13 +749,38 @@ class ReservationController extends Controller
                 }
             }
 
-            $reservation->update($request->only([
+            $oldValues = $reservation->toArray();
+            
+            // Detectar cambios en fechas o número de personas (excepto bebés)
+            $dateOrPeopleChanged = false;
+            if ($request->has('check_in_date') && $request->check_in_date != $reservation->check_in_date) {
+                $dateOrPeopleChanged = true;
+            }
+            if ($request->has('check_out_date') && $request->check_out_date != $reservation->check_out_date) {
+                $dateOrPeopleChanged = true;
+            }
+            if ($request->has('adults') && $request->adults != $reservation->adults) {
+                $dateOrPeopleChanged = true;
+            }
+            if ($request->has('children') && $request->children != $reservation->children) {
+                $dateOrPeopleChanged = true;
+            }
+            // Nota: cambios en infants no cuentan para esta validación
+            
+            // Si cambió fecha o personas y la reserva está pagada, recalcular precio
+            $shouldRecalculatePrice = false;
+            if ($dateOrPeopleChanged && $reservation->payment_status === 'paid') {
+                $shouldRecalculatePrice = true;
+            }
+            
+            $updateData = $request->only([
                 'room_id',
                 'check_in_date',
                 'check_out_date',
                 'adults',
                 'children',
                 'infants',
+                'extra_beds',
                 'total_price',
                 'status',
                 'payment_status',
@@ -706,8 +791,94 @@ class ReservationController extends Controller
                 'social_media_platform',
                 'campaign_name',
                 'tracking_code',
-                'marketing_notes'
-            ]));
+                'marketing_notes',
+                'promotion_code',
+                'discount_amount',
+                'early_check_in',
+                'late_check_out',
+                'early_check_in_fee',
+                'late_check_out_fee',
+            ]);
+
+            // No permitir cancelar si está en checked_in o checked_out
+            if (isset($updateData['status']) && $updateData['status'] === 'cancelled') {
+                if ($reservation->status === 'checked_in') {
+                    DB::rollBack();
+                    return response()->json([
+                        'message' => 'No se puede cancelar una reserva que ya tiene check-in realizado. Debe hacer check-out primero.'
+                    ], 403);
+                }
+                if ($reservation->status === 'checked_out') {
+                    DB::rollBack();
+                    return response()->json([
+                        'message' => 'No se puede cancelar una reserva que ya tiene check-out realizado.'
+                    ], 403);
+                }
+            }
+            
+            // Si cambió fecha o personas y está pagada, recalcular precio y ajustar estado de pago
+            if ($shouldRecalculatePrice) {
+                // Crear reserva temporal con los nuevos valores para calcular precio
+                $tempReservation = $reservation->replicate();
+                $tempReservation->check_in_date = $updateData['check_in_date'] ?? $reservation->check_in_date;
+                $tempReservation->check_out_date = $updateData['check_out_date'] ?? $reservation->check_out_date;
+                $tempReservation->adults = $updateData['adults'] ?? $reservation->adults;
+                $tempReservation->children = $updateData['children'] ?? $reservation->children;
+                $tempReservation->infants = $updateData['infants'] ?? $reservation->infants;
+                $tempReservation->extra_beds = $updateData['extra_beds'] ?? $reservation->extra_beds;
+                $tempReservation->room_id = $updateData['room_id'] ?? $reservation->room_id;
+                $tempReservation->room_type_id = $reservation->room_type_id;
+                
+                // Cargar relaciones necesarias
+                if ($tempReservation->room_id) {
+                    $tempReservation->setRelation('room', Room::find($tempReservation->room_id));
+                }
+                if ($tempReservation->room_type_id) {
+                    $tempReservation->setRelation('roomType', RoomType::find($tempReservation->room_type_id));
+                }
+                
+                // Recalcular precio
+                $priceCalculation = $this->priceCalculator->calculatePrice($tempReservation);
+                $newCalculatedPrice = $priceCalculation['calculated_price'];
+                $newFinalPrice = $newCalculatedPrice - ($updateData['discount_amount'] ?? $reservation->discount_amount ?? 0);
+                
+                // Actualizar precio en updateData
+                $updateData['calculated_price'] = $newCalculatedPrice;
+                $updateData['price_breakdown'] = $priceCalculation['price_breakdown'];
+                $updateData['total_price'] = $newCalculatedPrice;
+                $updateData['final_price'] = $newFinalPrice;
+                
+                // Calcular total pagado
+                $totalPaid = $reservation->payments()->sum('amount');
+                
+                // Si el nuevo precio es mayor a lo pagado, cambiar estado de pago
+                if ($newFinalPrice > $totalPaid) {
+                    if ($totalPaid > 0) {
+                        $updateData['payment_status'] = 'partial';
+                    } else {
+                        $updateData['payment_status'] = 'pending';
+                    }
+                } elseif ($newFinalPrice <= $totalPaid) {
+                    // Si el nuevo precio es menor o igual a lo pagado, mantener como pagado
+                    $updateData['payment_status'] = 'paid';
+                }
+            }
+
+            // Si cambió el status, registrar auditoría especial
+            if (isset($updateData['status']) && $updateData['status'] !== $reservation->status) {
+                $this->auditService->logStatusChange(
+                    $reservation,
+                    $reservation->status,
+                    $updateData['status'],
+                    null,
+                    $request
+                );
+            }
+
+            $reservation->update($updateData);
+
+            // Registrar auditoría de actualización
+            $this->auditService->logUpdate($reservation, $oldValues, $updateData, $request);
 
             if ($reservation->google_calendar_event_id) {
                 try {
@@ -853,6 +1024,23 @@ class ReservationController extends Controller
         return \Storage::download($path, $filename);
     }
 
+    /**
+     * Descargar certificado de checkout
+     */
+    public function downloadCheckoutCertificate(Reservation $reservation)
+    {
+        $path = $this->certificateService->getCheckoutCertificatePath($reservation);
+
+        if (!\Storage::exists($path)) {
+            $this->certificateService->generateCheckoutCertificate($reservation);
+            $path = $this->certificateService->getCheckoutCertificatePath($reservation);
+        }
+
+        $filename = "checkout-{$reservation->reservation_number}.pdf";
+        
+        return \Storage::download($path, $filename);
+    }
+
     public function resendEmail(Reservation $reservation)
     {
         try {
@@ -861,6 +1049,34 @@ class ReservationController extends Controller
         } catch (\Exception $e) {
             return response()->json([
                 'message' => 'Error al enviar el email',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Reenviar certificado de checkout por email
+     */
+    public function resendCheckoutEmail(Reservation $reservation)
+    {
+        // Validar que la reserva tenga checkout realizado
+        if ($reservation->status !== 'checked_out') {
+            return response()->json([
+                'message' => 'Solo se puede reenviar el certificado de checkout para reservas con check-out realizado.'
+            ], 422);
+        }
+
+        try {
+            // Generar o obtener el certificado de checkout
+            $checkoutCertificate = $this->certificateService->generateCheckoutCertificate($reservation);
+            
+            // Enviar email con el certificado
+            $this->emailService->sendCheckoutConfirmation($reservation, $checkoutCertificate);
+            
+            return response()->json(['message' => 'Certificado de checkout enviado exitosamente']);
+        } catch (\Exception $e) {
+            return response()->json([
+                'message' => 'Error al enviar el certificado de checkout',
                 'error' => $e->getMessage()
             ], 500);
         }
@@ -939,6 +1155,26 @@ class ReservationController extends Controller
 
     public function destroy(Reservation $reservation)
     {
+        // Restricción: No se puede eliminar una reserva en estado checked_in o checked_out
+        if ($reservation->status === 'checked_in') {
+            return response()->json([
+                'message' => 'No se puede eliminar una reserva que ya tiene check-in realizado. Debe hacer check-out primero.'
+            ], 403);
+        }
+
+        if ($reservation->status === 'checked_out') {
+            return response()->json([
+                'message' => 'No se puede eliminar una reserva que ya tiene check-out realizado.'
+            ], 403);
+        }
+
+        // Restricción: No se puede eliminar una reserva pagada
+        if ($reservation->payment_status === 'paid') {
+            return response()->json([
+                'message' => 'No se puede eliminar una reserva que ya está pagada.'
+            ], 403);
+        }
+
         DB::beginTransaction();
         try {
             // Si es una reserva de pasadía, liberar el aforo
@@ -958,6 +1194,9 @@ class ReservationController extends Controller
                 }
             }
 
+            // Registrar auditoría antes de eliminar
+            $this->auditService->log('deleted', $reservation, $reservation->toArray(), null, 'Reserva eliminada', auth()->id(), request());
+
             $reservation->delete();
 
             DB::commit();
@@ -970,6 +1209,739 @@ class ReservationController extends Controller
                 'error' => $e->getMessage()
             ], 500);
         }
+    }
+
+    /**
+     * Agregar pago a una reserva
+     */
+    public function addPayment(Request $request, Reservation $reservation)
+    {
+        $validator = Validator::make($request->all(), [
+            'amount' => 'required|numeric|min:0.01',
+            'concept' => 'nullable|string|max:200',
+            'payment_method' => 'required|in:cash,card,transfer,check,other',
+            'payment_reference' => 'nullable|string|max:200',
+            'notes' => 'nullable|string|max:1000',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json($validator->errors(), 422);
+        }
+
+        DB::beginTransaction();
+        try {
+            // Calcular total ya pagado
+            $totalPaid = $reservation->payments()->sum('amount');
+            $finalPrice = $reservation->final_price ?? $reservation->total_price;
+            $remainingBalance = max(0, $finalPrice - $totalPaid);
+
+            // Validar que el pago no exceda el saldo pendiente
+            if ($request->amount > $remainingBalance) {
+                return response()->json([
+                    'message' => "El monto del pago ({$request->amount}) excede el saldo pendiente ({$remainingBalance}). El total de la reserva es {$finalPrice} y ya se han pagado {$totalPaid}.",
+                    'total_price' => $finalPrice,
+                    'total_paid' => $totalPaid,
+                    'remaining_balance' => $remainingBalance,
+                    'payment_amount' => $request->amount
+                ], 422);
+            }
+
+            $payment = ReservationPayment::create([
+                'reservation_id' => $reservation->id,
+                'amount' => $request->amount,
+                'concept' => $request->concept,
+                'payment_method' => $request->payment_method,
+                'payment_reference' => $request->payment_reference,
+                'notes' => $request->notes,
+                'created_by' => auth()->id(),
+            ]);
+
+            // Actualizar estado de pago de la reserva
+            $newTotalPaid = $reservation->payments()->sum('amount');
+
+            if ($newTotalPaid >= $finalPrice) {
+                $reservation->payment_status = 'paid';
+            } elseif ($newTotalPaid > 0) {
+                $reservation->payment_status = 'partial';
+            }
+
+            $reservation->save();
+
+            // Registrar auditoría
+            $this->auditService->logPayment($reservation, $request->amount, $request->payment_method, $request->notes, $request);
+
+            DB::commit();
+
+            return response()->json([
+                'message' => 'Pago registrado exitosamente',
+                'payment' => $payment,
+                'reservation' => $reservation->fresh(['payments', 'customer']),
+            ], 201);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json([
+                'message' => 'Error al registrar el pago',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Obtener historial de auditoría de una reserva
+     */
+    public function getAuditHistory(Reservation $reservation)
+    {
+        $audits = $reservation->audits()->with('user')->orderBy('created_at', 'desc')->get();
+        return response()->json($audits);
+    }
+
+    /**
+     * Realizar check-in de una reserva
+     */
+    public function checkIn(Request $request, Reservation $reservation)
+    {
+        // Validar que la reserva esté en estado confirmed
+        if ($reservation->status !== 'confirmed') {
+            return response()->json([
+                'message' => 'Solo se puede hacer check-in de reservas confirmadas. Estado actual: ' . $reservation->status
+            ], 422);
+        }
+
+        // Validar que la fecha de check-in no sea anterior a la fecha de reserva
+        $checkInDate = Carbon::parse($reservation->check_in_date);
+        $today = Carbon::today();
+        
+        // Permitir check-in el mismo día o después de la fecha de reserva
+        if ($today->lt($checkInDate)) {
+            return response()->json([
+                'message' => 'No se puede hacer check-in antes de la fecha de reserva (' . $checkInDate->format('Y-m-d') . ')'
+            ], 422);
+        }
+
+        // Para pasadías, validar que esté completamente pagada antes del check-in
+        if ($reservation->reservation_type === 'day_pass') {
+            $totalPrice = $reservation->final_price ?? $reservation->total_price;
+            $totalPaid = $reservation->payments()->sum('amount');
+            $remainingBalance = max(0, $totalPrice - $totalPaid);
+
+            if ($remainingBalance > 0 && $reservation->payment_status !== 'free') {
+                return response()->json([
+                    'message' => 'No se puede hacer check-in de una pasadía que no está completamente pagada. Saldo pendiente: ' . number_format($remainingBalance, 2),
+                    'total_price' => $totalPrice,
+                    'total_paid' => $totalPaid,
+                    'remaining_balance' => $remainingBalance
+                ], 422);
+            }
+        }
+
+        DB::beginTransaction();
+        try {
+            // Guardar/actualizar huéspedes si se proporcionan (dentro de la transacción)
+            if ($request->has('guests') && is_array($request->guests)) {
+                foreach ($request->guests as $guestData) {
+                    // Validar que tenga los campos mínimos
+                    if (empty($guestData['first_name']) || empty($guestData['last_name']) || empty($guestData['document_number'])) {
+                        continue; // Saltar huéspedes inválidos
+                    }
+
+                    // Verificar si ya existe un huésped con el mismo documento
+                    $existingGuest = $reservation->guests()
+                        ->where('document_number', $guestData['document_number'])
+                        ->where('document_type', $guestData['document_type'] ?? 'CC')
+                        ->first();
+
+                    if ($existingGuest) {
+                        // Actualizar huésped existente
+                        if (isset($guestData['is_primary_guest']) && $guestData['is_primary_guest']) {
+                            $reservation->guests()->where('id', '!=', $existingGuest->id)->update(['is_primary_guest' => false]);
+                        }
+                        $existingGuest->update([
+                            'first_name' => $guestData['first_name'],
+                            'last_name' => $guestData['last_name'],
+                            'document_type' => $guestData['document_type'] ?? 'CC',
+                            'document_number' => $guestData['document_number'],
+                            'birth_date' => $guestData['birth_date'] ?? null,
+                            'gender' => $guestData['gender'] ?? null,
+                            'nationality' => $guestData['nationality'] ?? null,
+                            'email' => $guestData['email'] ?? null,
+                            'phone' => $guestData['phone'] ?? null,
+                            'special_needs' => $guestData['special_needs'] ?? null,
+                            'is_primary_guest' => $guestData['is_primary_guest'] ?? false,
+                            'health_insurance_name' => $guestData['health_insurance_name'] ?? null,
+                            'health_insurance_type' => $guestData['health_insurance_type'] ?? null,
+                        ]);
+                    } else {
+                        // Crear nuevo huésped
+                        if (isset($guestData['is_primary_guest']) && $guestData['is_primary_guest']) {
+                            $reservation->guests()->update(['is_primary_guest' => false]);
+                        }
+                        $reservation->guests()->create([
+                            'first_name' => $guestData['first_name'],
+                            'last_name' => $guestData['last_name'],
+                            'document_type' => $guestData['document_type'] ?? 'CC',
+                            'document_number' => $guestData['document_number'],
+                            'birth_date' => $guestData['birth_date'] ?? null,
+                            'gender' => $guestData['gender'] ?? null,
+                            'nationality' => $guestData['nationality'] ?? null,
+                            'email' => $guestData['email'] ?? null,
+                            'phone' => $guestData['phone'] ?? null,
+                            'special_needs' => $guestData['special_needs'] ?? null,
+                            'is_primary_guest' => $guestData['is_primary_guest'] ?? false,
+                            'health_insurance_name' => $guestData['health_insurance_name'] ?? null,
+                            'health_insurance_type' => $guestData['health_insurance_type'] ?? null,
+                        ]);
+                    }
+                }
+            }
+
+            // Actualizar estado y tiempo de check-in
+            $checkInTime = Carbon::now();
+            $reservation->update([
+                'status' => 'checked_in',
+                'check_in_time' => $checkInTime,
+            ]);
+
+            // Si tiene habitación asignada, cambiar su estado a occupied
+            if ($reservation->room_id) {
+                $reservation->room->update(['status' => 'occupied']);
+            }
+
+            // Registrar auditoría
+            $this->auditService->logStatusChange(
+                $reservation,
+                'confirmed',
+                'checked_in',
+                'Check-in realizado',
+                $request
+            );
+
+            // Para pasadías, hacer check-out automático el mismo día
+            $autoCheckout = false;
+            if ($reservation->reservation_type === 'day_pass') {
+                // Hacer check-out automático
+                $reservation->update([
+                    'status' => 'checked_out',
+                    'check_out_time' => $checkInTime, // Mismo tiempo que check-in
+                ]);
+
+                // Registrar auditoría del check-out automático
+                $this->auditService->logStatusChange(
+                    $reservation,
+                    'checked_in',
+                    'checked_out',
+                    'Check-out automático (pasadía)',
+                    $request
+                );
+
+                // Generar PDF de checkout automático
+                $checkoutCertificate = null;
+                try {
+                    $checkoutCertificate = $this->certificateService->generateCheckoutCertificate($reservation);
+                } catch (\Exception $e) {
+                    \Log::warning('Error generating checkout certificate for day pass: ' . $e->getMessage());
+                }
+
+                // Enviar email con PDF de checkout
+                if ($checkoutCertificate) {
+                    try {
+                        $this->emailService->sendCheckoutConfirmation($reservation, $checkoutCertificate);
+                    } catch (\Exception $e) {
+                        \Log::warning('Error sending checkout email for day pass: ' . $e->getMessage());
+                    }
+                }
+
+                $autoCheckout = true;
+            }
+
+            // Actualizar evento en Google Calendar
+            if ($reservation->google_calendar_event_id) {
+                try {
+                    $this->googleCalendarService->updateEvent($reservation);
+                } catch (\Exception $e) {
+                    \Log::warning('Error updating Google Calendar event: ' . $e->getMessage());
+                }
+            }
+
+            DB::commit();
+
+            $reservation->load(['customer', 'room', 'room.roomType', 'guests', 'payments']);
+
+            $message = $autoCheckout 
+                ? 'Check-in y check-out realizados exitosamente (pasadía)' 
+                : 'Check-in realizado exitosamente';
+
+            return response()->json([
+                'message' => $message,
+                'reservation' => $reservation,
+                'auto_checkout' => $autoCheckout
+            ]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json([
+                'message' => 'Error al realizar el check-in',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Realizar check-out de una reserva
+     */
+    public function checkOut(Request $request, Reservation $reservation)
+    {
+        // Las pasadías no pueden hacer check-out manual, se hace automáticamente en el check-in
+        if ($reservation->reservation_type === 'day_pass') {
+            return response()->json([
+                'message' => 'Las pasadías no requieren check-out manual. El check-out se realiza automáticamente al hacer el check-in.'
+            ], 422);
+        }
+
+        // Validar que la reserva esté en estado checked_in
+        if ($reservation->status !== 'checked_in') {
+            return response()->json([
+                'message' => 'Solo se puede hacer check-out de reservas con check-in realizado. Estado actual: ' . $reservation->status
+            ], 422);
+        }
+
+        // Validar que la reserva esté completamente pagada
+        $totalPrice = $reservation->final_price ?? $reservation->total_price;
+        $totalPaid = $reservation->payments()->sum('amount');
+        $remainingBalance = max(0, $totalPrice - $totalPaid);
+
+        if ($remainingBalance > 0 && $reservation->payment_status !== 'free') {
+            return response()->json([
+                'message' => 'No se puede hacer check-out de una reserva que no está completamente pagada. Saldo pendiente: ' . number_format($remainingBalance, 2),
+                'total_price' => $totalPrice,
+                'total_paid' => $totalPaid,
+                'remaining_balance' => $remainingBalance
+            ], 422);
+        }
+
+        DB::beginTransaction();
+        try {
+            // Actualizar estado y tiempo de check-out
+            $reservation->update([
+                'status' => 'checked_out',
+                'check_out_time' => Carbon::now(),
+            ]);
+
+            // Si tiene habitación asignada, cambiar su estado a available
+            if ($reservation->room_id) {
+                $reservation->room->update(['status' => 'available']);
+            }
+
+            // Registrar auditoría
+            $this->auditService->logStatusChange(
+                $reservation,
+                'checked_in',
+                'checked_out',
+                'Check-out realizado',
+                $request
+            );
+
+            // Generar PDF de checkout
+            $checkoutCertificate = null;
+            try {
+                $checkoutCertificate = $this->certificateService->generateCheckoutCertificate($reservation);
+            } catch (\Exception $e) {
+                \Log::warning('Error generating checkout certificate: ' . $e->getMessage());
+            }
+
+            // Enviar email con PDF de checkout
+            if ($checkoutCertificate) {
+                try {
+                    $this->emailService->sendCheckoutConfirmation($reservation, $checkoutCertificate);
+                } catch (\Exception $e) {
+                    \Log::warning('Error sending checkout email: ' . $e->getMessage());
+                }
+            }
+
+            // Actualizar evento en Google Calendar
+            if ($reservation->google_calendar_event_id) {
+                try {
+                    $this->googleCalendarService->updateEvent($reservation);
+                } catch (\Exception $e) {
+                    \Log::warning('Error updating Google Calendar event: ' . $e->getMessage());
+                }
+            }
+
+            DB::commit();
+
+            $reservation->load(['customer', 'room', 'room.roomType', 'guests', 'payments']);
+
+            return response()->json([
+                'message' => 'Check-out realizado exitosamente',
+                'reservation' => $reservation,
+                'certificate' => $checkoutCertificate
+            ]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json([
+                'message' => 'Error al realizar el check-out',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Recalcular precio de una reserva
+     */
+    public function recalculatePrice(Reservation $reservation)
+    {
+        // Restricción: No se puede recalcular precio de una reserva en estado checked_in o checked_out
+        if ($reservation->status === 'checked_in') {
+            return response()->json([
+                'message' => 'No se puede recalcular el precio de una reserva que ya tiene check-in realizado.'
+            ], 403);
+        }
+
+        if ($reservation->status === 'checked_out') {
+            return response()->json([
+                'message' => 'No se puede recalcular el precio de una reserva que ya tiene check-out realizado.'
+            ], 403);
+        }
+
+        try {
+            $priceCalculation = $this->priceCalculator->calculatePrice($reservation, true);
+            
+            $reservation->update([
+                'calculated_price' => $priceCalculation['calculated_price'],
+                'price_breakdown' => $priceCalculation['price_breakdown'],
+                'final_price' => $priceCalculation['calculated_price'] - ($reservation->discount_amount ?? 0),
+            ]);
+
+            // Registrar auditoría
+            $this->auditService->log('price_recalculated', $reservation, null, [
+                'calculated_price' => $priceCalculation['calculated_price'],
+            ], 'Precio recalculado', auth()->id(), request());
+
+            return response()->json([
+                'message' => 'Precio recalculado exitosamente',
+                'calculated_price' => $priceCalculation['calculated_price'],
+                'price_breakdown' => $priceCalculation['price_breakdown'],
+                'reservation' => $reservation->fresh(),
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'message' => 'Error al recalcular el precio',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Reporte de ocupación
+     */
+    public function occupancyReport(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'date_from' => 'required|date',
+            'date_to' => 'required|date|after_or_equal:date_from',
+            'room_type_id' => 'nullable|exists:room_types,id',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json($validator->errors(), 422);
+        }
+
+        $query = Reservation::where('status', '!=', 'cancelled')
+            ->whereBetween('check_in_date', [$request->date_from, $request->date_to]);
+
+        if ($request->room_type_id) {
+            $query->where('room_type_id', $request->room_type_id);
+        }
+
+        $reservations = $query->with(['room', 'roomType'])->get();
+
+        $occupancyByDate = [];
+        $dateFrom = Carbon::parse($request->date_from);
+        $dateTo = Carbon::parse($request->date_to);
+
+        for ($date = $dateFrom->copy(); $date->lte($dateTo); $date->addDay()) {
+            $dayReservations = $reservations->filter(function ($reservation) use ($date) {
+                return $date->between($reservation->check_in_date, $reservation->check_out_date ?? $reservation->check_in_date);
+            });
+
+            $occupancyByDate[] = [
+                'date' => $date->format('Y-m-d'),
+                'reservations_count' => $dayReservations->count(),
+                'rooms_occupied' => $dayReservations->where('reservation_type', 'room')->count(),
+                'day_passes' => $dayReservations->where('reservation_type', 'day_pass')->sum(function ($r) {
+                    return $r->adults + $r->children;
+                }),
+            ];
+        }
+
+        return response()->json([
+            'period' => [
+                'from' => $request->date_from,
+                'to' => $request->date_to,
+            ],
+            'occupancy_by_date' => $occupancyByDate,
+            'summary' => [
+                'total_reservations' => $reservations->count(),
+                'total_room_nights' => $reservations->where('reservation_type', 'room')->sum('nights'),
+                'total_day_passes' => $reservations->where('reservation_type', 'day_pass')->count(),
+            ],
+        ]);
+    }
+
+    /**
+     * Reporte de ingresos
+     */
+    public function revenueReport(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'date_from' => 'required|date',
+            'date_to' => 'required|date|after_or_equal:date_from',
+            'group_by' => 'nullable|in:day,week,month,reservation_type,room_type',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json($validator->errors(), 422);
+        }
+
+        $query = Reservation::where('status', '!=', 'cancelled')
+            ->whereBetween('check_in_date', [$request->date_from, $request->date_to]);
+
+        $reservations = $query->with(['roomType'])->get();
+
+        $groupBy = $request->group_by ?? 'day';
+
+        $revenue = [];
+        if ($groupBy === 'day') {
+            $grouped = $reservations->groupBy(function ($reservation) {
+                return $reservation->check_in_date->format('Y-m-d');
+            });
+        } elseif ($groupBy === 'week') {
+            $grouped = $reservations->groupBy(function ($reservation) {
+                return $reservation->check_in_date->format('Y-W');
+            });
+        } elseif ($groupBy === 'month') {
+            $grouped = $reservations->groupBy(function ($reservation) {
+                return $reservation->check_in_date->format('Y-m');
+            });
+        } elseif ($groupBy === 'reservation_type') {
+            $grouped = $reservations->groupBy('reservation_type');
+        } elseif ($groupBy === 'room_type') {
+            $grouped = $reservations->groupBy('room_type_id');
+        }
+
+        foreach ($grouped as $key => $group) {
+            $revenue[] = [
+                'period' => $key,
+                'count' => $group->count(),
+                'total_revenue' => $group->sum('total_price'),
+                'paid_revenue' => $group->where('payment_status', 'paid')->sum('total_price'),
+                'pending_revenue' => $group->where('payment_status', 'pending')->sum('total_price'),
+                'average_revenue' => $group->avg('total_price'),
+            ];
+        }
+
+        return response()->json([
+            'period' => [
+                'from' => $request->date_from,
+                'to' => $request->date_to,
+            ],
+            'group_by' => $groupBy,
+            'revenue' => $revenue,
+            'summary' => [
+                'total_revenue' => $reservations->sum('total_price'),
+                'paid_revenue' => $reservations->where('payment_status', 'paid')->sum('total_price'),
+                'pending_revenue' => $reservations->where('payment_status', 'pending')->sum('total_price'),
+                'total_reservations' => $reservations->count(),
+            ],
+        ]);
+    }
+
+    /**
+     * Reporte de cancelaciones
+     */
+    public function cancellationsReport(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'date_from' => 'nullable|date',
+            'date_to' => 'nullable|date|after_or_equal:date_from',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json($validator->errors(), 422);
+        }
+
+        $query = Reservation::where('status', 'cancelled');
+
+        if ($request->date_from) {
+            $query->whereDate('updated_at', '>=', $request->date_from);
+        }
+
+        if ($request->date_to) {
+            $query->whereDate('updated_at', '<=', $request->date_to);
+        }
+
+        $cancellations = $query->with(['customer', 'roomType'])->get();
+
+        return response()->json([
+            'period' => [
+                'from' => $request->date_from,
+                'to' => $request->date_to,
+            ],
+            'cancellations' => $cancellations,
+            'summary' => [
+                'total_cancellations' => $cancellations->count(),
+                'total_lost_revenue' => $cancellations->sum('total_price'),
+                'by_reason' => $cancellations->groupBy('cancellation_reason')->map->count(),
+            ],
+        ]);
+    }
+
+    /**
+     * Dashboard del día - Información resumida para un día específico
+     */
+    public function dailyDashboard(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'date' => 'required|date',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json($validator->errors(), 422);
+        }
+
+        $date = Carbon::parse($request->date)->format('Y-m-d');
+
+        // Reservas que HAN HECHO check-in ese día (solo las que ya tienen check-in realizado)
+        $checkIns = Reservation::whereDate('check_in_date', $date)
+            ->where('status', 'checked_in')
+            ->whereNotNull('check_in_time')
+            ->with(['room', 'roomType', 'customer'])
+            ->get();
+
+        // Reservas que HAN HECHO check-out ese día (solo las que ya tienen check-out realizado)
+        $checkOuts = Reservation::whereDate('check_out_date', $date)
+            ->where('status', 'checked_out')
+            ->whereNotNull('check_out_time')
+            ->with(['room', 'roomType', 'customer'])
+            ->get();
+
+        // Reservas activas ese día (check-in <= fecha <= check-out)
+        $activeReservations = Reservation::where('check_in_date', '<=', $date)
+            ->where('check_out_date', '>=', $date)
+            ->where('status', '!=', 'cancelled')
+            ->with(['room', 'roomType', 'customer'])
+            ->get();
+
+        // Calcular total de personas
+        $totalGuests = $activeReservations->sum(function ($reservation) {
+            return ($reservation->adults ?? 0) + ($reservation->children ?? 0) + ($reservation->infants ?? 0);
+        });
+
+        // Habitaciones que hacen check-in
+        $checkInRooms = $checkIns->where('reservation_type', 'room')
+            ->map(function ($reservation) {
+                return [
+                    'id' => $reservation->id,
+                    'reservation_number' => $reservation->reservation_number,
+                    'room' => $reservation->room ? [
+                        'id' => $reservation->room->id,
+                        'name' => $reservation->room->name,
+                    ] : null,
+                    'room_type' => $reservation->roomType ? [
+                        'id' => $reservation->roomType->id,
+                        'name' => $reservation->roomType->name,
+                    ] : null,
+                    'customer' => $reservation->customer ? [
+                        'id' => $reservation->customer->id,
+                        'name' => $reservation->customer->name,
+                        'email' => $reservation->customer->email,
+                    ] : null,
+                    'check_in_time' => $reservation->check_in_time,
+                    'adults' => $reservation->adults,
+                    'children' => $reservation->children,
+                    'infants' => $reservation->infants,
+                ];
+            })
+            ->values();
+
+        // Habitaciones que hacen check-out
+        $checkOutRooms = $checkOuts->where('reservation_type', 'room')
+            ->map(function ($reservation) {
+                return [
+                    'id' => $reservation->id,
+                    'reservation_number' => $reservation->reservation_number,
+                    'room' => $reservation->room ? [
+                        'id' => $reservation->room->id,
+                        'name' => $reservation->room->name,
+                    ] : null,
+                    'room_type' => $reservation->roomType ? [
+                        'id' => $reservation->roomType->id,
+                        'name' => $reservation->roomType->name,
+                    ] : null,
+                    'customer' => $reservation->customer ? [
+                        'id' => $reservation->customer->id,
+                        'name' => $reservation->customer->name,
+                        'email' => $reservation->customer->email,
+                    ] : null,
+                    'check_out_time' => $reservation->check_out_time,
+                    'adults' => $reservation->adults,
+                    'children' => $reservation->children,
+                    'infants' => $reservation->infants,
+                ];
+            })
+            ->values();
+
+        // Pasadías ese día
+        $dayPasses = $activeReservations->where('reservation_type', 'day_pass')
+            ->map(function ($reservation) {
+                return [
+                    'id' => $reservation->id,
+                    'reservation_number' => $reservation->reservation_number,
+                    'customer' => $reservation->customer ? [
+                        'id' => $reservation->customer->id,
+                        'name' => $reservation->customer->name,
+                        'email' => $reservation->customer->email,
+                    ] : null,
+                    'adults' => $reservation->adults,
+                    'children' => $reservation->children,
+                    'infants' => $reservation->infants,
+                ];
+            })
+            ->values();
+
+        return response()->json([
+            'date' => $date,
+            'summary' => [
+                'total_reservations' => $activeReservations->count(),
+                'total_guests' => $totalGuests,
+                'check_ins_count' => $checkIns->count(),
+                'check_outs_count' => $checkOuts->count(),
+                'day_passes_count' => $dayPasses->count(),
+            ],
+            'check_ins' => $checkInRooms,
+            'check_outs' => $checkOutRooms,
+            'day_passes' => $dayPasses,
+            'active_reservations' => $activeReservations->map(function ($reservation) {
+                return [
+                    'id' => $reservation->id,
+                    'reservation_number' => $reservation->reservation_number,
+                    'reservation_type' => $reservation->reservation_type,
+                    'room' => $reservation->room ? [
+                        'id' => $reservation->room->id,
+                        'name' => $reservation->room->name,
+                    ] : null,
+                    'room_type' => $reservation->roomType ? [
+                        'id' => $reservation->roomType->id,
+                        'name' => $reservation->roomType->name,
+                    ] : null,
+                    'customer' => $reservation->customer ? [
+                        'id' => $reservation->customer->id,
+                        'name' => $reservation->customer->name,
+                    ] : null,
+                    'adults' => $reservation->adults,
+                    'children' => $reservation->children,
+                    'infants' => $reservation->infants,
+                ];
+            })->values(),
+        ]);
     }
 }
 

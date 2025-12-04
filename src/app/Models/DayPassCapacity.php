@@ -27,6 +27,34 @@ class DayPassCapacity extends Model
     ];
 
     /**
+     * Accessor para formatear la fecha como Y-m-d al serializar
+     */
+    protected $appends = [];
+
+    /**
+     * Serializar la fecha como Y-m-d para evitar problemas de timezone
+     */
+    protected function serializeDate(\DateTimeInterface $date)
+    {
+        return $date->format('Y-m-d');
+    }
+
+    /**
+     * Convertir el modelo a array, formateando la fecha correctamente
+     */
+    public function toArray()
+    {
+        $array = parent::toArray();
+        if (isset($array['date']) && $array['date']) {
+            // Si la fecha es un objeto Carbon, formatearla
+            if ($this->date instanceof \Carbon\Carbon) {
+                $array['date'] = $this->date->format('Y-m-d');
+            }
+        }
+        return $array;
+    }
+
+    /**
      * Obtener la capacidad disponible para una fecha
      */
     public function getAvailableCapacityAttribute()

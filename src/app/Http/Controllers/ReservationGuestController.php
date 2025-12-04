@@ -37,6 +37,24 @@ class ReservationGuestController extends Controller
             return response()->json($validator->errors(), 422);
         }
 
+        // Verificar si ya existe un huésped con el mismo documento en esta reserva
+        if ($request->document_number) {
+            $existingGuest = $reservation->guests()
+                ->where('document_number', $request->document_number)
+                ->where('document_type', $request->document_type ?? 'CC')
+                ->first();
+            
+            if ($existingGuest) {
+                // Si existe, actualizar en lugar de crear
+                if ($request->is_primary_guest) {
+                    $reservation->guests()->where('id', '!=', $existingGuest->id)->update(['is_primary_guest' => false]);
+                }
+                
+                $existingGuest->update($request->all());
+                return response()->json($existingGuest);
+            }
+        }
+
         if ($request->is_primary_guest) {
             $reservation->guests()->update(['is_primary_guest' => false]);
         }
@@ -82,7 +100,49 @@ class ReservationGuestController extends Controller
         $guest->delete();
         return response()->json(null, 204);
     }
+
+    /**
+     * Limpiar huéspedes duplicados de una reserva
+     * Mantiene solo el más reciente de cada documento
+     */
+    public function removeDuplicates(Reservation $reservation)
+    {
+        $guests = $reservation->guests()->get();
+        $seen = [];
+        $duplicates = [];
+
+        foreach ($guests as $guest) {
+            if (!$guest->document_number) {
+                continue; // Saltar huéspedes sin documento
+            }
+
+            $key = strtolower(trim($guest->document_number)) . '|' . ($guest->document_type ?? 'CC');
+            
+            if (isset($seen[$key])) {
+                // Es un duplicado, mantener el más reciente
+                if ($guest->created_at > $seen[$key]->created_at) {
+                    $duplicates[] = $seen[$key];
+                    $seen[$key] = $guest;
+                } else {
+                    $duplicates[] = $guest;
+                }
+            } else {
+                $seen[$key] = $guest;
+            }
+        }
+
+        // Eliminar duplicados
+        $deletedCount = 0;
+        foreach ($duplicates as $duplicate) {
+            $duplicate->delete();
+            $deletedCount++;
+        }
+
+        return response()->json([
+            'message' => "Se eliminaron {$deletedCount} huéspedes duplicados",
+            'deleted_count' => $deletedCount,
+            'remaining_guests' => $reservation->guests()->count()
+        ]);
+    }
 }
-
-
 

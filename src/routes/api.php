@@ -270,7 +270,11 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::controller(\App\Http\Controllers\ReservationController::class)->group(function () {
         Route::get('/reservations', 'index')->middleware('permission:reservation.list,reservas');
         Route::get('/reservations/availability', 'checkAvailability')->middleware('permission:reservation.list,reservas');
+        Route::get('/reservations/daily-dashboard', 'dailyDashboard')->middleware('permission:reservation.list,reservas');
         Route::get('/reservations/marketing/report', 'marketingReport')->middleware('permission:reservation.report,reservas');
+        Route::get('/reservations/occupancy/report', 'occupancyReport')->middleware('permission:reservation.report,reservas');
+        Route::get('/reservations/revenue/report', 'revenueReport')->middleware('permission:reservation.report,reservas');
+        Route::get('/reservations/cancellations/report', 'cancellationsReport')->middleware('permission:reservation.report,reservas');
         Route::post('/reservations', 'store')->middleware('permission:reservation.create,reservas');
         Route::get('/reservations/{reservation}', 'show')->middleware('permission:reservation.view,reservas');
         Route::put('/reservations/{reservation}', 'update')->middleware('permission:reservation.edit,reservas');
@@ -278,6 +282,18 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::post('/reservations/{reservation}/certificate', 'generateCertificate')->middleware('permission:reservation.view,reservas');
         Route::get('/reservations/{reservation}/certificate/download', 'downloadCertificate')->middleware('permission:reservation.view,reservas');
         Route::post('/reservations/{reservation}/resend-email', 'resendEmail')->middleware('permission:reservation.edit,reservas');
+        Route::post('/reservations/{reservation}/payments', 'addPayment')->middleware('permission:reservation.edit,reservas');
+        Route::get('/reservations/{reservation}/audits', 'getAuditHistory')->middleware('permission:reservation.view,reservas');
+        Route::post('/reservations/{reservation}/recalculate-price', 'recalculatePrice')->middleware('permission:reservation.edit,reservas');
+        Route::post('/reservations/{reservation}/check-in', 'checkIn')->middleware('permission:reservation.edit,reservas');
+        Route::post('/reservations/{reservation}/check-out', 'checkOut')->middleware('permission:reservation.edit,reservas');
+        Route::get('/reservations/{reservation}/checkout-certificate/download', 'downloadCheckoutCertificate')->middleware('permission:reservation.view,reservas');
+        Route::post('/reservations/{reservation}/resend-checkout-email', 'resendCheckoutEmail')->middleware('permission:reservation.edit,reservas');
+    });
+
+    Route::controller(\App\Http\Controllers\ReservationSettingController::class)->group(function () {
+        Route::get('/reservation-settings', 'index')->middleware('permission:reservation.edit,reservas');
+        Route::put('/reservation-settings', 'update')->middleware('permission:reservation.edit,reservas');
     });
 
     Route::controller(\App\Http\Controllers\ReservationGuestController::class)->group(function () {
@@ -285,6 +301,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::post('/reservations/{reservation}/guests', 'store')->middleware('permission:reservation.edit,reservas');
         Route::put('/reservations/{reservation}/guests/{guest}', 'update')->middleware('permission:reservation.edit,reservas');
         Route::delete('/reservations/{reservation}/guests/{guest}', 'destroy')->middleware('permission:reservation.edit,reservas');
+        Route::post('/reservations/{reservation}/guests/remove-duplicates', 'removeDuplicates')->middleware('permission:reservation.edit,reservas');
     });
 
     Route::controller(\App\Http\Controllers\RoomController::class)->group(function () {

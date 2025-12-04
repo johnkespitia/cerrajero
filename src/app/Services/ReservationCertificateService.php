@@ -63,6 +63,69 @@ class ReservationCertificateService
         $filename = "certificate_{$reservation->reservation_number}.pdf";
         return "reservations/certificates/{$filename}";
     }
+
+    /**
+     * Generar certificado de checkout con detalles completos
+     */
+    public function generateCheckoutCertificate(Reservation $reservation)
+    {
+        $reservation->loadMissing(['customer', 'room', 'roomType', 'guests', 'payments']);
+
+        // Buscar logo y convertirlo a base64 para DomPDF
+        $logoBase64 = null;
+        $possibleLogoPaths = [
+            storage_path('app/public/logo-campo-verde.png'),
+            storage_path('app/public/logocv.png'),
+            public_path('images/logo-campo-verde.png'),
+            public_path('logo.png'),
+            public_path('logo.jpg'),
+            storage_path('app/public/logo.png'),
+            base_path('public/images/logo-campo-verde.png'),
+            base_path('public/logo.png'),
+        ];
+
+        foreach ($possibleLogoPaths as $path) {
+            if (file_exists($path)) {
+                $imageData = file_get_contents($path);
+                $imageInfo = getimagesize($path);
+                $mimeType = $imageInfo['mime'] ?? 'image/png';
+                $logoBase64 = 'data:' . $mimeType . ';base64,' . base64_encode($imageData);
+                break;
+            }
+        }
+
+        $data = [
+            'reservation' => $reservation,
+            'customer' => $reservation->customer,
+            'room' => $reservation->room,
+            'roomType' => $reservation->roomType,
+            'guests' => $reservation->guests,
+            'payments' => $reservation->payments,
+            'date' => now()->format('d/m/Y'),
+            'time' => now()->format('H:i:s'),
+            'logo_base64' => $logoBase64,
+            'type' => 'checkout', // Indicar que es un certificado de checkout
+        ];
+
+        $pdf = Pdf::loadView('reservations.checkout_certificate', $data);
+
+        $filename = "checkout_{$reservation->reservation_number}.pdf";
+        $path = "reservations/checkouts/{$filename}";
+
+        Storage::put($path, $pdf->output());
+
+        return [
+            'path' => $path,
+            'filename' => $filename,
+            'url' => Storage::url($path)
+        ];
+    }
+
+    public function getCheckoutCertificatePath(Reservation $reservation)
+    {
+        $filename = "checkout_{$reservation->reservation_number}.pdf";
+        return "reservations/checkouts/{$filename}";
+    }
 }
 
 
