@@ -992,7 +992,7 @@ class ReservationController extends Controller
 
         return response()->json([
             'reservation_type' => 'room',
-            'available_rooms' => $availableRooms->load('roomType'),
+            'available_rooms' => $availableRooms->load('roomType')->values()->toArray(),
             'rooms_by_type' => $roomsByType,
             'count' => $availableRooms->count(),
             'total_guests' => $totalGuests,
@@ -1527,7 +1527,16 @@ class ReservationController extends Controller
 
             // Si tiene habitación asignada, cambiar su estado a available
             if ($reservation->room_id) {
-                $reservation->room->update(['status' => 'available']);
+                // Cargar la relación si no está cargada
+                if (!$reservation->relationLoaded('room')) {
+                    $reservation->load('room');
+                }
+                
+                // Actualizar el estado de la habitación
+                $room = Room::find($reservation->room_id);
+                if ($room) {
+                    $room->update(['status' => 'available']);
+                }
             }
 
             // Registrar auditoría

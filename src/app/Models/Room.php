@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Carbon\Carbon;
 
 class Room extends Model
 {
@@ -50,19 +51,76 @@ class Room extends Model
 
     public function isAvailable($checkIn, $checkOut)
     {
-        if ($this->status !== 'available' || !$this->active) {
+        // Si la habitación no está activa, no está disponible
+        if (!$this->active) {
             return false;
         }
 
+        // Convertir a Carbon si no lo son y normalizar a fecha (sin hora)
+        if (!$checkIn instanceof Carbon) {
+            $checkIn = Carbon::parse($checkIn)->startOfDay();
+        } else {
+            $checkIn = $checkIn->copy()->startOfDay();
+        }
+        
+        if (!$checkOut instanceof Carbon) {
+            $checkOut = Carbon::parse($checkOut)->startOfDay();
+        } else {
+            $checkOut = $checkOut->copy()->startOfDay();
+        }
+
+        // Si la habitación está en estado 'occupied', verificar si realmente debería estarlo
+        // (es decir, si hay reservas activas que justifiquen ese estado)
+        if ($this->status === 'occupied') {
+            $today = Carbon::today();
+            
+            // Verificar si hay reservas en checked_in que ya pasaron su fecha de check-out
+            $expiredCheckedIn = $this->reservations()
+                ->where('status', 'checked_in')
+                ->where('check_out_date', '<', $today->format('Y-m-d'))
+                ->exists();
+            
+            // Si hay reservas en checked_in que ya pasaron su fecha, liberar la habitación automáticamente
+            if ($expiredCheckedIn) {
+                $this->update(['status' => 'available']);
+            } else {
+                // Si hay reservas activas en checked_in dentro del período solicitado, no está disponible
+                $activeCheckedIn = $this->reservations()
+                    ->where('status', 'checked_in')
+                    ->where(function($query) use ($checkIn, $checkOut) {
+                        $query->where(function($q) use ($checkIn, $checkOut) {
+                            $q->where('check_in_date', '<', $checkOut->format('Y-m-d'))
+                              ->where('check_out_date', '>=', $checkIn->format('Y-m-d'));
+                        });
+                    })
+                    ->exists();
+                
+                if ($activeCheckedIn) {
+                    return false;
+                }
+            }
+        }
+        
+        // Si la habitación está en mantenimiento o fuera de servicio, no está disponible
+        if ($this->status === 'maintenance' || $this->status === 'out_of_order') {
+            return false;
+        }
+
+        // Lógica correcta de solapamiento:
+        // Dos períodos se solapan si:
+        // - El inicio de la reserva existente es menor que el fin del período solicitado
+        // - Y el fin de la reserva existente es mayor que el inicio del período solicitado
+        // Nota: Si una reserva termina el día X y otra empieza el día X, NO se solapan
+        // Solo considerar reservas confirmadas o con check-in (no canceladas ni con check-out)
         $conflictingReservations = $this->reservations()
-            ->where('status', '!=', 'cancelled')
+            ->whereIn('status', ['confirmed', 'checked_in'])
             ->where(function($query) use ($checkIn, $checkOut) {
-                $query->whereBetween('check_in_date', [$checkIn, $checkOut])
-                    ->orWhereBetween('check_out_date', [$checkIn, $checkOut])
-                    ->orWhere(function($q) use ($checkIn, $checkOut) {
-                        $q->where('check_in_date', '<=', $checkIn)
-                          ->where('check_out_date', '>=', $checkOut);
-                    });
+                $query->where(function($q) use ($checkIn, $checkOut) {
+                    // La reserva existente empieza antes de que termine el período solicitado
+                    // Y la reserva existente termina después de que empiece el período solicitado
+                    $q->where('check_in_date', '<', $checkOut->format('Y-m-d'))
+                      ->where('check_out_date', '>', $checkIn->format('Y-m-d'));
+                });
             })
             ->exists();
 
