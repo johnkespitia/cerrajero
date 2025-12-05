@@ -20,6 +20,9 @@ Route::get("/greating", function() {
 
 Route::post('/login', [\App\Http\Controllers\UserController::class, 'apiLogin']);
 
+// Callback público de Google Calendar OAuth (sin autenticación)
+Route::get('/google-calendar/callback', [\App\Http\Controllers\GoogleCalendarConfigController::class, 'handleCallback']);
+
 Route::middleware(['auth:sanctum'])->group(function () {
     // ============================================
     // Módulo de Gestión de Usuarios y Permisos
@@ -294,6 +297,26 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::controller(\App\Http\Controllers\ReservationSettingController::class)->group(function () {
         Route::get('/reservation-settings', 'index')->middleware('permission:reservation.edit,reservas');
         Route::put('/reservation-settings', 'update')->middleware('permission:reservation.edit,reservas');
+    });
+
+    Route::controller(\App\Http\Controllers\CancellationPolicyController::class)->group(function () {
+        Route::get('/cancellation-policies', 'index')->middleware('permission:reservation.edit,reservas');
+        Route::get('/cancellation-policies/applicable', 'getApplicablePolicy')->middleware('permission:reservation.list,reservas');
+        Route::post('/cancellation-policies', 'store')->middleware('permission:reservation.edit,reservas');
+        Route::get('/cancellation-policies/{cancellationPolicy}', 'show')->middleware('permission:reservation.view,reservas');
+        Route::put('/cancellation-policies/{cancellationPolicy}', 'update')->middleware('permission:reservation.edit,reservas');
+        Route::delete('/cancellation-policies/{cancellationPolicy}', 'destroy')->middleware('permission:reservation.edit,reservas');
+    });
+
+    Route::controller(\App\Http\Controllers\GoogleCalendarConfigController::class)->group(function () {
+        Route::get('/google-calendar/config', 'index')->middleware('permission:reservation.edit,reservas');
+        Route::get('/google-calendar/redirect-uri', 'getRedirectUri')->middleware('permission:reservation.edit,reservas');
+        Route::get('/google-calendar/events', 'getEvents')->middleware('permission:reservation.list,reservas');
+        Route::post('/google-calendar/config', 'store')->middleware('permission:reservation.edit,reservas');
+        Route::get('/google-calendar/auth-url', 'getAuthUrl')->middleware('permission:reservation.edit,reservas');
+        Route::post('/google-calendar/test-connection', 'testConnection')->middleware('permission:reservation.edit,reservas');
+        Route::put('/google-calendar/toggle-active', 'toggleActive')->middleware('permission:reservation.edit,reservas');
+        Route::delete('/google-calendar/config/{id}', 'destroy')->middleware('permission:reservation.edit,reservas');
     });
 
     Route::controller(\App\Http\Controllers\ReservationGuestController::class)->group(function () {

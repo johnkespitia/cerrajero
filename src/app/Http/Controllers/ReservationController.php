@@ -14,6 +14,7 @@ use App\Services\ReservationPriceCalculator;
 use App\Services\ReservationAuditService;
 use App\Services\ReservationValidationService;
 use App\Services\ReservationNotificationService;
+use App\Services\ReservationCancellationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
@@ -28,6 +29,7 @@ class ReservationController extends Controller
     protected $auditService;
     protected $validationService;
     protected $notificationService;
+    protected $cancellationService;
 
     public function __construct(
         GoogleCalendarService $googleCalendarService,
@@ -36,7 +38,8 @@ class ReservationController extends Controller
         ReservationPriceCalculator $priceCalculator,
         ReservationAuditService $auditService,
         ReservationValidationService $validationService,
-        ReservationNotificationService $notificationService
+        ReservationNotificationService $notificationService,
+        ReservationCancellationService $cancellationService
     ) {
         $this->googleCalendarService = $googleCalendarService;
         $this->certificateService = $certificateService;
@@ -45,6 +48,7 @@ class ReservationController extends Controller
         $this->auditService = $auditService;
         $this->validationService = $validationService;
         $this->notificationService = $notificationService;
+        $this->cancellationService = $cancellationService;
     }
 
     public function index(Request $request)
@@ -56,7 +60,8 @@ class ReservationController extends Controller
             'roomType',
             'guests',
             'childReservations',
-            'parentReservation'
+            'parentReservation',
+            'cancellationPolicy'
         ];
 
         // Incluir pagos si se solicita
@@ -108,7 +113,8 @@ class ReservationController extends Controller
             'parentReservation',
             'payments',
             'audits.user',
-            'promotion'
+            'promotion',
+            'cancellationPolicy'
         ]);
 
         return response()->json($reservation);
@@ -541,6 +547,7 @@ class ReservationController extends Controller
                 'final_price' => $calculatedPrice - ($request->discount_amount ?? 0),
                 'deposit_amount' => $request->deposit_amount ?? 0,
                 'special_requests' => $request->special_requests,
+                'cancellation_policy_id' => $request->cancellation_policy_id,
                 'status' => 'confirmed',
                 'payment_status' => $request->payment_status ?? 'pending',
                 'free_reservation_reason' => $request->free_reservation_reason,
@@ -586,6 +593,13 @@ class ReservationController extends Controller
                         'health_insurance_type' => $guestData['health_insurance_type'] ?? null,
                     ]);
                 }
+            }
+
+            // Aplicar política de cancelación
+            try {
+                $this->cancellationService->applyPolicyToReservation($reservation);
+            } catch (\Exception $e) {
+                \Log::warning('Error applying cancellation policy: ' . $e->getMessage());
             }
 
             try {
@@ -879,6 +893,84 @@ class ReservationController extends Controller
 
             // Registrar auditoría de actualización
             $this->auditService->logUpdate($reservation, $oldValues, $updateData, $request);
+
+            // Enviar notificaciones según el tipo de cambio
+            if (isset($updateData['status']) && $updateData['status'] === 'cancelled') {
+                // Eliminar evento de Google Calendar al cancelar
+                if ($reservation->google_calendar_event_id) {
+                    try {
+                        $this->googleCalendarService->deleteEvent($reservation);
+                    } catch (\Exception $e) {
+                        \Log::warning('Error deleting Google Calendar event on cancellation: ' . $e->getMessage());
+                    }
+                }
+
+                // Calcular reembolso y penalización
+                try {
+                    $refundCalculation = $this->cancellationService->processCancellation(
+                        $reservation->fresh(),
+                        $request->cancellation_reason ?? $updateData['cancellation_reason'] ?? null
+                    );
+                    
+                    // Recargar reserva con los cálculos actualizados
+                    $reservation->refresh();
+                } catch (\Exception $e) {
+                    \Log::warning('Error calculating refund: ' . $e->getMessage());
+                }
+
+                // Enviar notificación de cancelación
+                try {
+                    $this->notificationService->sendCancellationNotification($reservation->fresh());
+                } catch (\Exception $e) {
+                    \Log::warning('Error sending cancellation notification: ' . $e->getMessage());
+                }
+            } else {
+                // Enviar notificación de actualización si hay cambios importantes
+                $importantFields = ['check_in_date', 'check_out_date', 'room_id', 'total_price', 'adults', 'children'];
+                $hasImportantChanges = false;
+                $changes = [];
+                
+                foreach ($importantFields as $field) {
+                    if (isset($updateData[$field]) && isset($oldValues[$field])) {
+                        $oldValue = $oldValues[$field];
+                        $newValue = $updateData[$field];
+                        
+                        // Formatear valores para mostrar en el email
+                        if ($field === 'check_in_date' || $field === 'check_out_date') {
+                            $oldValue = $oldValue ? Carbon::parse($oldValue)->format('d/m/Y') : null;
+                            $newValue = $newValue ? Carbon::parse($newValue)->format('d/m/Y') : null;
+                        } elseif ($field === 'total_price') {
+                            $oldValue = $oldValue ? number_format($oldValue, 2) : null;
+                            $newValue = $newValue ? number_format($newValue, 2) : null;
+                        } elseif ($field === 'room_id') {
+                            if ($oldValue) {
+                                $oldRoom = Room::find($oldValue);
+                                $oldValue = $oldRoom ? $oldRoom->name : $oldValue;
+                            }
+                            if ($newValue) {
+                                $newRoom = Room::find($newValue);
+                                $newValue = $newRoom ? $newRoom->name : $newValue;
+                            }
+                        }
+                        
+                        if ($oldValue != $newValue) {
+                            $hasImportantChanges = true;
+                            $changes[$field] = [
+                                'old' => $oldValue,
+                                'new' => $newValue
+                            ];
+                        }
+                    }
+                }
+                
+                if ($hasImportantChanges) {
+                    try {
+                        $this->notificationService->sendReservationUpdateNotification($reservation->fresh(), $changes);
+                    } catch (\Exception $e) {
+                        \Log::warning('Error sending reservation update notification: ' . $e->getMessage());
+                    }
+                }
+            }
 
             if ($reservation->google_calendar_event_id) {
                 try {
@@ -1451,6 +1543,13 @@ class ReservationController extends Controller
                 }
 
                 $autoCheckout = true;
+            }
+
+            // Enviar confirmación de check-in
+            try {
+                $this->notificationService->sendCheckInConfirmation($reservation);
+            } catch (\Exception $e) {
+                \Log::warning('Error sending check-in confirmation: ' . $e->getMessage());
             }
 
             // Actualizar evento en Google Calendar

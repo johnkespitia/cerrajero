@@ -237,6 +237,295 @@ class ReservationEmailService
             throw $e;
         }
     }
+
+    /**
+     * Obtener lista de destinatarios para un email
+     */
+    protected function getRecipients(Reservation $reservation)
+    {
+        $recipients = [];
+
+        // Cliente
+        if ($reservation->customer && $reservation->customer->email) {
+            $customerName = $reservation->customer->customer_type === 'company'
+                ? $reservation->customer->company_name
+                : $reservation->customer->display_name;
+
+            $recipients[] = [
+                'email' => $reservation->customer->email,
+                'name' => $customerName
+            ];
+        }
+
+        // Huésped principal
+        $primaryGuest = $reservation->guests()->where('is_primary_guest', true)->first();
+        if ($primaryGuest && $primaryGuest->email) {
+            if (!$reservation->customer || $primaryGuest->email !== $reservation->customer->email) {
+                $recipients[] = [
+                    'email' => $primaryGuest->email,
+                    'name' => $primaryGuest->full_name
+                ];
+            }
+        }
+
+        // Correo interno
+        $internalEmail = env('RESERVATION_INTERNAL_EMAIL', env('MAIL_FROM_ADDRESS'));
+        if ($internalEmail) {
+            $recipients[] = [
+                'email' => $internalEmail,
+                'name' => 'Campo Verde - Reservas'
+            ];
+        }
+
+        return $recipients;
+    }
+
+    /**
+     * Enviar recordatorio 24 horas antes del check-in
+     */
+    public function sendCheckInReminder(Reservation $reservation)
+    {
+        $reservation->loadMissing(['customer', 'guests', 'room', 'roomType']);
+
+        $recipients = $this->getRecipients($reservation);
+
+        if (empty($recipients)) {
+            Log::warning("No hay destinatarios para enviar recordatorio de check-in #{$reservation->reservation_number}");
+            return;
+        }
+
+        try {
+            Log::info("Intentando enviar recordatorio de check-in #{$reservation->reservation_number}", [
+                'recipients_count' => count($recipients)
+            ]);
+
+            Mail::send(
+                'emails.check_in_reminder',
+                [
+                    'reservation' => $reservation,
+                    'customer' => $reservation->customer,
+                ],
+                function ($message) use ($reservation, $recipients) {
+                    $subject = "Recordatorio de Check-in - Reserva #{$reservation->reservation_number}";
+
+                    foreach ($recipients as $recipient) {
+                        if (empty($message->getTo())) {
+                            $message->to($recipient['email'], $recipient['name']);
+                            Log::info("Agregando destinatario TO: {$recipient['email']}");
+                        } else {
+                            $message->cc($recipient['email'], $recipient['name']);
+                            Log::info("Agregando destinatario CC: {$recipient['email']}");
+                        }
+                    }
+
+                    $message->subject($subject);
+                }
+            );
+
+            Log::info("Recordatorio de check-in #{$reservation->reservation_number} enviado exitosamente a " . count($recipients) . " destinatario(s)");
+        } catch (\Exception $e) {
+            Log::error("Error enviando recordatorio de check-in #{$reservation->reservation_number}: " . $e->getMessage());
+            throw $e;
+        }
+    }
+
+    /**
+     * Enviar confirmación de check-in exitoso
+     */
+    public function sendCheckInConfirmation(Reservation $reservation)
+    {
+        $reservation->loadMissing(['customer', 'guests', 'room', 'roomType']);
+
+        $recipients = $this->getRecipients($reservation);
+
+        if (empty($recipients)) {
+            Log::warning("No hay destinatarios para enviar confirmación de check-in #{$reservation->reservation_number}");
+            return;
+        }
+
+        try {
+            Log::info("Intentando enviar confirmación de check-in #{$reservation->reservation_number}", [
+                'recipients_count' => count($recipients)
+            ]);
+
+            Mail::send(
+                'emails.check_in_confirmation',
+                [
+                    'reservation' => $reservation,
+                    'customer' => $reservation->customer,
+                ],
+                function ($message) use ($reservation, $recipients) {
+                    $subject = "Check-in Confirmado - Reserva #{$reservation->reservation_number}";
+
+                    foreach ($recipients as $recipient) {
+                        if (empty($message->getTo())) {
+                            $message->to($recipient['email'], $recipient['name']);
+                            Log::info("Agregando destinatario TO: {$recipient['email']}");
+                        } else {
+                            $message->cc($recipient['email'], $recipient['name']);
+                            Log::info("Agregando destinatario CC: {$recipient['email']}");
+                        }
+                    }
+
+                    $message->subject($subject);
+                }
+            );
+
+            Log::info("Confirmación de check-in #{$reservation->reservation_number} enviada exitosamente a " . count($recipients) . " destinatario(s)");
+        } catch (\Exception $e) {
+            Log::error("Error enviando confirmación de check-in #{$reservation->reservation_number}: " . $e->getMessage());
+            throw $e;
+        }
+    }
+
+    /**
+     * Enviar recordatorio de check-out
+     */
+    public function sendCheckOutReminder(Reservation $reservation)
+    {
+        $reservation->loadMissing(['customer', 'guests', 'room', 'roomType']);
+
+        $recipients = $this->getRecipients($reservation);
+
+        if (empty($recipients)) {
+            Log::warning("No hay destinatarios para enviar recordatorio de check-out #{$reservation->reservation_number}");
+            return;
+        }
+
+        try {
+            Log::info("Intentando enviar recordatorio de check-out #{$reservation->reservation_number}", [
+                'recipients_count' => count($recipients)
+            ]);
+
+            Mail::send(
+                'emails.check_out_reminder',
+                [
+                    'reservation' => $reservation,
+                    'customer' => $reservation->customer,
+                ],
+                function ($message) use ($reservation, $recipients) {
+                    $subject = "Recordatorio de Check-out - Reserva #{$reservation->reservation_number}";
+
+                    foreach ($recipients as $recipient) {
+                        if (empty($message->getTo())) {
+                            $message->to($recipient['email'], $recipient['name']);
+                            Log::info("Agregando destinatario TO: {$recipient['email']}");
+                        } else {
+                            $message->cc($recipient['email'], $recipient['name']);
+                            Log::info("Agregando destinatario CC: {$recipient['email']}");
+                        }
+                    }
+
+                    $message->subject($subject);
+                }
+            );
+
+            Log::info("Recordatorio de check-out #{$reservation->reservation_number} enviado exitosamente a " . count($recipients) . " destinatario(s)");
+        } catch (\Exception $e) {
+            Log::error("Error enviando recordatorio de check-out #{$reservation->reservation_number}: " . $e->getMessage());
+            throw $e;
+        }
+    }
+
+    /**
+     * Enviar notificación de cancelación
+     */
+    public function sendCancellationNotification(Reservation $reservation)
+    {
+        $reservation->loadMissing(['customer', 'guests', 'room', 'roomType']);
+
+        $recipients = $this->getRecipients($reservation);
+
+        if (empty($recipients)) {
+            Log::warning("No hay destinatarios para enviar notificación de cancelación #{$reservation->reservation_number}");
+            return;
+        }
+
+        try {
+            Log::info("Intentando enviar notificación de cancelación #{$reservation->reservation_number}", [
+                'recipients_count' => count($recipients)
+            ]);
+
+            Mail::send(
+                'emails.cancellation_notification',
+                [
+                    'reservation' => $reservation,
+                    'customer' => $reservation->customer,
+                ],
+                function ($message) use ($reservation, $recipients) {
+                    $subject = "Cancelación de Reserva #{$reservation->reservation_number}";
+
+                    foreach ($recipients as $recipient) {
+                        if (empty($message->getTo())) {
+                            $message->to($recipient['email'], $recipient['name']);
+                            Log::info("Agregando destinatario TO: {$recipient['email']}");
+                        } else {
+                            $message->cc($recipient['email'], $recipient['name']);
+                            Log::info("Agregando destinatario CC: {$recipient['email']}");
+                        }
+                    }
+
+                    $message->subject($subject);
+                }
+            );
+
+            Log::info("Notificación de cancelación #{$reservation->reservation_number} enviada exitosamente a " . count($recipients) . " destinatario(s)");
+        } catch (\Exception $e) {
+            Log::error("Error enviando notificación de cancelación #{$reservation->reservation_number}: " . $e->getMessage());
+            throw $e;
+        }
+    }
+
+    /**
+     * Enviar notificación de cambios en la reserva
+     */
+    public function sendReservationUpdateNotification(Reservation $reservation, array $changes = [])
+    {
+        $reservation->loadMissing(['customer', 'guests', 'room', 'roomType']);
+
+        $recipients = $this->getRecipients($reservation);
+
+        if (empty($recipients)) {
+            Log::warning("No hay destinatarios para enviar notificación de actualización #{$reservation->reservation_number}");
+            return;
+        }
+
+        try {
+            Log::info("Intentando enviar notificación de actualización #{$reservation->reservation_number}", [
+                'recipients_count' => count($recipients),
+                'changes' => array_keys($changes)
+            ]);
+
+            Mail::send(
+                'emails.reservation_update',
+                [
+                    'reservation' => $reservation,
+                    'customer' => $reservation->customer,
+                    'changes' => $changes,
+                ],
+                function ($message) use ($reservation, $recipients) {
+                    $subject = "Actualización de Reserva #{$reservation->reservation_number}";
+
+                    foreach ($recipients as $recipient) {
+                        if (empty($message->getTo())) {
+                            $message->to($recipient['email'], $recipient['name']);
+                            Log::info("Agregando destinatario TO: {$recipient['email']}");
+                        } else {
+                            $message->cc($recipient['email'], $recipient['name']);
+                            Log::info("Agregando destinatario CC: {$recipient['email']}");
+                        }
+                    }
+
+                    $message->subject($subject);
+                }
+            );
+
+            Log::info("Notificación de actualización #{$reservation->reservation_number} enviada exitosamente a " . count($recipients) . " destinatario(s)");
+        } catch (\Exception $e) {
+            Log::error("Error enviando notificación de actualización #{$reservation->reservation_number}: " . $e->getMessage());
+            throw $e;
+        }
+    }
 }
 
 

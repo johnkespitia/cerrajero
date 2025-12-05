@@ -38,6 +38,10 @@ class Reservation extends Model
         'free_reservation_reference',
         'special_requests',
         'cancellation_reason',
+        'cancellation_policy_id',
+        'cancellation_deadline',
+        'refund_amount',
+        'penalty_amount',
         'google_calendar_event_id',
         'google_calendar_link',
         'email_sent',
@@ -80,6 +84,9 @@ class Reservation extends Model
         'deposit_amount' => 'decimal:2',
         'early_check_in_fee' => 'decimal:2',
         'late_check_out_fee' => 'decimal:2',
+        'refund_amount' => 'decimal:2',
+        'penalty_amount' => 'decimal:2',
+        'cancellation_deadline' => 'datetime',
         'email_sent' => 'boolean',
         'email_sent_at' => 'datetime',
         'reminder_sent' => 'boolean',
@@ -220,6 +227,11 @@ class Reservation extends Model
         return $this->belongsTo(Promotion::class, 'promotion_code', 'code');
     }
 
+    public function cancellationPolicy()
+    {
+        return $this->belongsTo(CancellationPolicy::class);
+    }
+
     public function getTotalPaidAttribute()
     {
         return $this->payments()->sum('amount');
@@ -227,6 +239,6 @@ class Reservation extends Model
 
     public function getRemainingBalanceAttribute()
     {
-        return max(0, $this->final_price ?? $this->total_price - $this->total_paid);
+        return max(0, ($this->final_price ?? $this->total_price) - $this->total_paid);
     }
 }

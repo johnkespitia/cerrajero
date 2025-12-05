@@ -16,6 +16,12 @@ class Kernel extends ConsoleKernel
     protected function schedule(Schedule $schedule)
     {
         // $schedule->command('inspire')->hourly();
+        
+        // Procesar notificaciones automáticas de reservas diariamente a las 8:00 AM
+        $schedule->job(new \App\Jobs\ProcessReservationNotifications())
+            ->dailyAt('08:00')
+            ->name('process-reservation-notifications')
+            ->withoutOverlapping();
     }
 
     /**
