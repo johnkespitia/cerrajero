@@ -31,7 +31,9 @@ jobs:
       - name: Install Composer dependencies
         working-directory: ./src
         run: |
-          composer install --no-dev --optimize-autoloader --no-interaction --prefer-dist
+          # Instalar sin ejecutar scripts que requieren BD
+          composer install --no-dev --optimize-autoloader --no-interaction --prefer-dist --no-scripts
+          # package:discover se ejecutará en el servidor después del despliegue
 
       - name: Create deployment package
         run: |
