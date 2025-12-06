@@ -59,8 +59,12 @@ class ReservationController extends Controller
             'room.roomType',
             'roomType',
             'guests',
-            'childReservations',
-            'parentReservation',
+            'childReservations' => function($query) {
+                $query->with(['room', 'room.roomType', 'customer']);
+            },
+            'parentReservation' => function($query) {
+                $query->with(['room', 'room.roomType', 'customer']);
+            },
             'cancellationPolicy'
         ];
 
@@ -73,6 +77,10 @@ class ReservationController extends Controller
 
         if ($request->has('status')) {
             $query->where('status', $request->status);
+        }
+
+        if ($request->has('payment_status')) {
+            $query->where('payment_status', $request->payment_status);
         }
 
         if ($request->has('reservation_type')) {
@@ -93,6 +101,81 @@ class ReservationController extends Controller
 
         if ($request->boolean('main_reservations_only')) {
             $query->whereNull('parent_reservation_id');
+        }
+
+        // Búsqueda por número de reserva
+        if ($request->has('reservation_number')) {
+            $query->where('reservation_number', 'like', '%' . $request->reservation_number . '%');
+        }
+
+        // Búsqueda por nombre de cliente
+        if ($request->has('customer_name')) {
+            $query->whereHas('customer', function($q) use ($request) {
+                $q->where(function($subQ) use ($request) {
+                    $subQ->where('name', 'like', '%' . $request->customer_name . '%')
+                         ->orWhere('last_name', 'like', '%' . $request->customer_name . '%')
+                         ->orWhere('company_name', 'like', '%' . $request->customer_name . '%');
+                });
+            });
+        }
+
+        // Búsqueda por documento de cliente
+        if ($request->has('customer_document')) {
+            $query->whereHas('customer', function($q) use ($request) {
+                $q->where(function($subQ) use ($request) {
+                    $subQ->where('dni', 'like', '%' . $request->customer_document . '%')
+                         ->orWhere('company_nit', 'like', '%' . $request->customer_document . '%');
+                });
+            });
+        }
+
+        // Búsqueda general por texto (busca en número de reserva, nombre y documento)
+        if ($request->has('search')) {
+            $searchTerm = $request->search;
+            $query->where(function($q) use ($searchTerm) {
+                $q->where('reservation_number', 'like', '%' . $searchTerm . '%')
+                  ->orWhereHas('customer', function($customerQuery) use ($searchTerm) {
+                      $customerQuery->where(function($subQ) use ($searchTerm) {
+                          $subQ->where('name', 'like', '%' . $searchTerm . '%')
+                               ->orWhere('last_name', 'like', '%' . $searchTerm . '%')
+                               ->orWhere('company_name', 'like', '%' . $searchTerm . '%')
+                               ->orWhere('dni', 'like', '%' . $searchTerm . '%')
+                               ->orWhere('company_nit', 'like', '%' . $searchTerm . '%');
+                      });
+                  });
+            });
+        }
+
+        // Por defecto, mostrar solo reservas de los últimos 30 días si no hay filtros activos
+        $hasDateFilter = $request->has('date_from') || $request->has('date_to');
+        $hasOtherFilters = $request->has('status') || 
+                          $request->has('payment_status') ||
+                          $request->has('reservation_type') || 
+                          $request->has('room_type_id') ||
+                          $request->has('search') ||
+                          $request->has('customer_name') ||
+                          $request->has('reservation_number') ||
+                          $request->has('customer_document');
+        
+        // Si no hay filtros activos, limitar a últimos 30 días por defecto
+        if (!$hasDateFilter && !$hasOtherFilters && !$request->boolean('show_all')) {
+            $thirtyDaysAgo = now()->subDays(30)->format('Y-m-d');
+            $query->where('check_in_date', '>=', $thirtyDaysAgo);
+        }
+
+        // Soporte para paginación
+        if ($request->has('per_page') || $request->has('page')) {
+            $perPage = $request->input('per_page', 50);
+            $reservations = $query->orderBy('check_in_date', 'desc')->paginate($perPage);
+            return response()->json([
+                'data' => $reservations->items(),
+                'current_page' => $reservations->currentPage(),
+                'last_page' => $reservations->lastPage(),
+                'per_page' => $reservations->perPage(),
+                'total' => $reservations->total(),
+                'from' => $reservations->firstItem(),
+                'to' => $reservations->lastItem(),
+            ]);
         }
 
         return response()->json(

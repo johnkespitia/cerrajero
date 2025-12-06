@@ -1,0 +1,217 @@
+name: Deploy Backend to FTP
+
+on:
+  push:
+    branches:
+      - campo_verde_api
+
+jobs:
+  deploy:
+    name: Prepare and Deploy to FTP
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.0'
+          extensions: mbstring, xml, bcmath, pdo, pdo_mysql, fileinfo, gd, zip
+
+      - name: Cache Composer dependencies
+        uses: actions/cache@v3
+        with:
+          path: ~/.composer/cache
+          key: ${{ runner.os }}-composer-${{ hashFiles('src/composer.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-composer-
+
+      - name: Install Composer dependencies
+        working-directory: ./src
+        run: |
+          composer install --no-dev --optimize-autoloader --no-interaction --prefer-dist
+
+      - name: Create deployment package
+        run: |
+          mkdir -p deploy
+          # Copiar archivos necesarios
+          cp -r src/app deploy/
+          cp -r src/bootstrap deploy/
+          cp -r src/config deploy/
+          cp -r src/database deploy/
+          cp -r src/public deploy/
+          cp -r src/resources deploy/
+          cp -r src/routes deploy/
+          cp -r src/storage deploy/
+          cp -r src/vendor deploy/
+          cp src/artisan deploy/
+          cp src/composer.json deploy/
+          cp src/composer.lock deploy/
+          cp src/server.php deploy/ 2>/dev/null || true
+          
+          # Crear directorios necesarios si no existen
+          mkdir -p deploy/storage/framework/cache
+          mkdir -p deploy/storage/framework/sessions
+          mkdir -p deploy/storage/framework/views
+          mkdir -p deploy/storage/logs
+          mkdir -p deploy/bootstrap/cache
+          
+          # Asegurar permisos (se ajustarán en el servidor)
+          chmod -R 775 deploy/storage
+          chmod -R 775 deploy/bootstrap/cache
+
+      - name: Create .env.production from GitHub Secrets
+        run: |
+          cat > deploy/.env.production << EOF
+          # Archivo generado automáticamente desde GitHub Secrets
+          # Este archivo NO sobrescribirá tu .env existente
+          # Revisa y aplica los cambios manualmente o usa el script update-env.php
+          
+          APP_NAME=${{ secrets.APP_NAME || 'CAMPO VERDE API' }}
+          APP_ENV=${{ secrets.APP_ENV || 'production' }}
+          APP_KEY=${{ secrets.APP_KEY }}
+          APP_DEBUG=${{ secrets.APP_DEBUG || 'false' }}
+          APP_URL=${{ secrets.APP_URL }}
+          
+          LOG_CHANNEL=${{ secrets.LOG_CHANNEL || 'stack' }}
+          LOG_LEVEL=${{ secrets.LOG_LEVEL || 'error' }}
+          
+          DB_CONNECTION=${{ secrets.DB_CONNECTION || 'mysql' }}
+          DB_HOST=${{ secrets.DB_HOST }}
+          DB_PORT=${{ secrets.DB_PORT || '3306' }}
+          DB_DATABASE=${{ secrets.DB_DATABASE }}
+          DB_USERNAME=${{ secrets.DB_USERNAME }}
+          DB_PASSWORD=${{ secrets.DB_PASSWORD }}
+          
+          BROADCAST_DRIVER=${{ secrets.BROADCAST_DRIVER || 'log' }}
+          CACHE_DRIVER=${{ secrets.CACHE_DRIVER || 'file' }}
+          FILESYSTEM_DRIVER=${{ secrets.FILESYSTEM_DRIVER || 'local' }}
+          QUEUE_CONNECTION=${{ secrets.QUEUE_CONNECTION || 'sync' }}
+          SESSION_DRIVER=${{ secrets.SESSION_DRIVER || 'file' }}
+          SESSION_LIFETIME=${{ secrets.SESSION_LIFETIME || '120' }}
+          
+          MEMCACHED_HOST=${{ secrets.MEMCACHED_HOST || '127.0.0.1' }}
+          
+          REDIS_HOST=${{ secrets.REDIS_HOST || '127.0.0.1' }}
+          REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD || 'null' }}
+          REDIS_PORT=${{ secrets.REDIS_PORT || '6379' }}
+          
+          MAIL_MAILER=${{ secrets.MAIL_MAILER || 'smtp' }}
+          MAIL_HOST=${{ secrets.MAIL_HOST }}
+          MAIL_PORT=${{ secrets.MAIL_PORT || '587' }}
+          MAIL_USERNAME=${{ secrets.MAIL_USERNAME }}
+          MAIL_PASSWORD=${{ secrets.MAIL_PASSWORD }}
+          MAIL_ENCRYPTION=${{ secrets.MAIL_ENCRYPTION || 'tls' }}
+          MAIL_FROM_ADDRESS=${{ secrets.MAIL_FROM_ADDRESS }}
+          MAIL_FROM_NAME=${{ secrets.MAIL_FROM_NAME }}
+          
+          AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION=${{ secrets.AWS_DEFAULT_REGION }}
+          AWS_BUCKET=${{ secrets.AWS_BUCKET }}
+          AWS_USE_PATH_STYLE_ENDPOINT=${{ secrets.AWS_USE_PATH_STYLE_ENDPOINT || 'false' }}
+          
+          PUSHER_APP_ID=${{ secrets.PUSHER_APP_ID }}
+          PUSHER_APP_KEY=${{ secrets.PUSHER_APP_KEY }}
+          PUSHER_APP_SECRET=${{ secrets.PUSHER_APP_SECRET }}
+          PUSHER_APP_CLUSTER=${{ secrets.PUSHER_APP_CLUSTER || 'mt1' }}
+          
+          MIX_PUSHER_APP_KEY=${{ secrets.MIX_PUSHER_APP_KEY }}
+          MIX_PUSHER_APP_CLUSTER=${{ secrets.MIX_PUSHER_APP_CLUSTER || 'mt1' }}
+          EOF
+
+      - name: Create update-env.php script
+        run: |
+          cat > deploy/update-env.php << 'ENDPHP'
+          <?php
+          /**
+           * Script para actualizar variables de entorno desde .env.production
+           * Este script actualiza solo las variables que existen en .env.production
+           * sin sobrescribir el archivo .env completo
+           * 
+           * Uso: php update-env.php
+           */
+          
+          $envFile = __DIR__ . '/.env';
+          $productionFile = __DIR__ . '/.env.production';
+          
+          if (!file_exists($productionFile)) {
+              echo "❌ Archivo .env.production no encontrado.\n";
+              exit(1);
+          }
+          
+          if (!file_exists($envFile)) {
+              echo "⚠️  Archivo .env no existe. Copiando .env.production a .env\n";
+              copy($productionFile, $envFile);
+              echo "✅ Archivo .env creado desde .env.production\n";
+              exit(0);
+          }
+          
+          // Leer variables de .env.production
+          $productionVars = [];
+          $lines = file($productionFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+          foreach ($lines as $line) {
+              $line = trim($line);
+              // Ignorar comentarios y líneas vacías
+              if (empty($line) || strpos($line, '#') === 0) {
+                  continue;
+              }
+              if (strpos($line, '=') !== false) {
+                  list($key, $value) = explode('=', $line, 2);
+                  $productionVars[trim($key)] = trim($value);
+              }
+          }
+          
+          // Leer y actualizar .env existente
+          $envContent = file_get_contents($envFile);
+          $updated = 0;
+          $added = 0;
+          
+          foreach ($productionVars as $key => $value) {
+              // Buscar si la variable ya existe
+              $pattern = '/^' . preg_quote($key, '/') . '=.*$/m';
+              if (preg_match($pattern, $envContent)) {
+                  // Actualizar variable existente
+                  $envContent = preg_replace($pattern, "$key=$value", $envContent);
+                  $updated++;
+              } else {
+                  // Agregar nueva variable al final
+                  $envContent .= "\n$key=$value";
+                  $added++;
+              }
+          }
+          
+          // Guardar archivo actualizado
+          file_put_contents($envFile, $envContent);
+          
+          echo "✅ Actualización completada:\n";
+          echo "   - Variables actualizadas: $updated\n";
+          echo "   - Variables agregadas: $added\n";
+          echo "\n⚠️  IMPORTANTE: Revisa el archivo .env antes de usar la aplicación.\n";
+          ENDPHP
+
+      - name: Deploy to FTP
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          local-dir: ./deploy/
+          server-dir: ${{ secrets.FTP_BACKEND_DIR || '/' }}
+          exclude: |
+            **/.git*
+            **/.git*/**
+            **/node_modules/**
+            **/.DS_Store
+            **/.env
+            **/tests/**
+            **/phpunit.xml
+            **/.phpunit.result.cache
+            **/storage/logs/*
+            **/storage/framework/cache/*
+            **/storage/framework/sessions/*
+            **/storage/framework/views/*
+          dangerous-clean-slate: false
+
