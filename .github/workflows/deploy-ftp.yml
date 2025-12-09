@@ -17,7 +17,7 @@ jobs:
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
         with:
-          php-version: '8.1'
+          php-version: '8.2'
           extensions: mbstring, xml, bcmath, pdo, pdo_mysql, fileinfo, gd, zip
 
       - name: Cache Composer dependencies
@@ -33,7 +33,15 @@ jobs:
         run: |
           # Instalar sin ejecutar scripts que requieren BD
           composer install --no-dev --optimize-autoloader --no-interaction --prefer-dist --no-scripts
-          # package:discover se ejecutará en el servidor después del despliegue
+          
+      - name: Clean and regenerate package cache
+        working-directory: ./src
+        run: |
+          # Eliminar cache de paquetes que puede contener referencias a paquetes de desarrollo
+          rm -f bootstrap/cache/packages.php
+          rm -f bootstrap/cache/services.php
+          # Regenerar cache de paquetes sin dependencias de desarrollo
+          php artisan package:discover --ansi || true
 
       - name: Create deployment package
         run: |
@@ -59,6 +67,15 @@ jobs:
           mkdir -p deploy/storage/framework/views
           mkdir -p deploy/storage/logs
           mkdir -p deploy/bootstrap/cache
+          
+          # Asegurar que el cache de paquetes no contenga referencias a paquetes de desarrollo
+          # Si packages.php existe pero tiene referencias a ignition, eliminarlo
+          if [ -f deploy/bootstrap/cache/packages.php ]; then
+            if grep -q "facade/ignition" deploy/bootstrap/cache/packages.php; then
+              echo "⚠️  Eliminando packages.php con referencias a paquetes de desarrollo"
+              rm -f deploy/bootstrap/cache/packages.php
+            fi
+          fi
           
           # Asegurar permisos (se ajustarán en el servidor)
           chmod -R 775 deploy/storage
