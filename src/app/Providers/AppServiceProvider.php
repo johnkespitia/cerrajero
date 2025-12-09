@@ -24,6 +24,14 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot()
     {
-        Schema::defaultStringLength(125);
+        // Verificar que PDO esté disponible antes de configurar Schema
+        if (extension_loaded('pdo') && extension_loaded('pdo_mysql')) {
+            try {
+                Schema::defaultStringLength(125);
+            } catch (\Exception $e) {
+                // Si hay un error de conexión, continuar sin configurar
+                // Esto puede ocurrir durante el despliegue antes de configurar la BD
+            }
+        }
     }
 }
