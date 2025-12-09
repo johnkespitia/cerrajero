@@ -54,6 +54,22 @@ class Handler extends ExceptionHandler
             }
         });
         $this->renderable(function (\Exception $e, $request) {
+            // Detectar error de PDO no encontrado
+            if (strpos($e->getMessage(), "Class 'PDO' not found") !== false || 
+                strpos($e->getMessage(), 'Class "PDO" not found') !== false) {
+                $message = "La extensión PDO de PHP no está habilitada en el servidor. ";
+                $message .= "Por favor, contacta al administrador del servidor para habilitar las extensiones 'pdo' y 'pdo_mysql'. ";
+                $message .= "Puedes verificar el estado de PDO accediendo a: " . url('/check_pdo.php');
+                
+                if ($request->is('api/*')) {
+                    return response()->json([
+                        'message' => $message,
+                        'error' => 'PDO_NOT_FOUND',
+                        'help' => 'Verifica las extensiones PHP en tu servidor. Accede a /check_pdo.php para más información.'
+                    ], 500);
+                }
+            }
+            
             if ($request->is('api/*')) {
                 return response()->json([
                     'message' => $e->getMessage()
