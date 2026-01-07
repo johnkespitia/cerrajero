@@ -241,4 +241,45 @@ class Reservation extends Model
     {
         return max(0, ($this->final_price ?? $this->total_price) - $this->total_paid);
     }
+
+    public function kioskInvoices()
+    {
+        return $this->hasMany(KioskInvoice::class, 'reservation_id');
+    }
+
+    /**
+     * Obtener facturas del kiosko pendientes de pago (con credit = true y payed = false)
+     */
+    public function getPendingKioskInvoicesAttribute()
+    {
+        return $this->kioskInvoices()
+            ->whereHas('payment_type', function($query) {
+                $query->where('credit', true);
+            })
+            ->where('payed', false)
+            ->with(['payment_type', 'details.kiosk_unit.product'])
+            ->get();
+    }
+
+    /**
+     * Calcular el total pendiente de facturas del kiosko
+     */
+    public function getTotalPendingKioskInvoicesAttribute()
+    {
+        return $this->pendingKioskInvoices->sum(function($invoice) {
+            return $invoice->details->sum(function($detail) {
+                return $detail->price ?? 0;
+            });
+        });
+    }
+
+    /**
+     * Calcular el saldo total pendiente (reserva + facturas kiosko)
+     */
+    public function getTotalPendingBalanceAttribute()
+    {
+        $reservationBalance = $this->remaining_balance;
+        $kioskBalance = $this->total_pending_kiosk_invoices;
+        return $reservationBalance + $kioskBalance;
+    }
 }

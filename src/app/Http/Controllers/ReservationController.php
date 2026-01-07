@@ -51,6 +51,68 @@ class ReservationController extends Controller
         $this->cancellationService = $cancellationService;
     }
 
+    /**
+     * Verificar si un cliente tiene reserva activa (para uso desde módulo de kiosko)
+     */
+    public function checkActiveReservation(Request $request)
+    {
+        $request->validate([
+            'customer_id' => 'required|exists:customers,id',
+        ]);
+
+        $activeReservation = Reservation::where('customer_id', $request->customer_id)
+            ->where('status', 'checked_in')
+            ->with(['customer', 'room', 'roomType'])
+            ->first();
+
+        return response()->json([
+            'has_active_reservation' => $activeReservation !== null,
+            'reservation' => $activeReservation
+        ]);
+    }
+
+    /**
+     * Obtener todas las reservas activas de un cliente (para selector en kiosko)
+     */
+    public function getActiveReservationsForKiosk(Request $request)
+    {
+        $request->validate([
+            'customer_id' => 'required|exists:customers,id',
+        ]);
+
+        $activeReservations = Reservation::where('customer_id', $request->customer_id)
+            ->where('status', 'checked_in')
+            ->with(['customer', 'room', 'roomType'])
+            ->orderBy('check_in_date', 'desc')
+            ->get()
+            ->map(function($reservation) {
+                $daysRemaining = 0;
+                if ($reservation->check_out_date) {
+                    $daysRemaining = max(0, now()->diffInDays($reservation->check_out_date, false));
+                }
+                
+                return [
+                    'id' => $reservation->id,
+                    'reservation_number' => $reservation->reservation_number,
+                    'room' => $reservation->room ? $reservation->room->number : null,
+                    'room_type' => $reservation->roomType ? $reservation->roomType->name : null,
+                    'check_in_date' => $reservation->check_in_date->format('Y-m-d'),
+                    'check_out_date' => $reservation->check_out_date ? $reservation->check_out_date->format('Y-m-d') : null,
+                    'days_remaining' => $daysRemaining,
+                    'is_group_reservation' => $reservation->is_group_reservation,
+                    'is_main_reservation' => !$reservation->parent_reservation_id,
+                    'priority_score' => ($reservation->is_group_reservation && !$reservation->parent_reservation_id ? 1000 : 0) + $daysRemaining
+                ];
+            })
+            ->sortByDesc('priority_score')
+            ->values();
+
+        return response()->json([
+            'reservations' => $activeReservations,
+            'count' => $activeReservations->count()
+        ]);
+    }
+
     public function index(Request $request)
     {
         $with = [
@@ -70,7 +132,13 @@ class ReservationController extends Controller
 
         // Incluir pagos si se solicita
         if ($request->has('include') && str_contains($request->include, 'payments')) {
-            $with[] = 'payments';
+            $with[] = 'payments.paymentType';
+        }
+
+        // Incluir facturas del kiosko si se solicita o si se está mostrando una reserva individual
+        if ($request->has('include') && str_contains($request->include, 'kiosk_invoices')) {
+            $with[] = 'kioskInvoices.payment_type';
+            $with[] = 'kioskInvoices.details.kiosk_unit.product';
         }
 
         $query = Reservation::with($with);
@@ -106,6 +174,11 @@ class ReservationController extends Controller
         // Búsqueda por número de reserva
         if ($request->has('reservation_number')) {
             $query->where('reservation_number', 'like', '%' . $request->reservation_number . '%');
+        }
+
+        // Búsqueda por ID de cliente
+        if ($request->has('customer_id')) {
+            $query->where('customer_id', $request->customer_id);
         }
 
         // Búsqueda por nombre de cliente
@@ -194,11 +267,40 @@ class ReservationController extends Controller
             'createdBy',
             'childReservations',
             'parentReservation',
-            'payments',
+            'payments.paymentType',
+            'kioskInvoices.payment_type',
+            'kioskInvoices.details.kiosk_unit.product',
             'audits.user',
             'promotion',
             'cancellationPolicy'
         ]);
+
+        // Asegurar que las facturas del kiosko se carguen incluso si no están en el eager loading
+        if (!$reservation->relationLoaded('kioskInvoices')) {
+            $reservation->load([
+                'kioskInvoices.payment_type',
+                'kioskInvoices.details.kiosk_unit.product'
+            ]);
+        }
+
+        // Si la reserva está activa (checked_in), también incluir facturas pendientes del cliente
+        // que no tienen reservation_id asignado (facturas que deberían estar asociadas a esta reserva)
+        if ($reservation->status === 'checked_in') {
+            $pendingCustomerInvoices = \App\Models\KioskInvoice::where('customer_id', $reservation->customer_id)
+                ->whereHas('payment_type', function($query) {
+                    $query->where('credit', true);
+                })
+                ->where('payed', false)
+                ->whereNull('reservation_id')
+                ->with(['payment_type', 'details.kiosk_unit.product'])
+                ->get();
+
+            // Agregar estas facturas a la relación kioskInvoices
+            if ($pendingCustomerInvoices->count() > 0) {
+                $existingInvoices = $reservation->kioskInvoices;
+                $reservation->setRelation('kioskInvoices', $existingInvoices->merge($pendingCustomerInvoices));
+            }
+        }
 
         return response()->json($reservation);
     }
@@ -1391,10 +1493,30 @@ class ReservationController extends Controller
      */
     public function addPayment(Request $request, Reservation $reservation)
     {
+        // Mapeo de payment_method (ENUM antiguo) a nombres de PaymentType
+        $paymentMethodMap = [
+            'cash' => 'Efectivo',
+            'card' => 'Tarjeta',
+            'transfer' => 'Transferencia',
+            'check' => 'Cheque',
+            'other' => 'Otro'
+        ];
+
+        // Si se envía payment_method (compatibilidad hacia atrás), convertirlo a payment_type_id
+        if ($request->has('payment_method') && !$request->has('payment_type_id')) {
+            $paymentMethod = $request->payment_method;
+            if (isset($paymentMethodMap[$paymentMethod])) {
+                $paymentType = \App\Models\PaymentType::where('name', $paymentMethodMap[$paymentMethod])->first();
+                if ($paymentType) {
+                    $request->merge(['payment_type_id' => $paymentType->id]);
+                }
+            }
+        }
+
         $validator = Validator::make($request->all(), [
             'amount' => 'required|numeric|min:0.01',
             'concept' => 'nullable|string|max:200',
-            'payment_method' => 'required|in:cash,card,transfer,check,other',
+            'payment_type_id' => 'required|exists:payment_types,id',
             'payment_reference' => 'nullable|string|max:200',
             'notes' => 'nullable|string|max:1000',
         ]);
@@ -1425,7 +1547,7 @@ class ReservationController extends Controller
                 'reservation_id' => $reservation->id,
                 'amount' => $request->amount,
                 'concept' => $request->concept,
-                'payment_method' => $request->payment_method,
+                'payment_type_id' => $request->payment_type_id,
                 'payment_reference' => $request->payment_reference,
                 'notes' => $request->notes,
                 'created_by' => auth()->id(),
@@ -1442,15 +1564,19 @@ class ReservationController extends Controller
 
             $reservation->save();
 
+            // Obtener el nombre del método de pago para la auditoría
+            $paymentType = \App\Models\PaymentType::find($request->payment_type_id);
+            $paymentMethodName = $paymentType ? $paymentType->name : 'Desconocido';
+
             // Registrar auditoría
-            $this->auditService->logPayment($reservation, $request->amount, $request->payment_method, $request->notes, $request);
+            $this->auditService->logPayment($reservation, $request->amount, $paymentMethodName, $request->notes, $request);
 
             DB::commit();
 
             return response()->json([
                 'message' => 'Pago registrado exitosamente',
-                'payment' => $payment,
-                'reservation' => $reservation->fresh(['payments', 'customer']),
+                'payment' => $payment->load('paymentType'),
+                'reservation' => $reservation->fresh(['payments.paymentType', 'customer']),
             ], 201);
         } catch (\Exception $e) {
             DB::rollBack();
@@ -1699,6 +1825,40 @@ class ReservationController extends Controller
             ], 422);
         }
 
+        // REGLA 4: Validar que todas las cuentas abiertas (facturas del kiosko con credit = 1) estén pagadas
+        $pendingKioskInvoices = \App\Models\KioskInvoice::where('reservation_id', $reservation->id)
+            ->whereHas('payment_type', function($query) {
+                $query->where('credit', true);
+            })
+            ->where('payed', false)
+            ->with(['details.kiosk_unit.product'])
+            ->get();
+
+        if ($pendingKioskInvoices->count() > 0) {
+            $totalPending = $pendingKioskInvoices->sum(function($invoice) {
+                // Calcular total de la factura sumando los precios de los detalles
+                return $invoice->details->sum(function($detail) {
+                    return $detail->price ?? 0;
+                });
+            });
+
+            return response()->json([
+                'message' => 'No se puede hacer check-out. Hay facturas del kiosko pendientes de pago.',
+                'pending_invoices_count' => $pendingKioskInvoices->count(),
+                'pending_amount' => number_format($totalPending, 2),
+                'pending_invoices' => $pendingKioskInvoices->map(function($invoice) {
+                    $invoiceTotal = $invoice->details->sum(function($detail) {
+                        return $detail->price ?? 0;
+                    });
+                    return [
+                        'id' => $invoice->id,
+                        'payment_code' => $invoice->payment_code,
+                        'amount' => $invoiceTotal
+                    ];
+                })
+            ], 422);
+        }
+
         DB::beginTransaction();
         try {
             // Actualizar estado y tiempo de check-out
@@ -1738,10 +1898,18 @@ class ReservationController extends Controller
                 \Log::warning('Error generating checkout certificate: ' . $e->getMessage());
             }
 
-            // Enviar email con PDF de checkout
+            // Generar factura consolidada
+            $checkoutInvoice = null;
+            try {
+                $checkoutInvoice = $this->certificateService->generateCheckoutInvoice($reservation);
+            } catch (\Exception $e) {
+                \Log::warning('Error generating checkout invoice: ' . $e->getMessage());
+            }
+
+            // Enviar email con PDF de checkout y factura consolidada
             if ($checkoutCertificate) {
                 try {
-                    $this->emailService->sendCheckoutConfirmation($reservation, $checkoutCertificate);
+                    $this->emailService->sendCheckoutConfirmation($reservation, $checkoutCertificate, $checkoutInvoice);
                 } catch (\Exception $e) {
                     \Log::warning('Error sending checkout email: ' . $e->getMessage());
                 }

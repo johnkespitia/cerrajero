@@ -17,6 +17,20 @@ class PaymentTypeController extends Controller
     }
 
     /**
+     * Display a listing of payment methods for reservations.
+     * Excludes payment methods with credit = true (only immediate payment methods).
+     */
+    public function indexForReservations()
+    {
+        return PaymentType::where('active', true)
+            ->where(function($query) {
+                $query->where('credit', false)
+                      ->orWhereNull('credit');
+            })
+            ->get();
+    }
+
+    /**
      * Store a newly created resource in storage.
      */
     public function store(Request $request)

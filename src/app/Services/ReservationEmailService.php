@@ -132,7 +132,7 @@ class ReservationEmailService
     /**
      * Enviar email de confirmación de checkout con PDF
      */
-    public function sendCheckoutConfirmation(Reservation $reservation, array $certificate)
+    public function sendCheckoutConfirmation(Reservation $reservation, array $certificate, array $invoice = null)
     {
         $reservation->loadMissing(['customer', 'guests']);
 
@@ -197,7 +197,7 @@ class ReservationEmailService
                     'reservation' => $reservation,
                     'customer' => $reservation->customer,
                 ],
-                function ($message) use ($reservation, $certificate, $recipients) {
+                function ($message) use ($reservation, $certificate, $invoice, $recipients) {
                     $subject = "Check-out Completado - Reserva #{$reservation->reservation_number}";
 
                     foreach ($recipients as $recipient) {
@@ -221,6 +221,18 @@ class ReservationEmailService
                             'as' => $certificate['filename'],
                             'mime' => 'application/pdf',
                         ]);
+
+                    // Adjuntar factura consolidada si existe
+                    if ($invoice && isset($invoice['path'])) {
+                        $invoicePath = Storage::path($invoice['path']);
+                        if (file_exists($invoicePath)) {
+                            $message->attach($invoicePath, [
+                                'as' => $invoice['filename'],
+                                'mime' => 'application/pdf',
+                            ]);
+                            Log::info("Factura consolidada adjuntada: {$invoice['filename']}");
+                        }
+                    }
                 }
             );
 

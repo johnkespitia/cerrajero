@@ -13,7 +13,7 @@ class ReservationPayment extends Model
         'reservation_id',
         'amount',
         'concept',
-        'payment_method',
+        'payment_type_id',
         'payment_reference',
         'notes',
         'created_by',
@@ -31,6 +31,11 @@ class ReservationPayment extends Model
     public function createdBy()
     {
         return $this->belongsTo(User::class, 'created_by');
+    }
+
+    public function paymentType()
+    {
+        return $this->belongsTo(PaymentType::class, 'payment_type_id');
     }
 }
 

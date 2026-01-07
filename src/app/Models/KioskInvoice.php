@@ -11,13 +11,25 @@ class KioskInvoice extends Model
 
     protected $fillable = [
         'customer_id',
+        'reservation_id',
         'payed',
         'payment_code',
         'payment_type_id',
         'payed_value',
         'remain_money',
         'electronic_invoice',
-        'closure_id'
+        'closure_id',
+        'otp_code',
+        'otp_sent_at',
+        'otp_verified_at',
+        'otp_verified_by',
+        'otp_expires_at'
+    ];
+
+    protected $casts = [
+        'otp_sent_at' => 'datetime',
+        'otp_verified_at' => 'datetime',
+        'otp_expires_at' => 'datetime',
     ];
 
     public function customer()
@@ -36,5 +48,15 @@ class KioskInvoice extends Model
     public function closure()
     {
         return $this->belongsTo(CashRegisterClosure::class, 'closure_id');
+    }
+
+    public function reservation()
+    {
+        return $this->belongsTo(Reservation::class, 'reservation_id');
+    }
+
+    public function otpVerifiedBy()
+    {
+        return $this->belongsTo(\App\Models\User::class, 'otp_verified_by');
     }
 }

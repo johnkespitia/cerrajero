@@ -222,15 +222,17 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::delete('/customer/{customer}', 'destroy')->name('destroy')->middleware('permission:clientes.edit,clientes');
     });
     Route::controller(\App\Http\Controllers\PaymentTypeController::class)->group(function () {
-        Route::get('/payment-methods', 'index')->name('index')->middleware('permission:paymenttypes.list,usuarios');
-        Route::post('/payment-methods', 'store')->name('store')->middleware('permission:paymenttypes.create,usuarios');
-        Route::get('/payment-methods/{paymentType}', 'show')->name('show')->middleware('permission:paymenttypes.list,usuarios');
-        Route::put('/payment-methods/{paymentType}', 'update')->name('update')->middleware('permission:paymenttypes.edit,usuarios');
-        Route::delete('/payment-methods/{paymentType}', 'destroy')->name('destroy')->middleware('permission:paymenttypes.edit,usuarios');
+        Route::get('/payment-methods', 'index')->name('index')->middleware('permission:payment_type.list,kioskcaja');
+        Route::post('/payment-methods', 'store')->name('store')->middleware('permission:payment_type.create,kioskcaja');
+        Route::get('/payment-methods/{paymentType}', 'show')->name('show')->middleware('permission:payment_type.list,kioskcaja');
+        Route::put('/payment-methods/{paymentType}', 'update')->name('update')->middleware('permission:payment_type.edit,kioskcaja');
+        Route::delete('/payment-methods/{paymentType}', 'destroy')->name('destroy')->middleware('permission:payment_type.edit,kioskcaja');
     });
 
     Route::controller(\App\Http\Controllers\KioskInvoiceController::class)->group(function () {
         Route::get('/kiosk/invoice', 'index')->name('index')->middleware('permission:compras.list,kioskcaja');
+        Route::post('/kiosk/invoice/generate-otp', 'generateOtp')->name('generateOtp')->middleware('permission:compras.create,kioskcaja');
+        Route::post('/kiosk/invoice/{kioskInvoice}/verify-otp', 'verifyOtpAndComplete')->name('verifyOtpAndComplete')->middleware('permission:compras.create,kioskcaja');
         Route::post('/kiosk/invoice', 'store')->name('store')->middleware('permission:compras.create,kioskcaja');
         Route::get('/kiosk/invoice/{kioskInvoice}', 'show')->name('show')->middleware('permission:compras.list,kioskcaja');
         Route::put('/kiosk/invoice/{kioskInvoice}', 'update')->name('update')->middleware('permission:compras.edit,kioskcaja');
@@ -256,6 +258,12 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::delete('/cash-register/closure/{cashRegisterClosure}', 'destroy')->middleware('permission:caja.delete,kioskcaja');
     });
 
+    // Rutas para reservas desde el módulo de kiosko
+    Route::controller(\App\Http\Controllers\ReservationController::class)->group(function () {
+        Route::get('/kiosk/check-active-reservation', 'checkActiveReservation')->middleware('permission:caja.list,kioskcaja');
+        Route::get('/kiosk/active-reservations', 'getActiveReservationsForKiosk')->middleware('permission:caja.list,kioskcaja');
+    });
+
     // =========================
     // Módulo de Reservas
     // Guard: reservas
@@ -268,6 +276,11 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::post('/reservations/customers', 'store')->middleware('permission:customer.create,reservas');
         Route::put('/reservations/customers/{customer}', 'update')->middleware('permission:customer.edit,reservas');
         Route::delete('/reservations/customers/{customer}', 'destroy')->middleware('permission:customer.delete,reservas');
+    });
+
+    // Rutas de métodos de pago accesibles desde el módulo de reservas (debe ir ANTES de /reservations/{reservation})
+    Route::controller(\App\Http\Controllers\PaymentTypeController::class)->group(function () {
+        Route::get('/reservations/payment-methods', 'indexForReservations')->middleware('permission:reservation.edit,reservas');
     });
 
     Route::controller(\App\Http\Controllers\ReservationController::class)->group(function () {

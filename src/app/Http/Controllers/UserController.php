@@ -71,7 +71,11 @@ class UserController extends Controller
         // Asignar rol
         if ($request->rol) {
             $role = Role::findOrFail($request->rol);
+            // Para asignar roles de diferentes guards, configuramos temporalmente el guard del modelo User
+            $originalGuard = $user->guard_name;
+            $user->guard_name = $role->guard_name;
             $user->assignRole($role);
+            $user->guard_name = $originalGuard;
         }
 
         // Asignar superior
@@ -111,8 +115,13 @@ class UserController extends Controller
         if ($request->has('rol')) {
             if ($request->rol) {
                 $role = Role::findOrFail($request->rol);
+                // Para sincronizar roles de diferentes guards, configuramos temporalmente el guard del modelo User
+                $originalGuard = $user->guard_name;
+                $user->guard_name = $role->guard_name;
                 $user->syncRoles([$role]);
+                $user->guard_name = $originalGuard;
             } else {
+                // Si no se especifica rol, solo sincronizamos roles del guard por defecto
                 $user->syncRoles([]);
             }
         }
@@ -197,7 +206,13 @@ class UserController extends Controller
         ]);
 
         $role = Role::findOrFail($request->rol);
+        
+        // Para asignar roles de diferentes guards, necesitamos usar el objeto Role directamente
+        // y configurar temporalmente el guard del modelo User
+        $originalGuard = $user->guard_name;
+        $user->guard_name = $role->guard_name;
         $user->assignRole($role);
+        $user->guard_name = $originalGuard;
 
         return response()->json([
             'message' => 'Rol asignado exitosamente',
@@ -216,7 +231,12 @@ class UserController extends Controller
     public function removeRole(Request $request, User $user, int $rol): JsonResponse
     {
         $role = Role::findOrFail($rol);
+        
+        // Para remover roles de diferentes guards, configuramos temporalmente el guard del modelo User
+        $originalGuard = $user->guard_name;
+        $user->guard_name = $role->guard_name;
         $user->removeRole($role);
+        $user->guard_name = $originalGuard;
 
         return response()->json([
             'message' => 'Rol removido exitosamente',

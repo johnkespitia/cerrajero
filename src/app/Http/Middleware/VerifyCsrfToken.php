@@ -9,9 +9,12 @@ class VerifyCsrfToken extends Middleware
     /**
      * The URIs that should be excluded from CSRF verification.
      *
+     * Las rutas API están excluidas porque usamos autenticación por tokens Bearer,
+     * no por cookies/sesiones. El CSRF solo es necesario para formularios tradicionales.
+     *
      * @var array<int, string>
      */
     protected $except = [
-        //
+        'api/*',
     ];
 }
