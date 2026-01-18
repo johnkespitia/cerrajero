@@ -129,6 +129,7 @@ class ReservationController extends Controller
             'roomType',
             'guests',
             'additionalServices.additionalService',
+            'payments',
             'childReservations' => function($query) {
                 $query->with(['room', 'room.roomType', 'customer']);
             },
@@ -165,6 +166,26 @@ class ReservationController extends Controller
 
         if ($request->has('room_type_id')) {
             $query->where('room_type_id', $request->room_type_id);
+        }
+
+        // Filtro por servicio adicional: reservas que tienen ese servicio
+        if ($request->has('additional_service_id')) {
+            $query->whereHas('additionalServices', function ($q) use ($request) {
+                $q->where('additional_service_id', $request->additional_service_id);
+            });
+        }
+
+        // Filtro por paquete: reservas que tienen al menos uno de los servicios del paquete
+        if ($request->has('service_package_id')) {
+            $package = \App\Models\ServicePackage::find($request->service_package_id);
+            if ($package) {
+                $serviceIds = $package->additionalServices->pluck('id')->toArray();
+                if (!empty($serviceIds)) {
+                    $query->whereHas('additionalServices', function ($q) use ($serviceIds) {
+                        $q->whereIn('additional_service_id', $serviceIds);
+                    });
+                }
+            }
         }
 
         if ($request->has('date_from')) {
@@ -236,7 +257,9 @@ class ReservationController extends Controller
                           $request->has('search') ||
                           $request->has('customer_name') ||
                           $request->has('reservation_number') ||
-                          $request->has('customer_document');
+                          $request->has('customer_document') ||
+                          $request->has('additional_service_id') ||
+                          $request->has('service_package_id');
         
         // Si no hay filtros activos, limitar a últimos 30 días por defecto
         if (!$hasDateFilter && !$hasOtherFilters && !$request->boolean('show_all')) {
