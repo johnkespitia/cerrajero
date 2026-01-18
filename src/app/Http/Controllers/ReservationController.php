@@ -1047,8 +1047,13 @@ class ReservationController extends Controller
                 $updateData['total_price'] = $newCalculatedPrice;
                 $updateData['final_price'] = $newFinalPrice;
                 
-                // Calcular total pagado
-                $totalPaid = $reservation->payments()->sum('amount');
+                // Calcular total pagado EXCLUYENDO los pagos a crédito del kiosko (que son deudas pendientes, no pagos reales)
+                $totalPaid = $reservation->payments()
+                    ->where(function($query) {
+                        $query->where('concept', '!=', 'Compra en kiosko (a crédito)')
+                              ->orWhereNull('concept');
+                    })
+                    ->sum('amount');
                 
                 // Si el nuevo precio es mayor a lo pagado, cambiar estado de pago
                 if ($newFinalPrice > $totalPaid) {
@@ -1527,19 +1532,102 @@ class ReservationController extends Controller
 
         DB::beginTransaction();
         try {
-            // Calcular total ya pagado
-            $totalPaid = $reservation->payments()->sum('amount');
+            // Calcular total ya pagado EXCLUYENDO los pagos a crédito del kiosko (que son deudas pendientes, no pagos reales)
+            $totalPaid = $reservation->payments()
+                ->where(function($query) {
+                    $query->where('concept', '!=', 'Compra en kiosko (a crédito)')
+                          ->orWhereNull('concept');
+                })
+                ->sum('amount');
             $finalPrice = $reservation->final_price ?? $reservation->total_price;
-            $remainingBalance = max(0, $finalPrice - $totalPaid);
+            $reservationBalance = max(0, $finalPrice - $totalPaid);
 
-            // Validar que el pago no exceda el saldo pendiente
-            if ($request->amount > $remainingBalance) {
+            // Calcular facturas pendientes del kiosko
+            // Incluir facturas asociadas directamente a la reserva
+            $pendingKioskInvoices = $reservation->kioskInvoices()
+                ->whereHas('payment_type', function ($query) {
+                    $query->where('credit', true);
+                })
+                ->where('payed', false)
+                ->with('details')
+                ->get();
+            
+            // Si la reserva está activa (checked_in), también incluir facturas pendientes del cliente
+            // que no tienen reservation_id asignado (facturas que deberían estar asociadas a esta reserva)
+            if ($reservation->status === 'checked_in') {
+                $pendingCustomerInvoices = \App\Models\KioskInvoice::where('customer_id', $reservation->customer_id)
+                    ->whereHas('payment_type', function($query) {
+                        $query->where('credit', true);
+                    })
+                    ->where('payed', false)
+                    ->whereNull('reservation_id')
+                    ->with('details')
+                    ->get();
+                
+                // Combinar ambas listas de facturas pendientes
+                $pendingKioskInvoices = $pendingKioskInvoices->merge($pendingCustomerInvoices);
+            }
+            
+            $totalPendingKiosk = $pendingKioskInvoices->sum(function ($invoice) {
+                return $invoice->details->sum('price');
+            });
+
+            // Calcular cuánto se ha pagado adicional a la reserva (para cargos a habitación)
+            // Si el total pagado es mayor que el precio de la reserva, la diferencia es lo que se pagó para cargos a habitación
+            $paidForRoomCharges = max(0, $totalPaid - $finalPrice);
+            
+            // El saldo pendiente de cargos a habitación es el total de cargos menos lo que ya se pagó
+            $remainingRoomCharges = max(0, $totalPendingKiosk - $paidForRoomCharges);
+
+            // El saldo pendiente total incluye la reserva + saldo pendiente de cargos a habitación
+            $totalPending = $reservationBalance + $remainingRoomCharges;
+
+            // Validar que el pago no exceda el saldo pendiente total (reserva + kiosko)
+            // IMPORTANTE: Validar que el pago individual no exceda el saldo pendiente
+            if ($request->amount > $totalPending) {
+                $formattedAmount = number_format($request->amount, 2);
+                $formattedTotalPending = number_format($totalPending, 2);
+                $formattedReservationBalance = number_format($reservationBalance, 2);
+                $formattedPendingKiosk = number_format($totalPendingKiosk, 2);
+                
+                $formattedRemainingRoomCharges = number_format($remainingRoomCharges, 2);
+                
                 return response()->json([
-                    'message' => "El monto del pago ({$request->amount}) excede el saldo pendiente ({$remainingBalance}). El total de la reserva es {$finalPrice} y ya se han pagado {$totalPaid}.",
+                    'message' => "El monto del pago ({$formattedAmount}) excede el saldo pendiente total ({$formattedTotalPending}). Puede pagar hasta {$formattedTotalPending}: {$formattedReservationBalance} de la reserva" . ($remainingRoomCharges > 0 ? " y {$formattedRemainingRoomCharges} de cargos a habitación pendientes" : "") . ".",
                     'total_price' => $finalPrice,
                     'total_paid' => $totalPaid,
-                    'remaining_balance' => $remainingBalance,
-                    'payment_amount' => $request->amount
+                    'reservation_balance' => $reservationBalance,
+                    'total_kiosk_charges' => $totalPendingKiosk,
+                    'paid_for_room_charges' => $paidForRoomCharges,
+                    'remaining_room_charges' => $remainingRoomCharges,
+                    'total_pending' => $totalPending,
+                    'payment_amount' => $request->amount,
+                    'max_payment_allowed' => $totalPending
+                ], 422);
+            }
+            
+            // Validar que el total acumulado de pagos (incluyendo este nuevo pago) no exceda el total debido
+            // Calcular el total que se debería pagar: precio de reserva + facturas del kiosko
+            $totalDue = $finalPrice + $totalPendingKiosk;
+            $totalPaidAfterThisPayment = $totalPaid + $request->amount;
+            
+            if ($totalPaidAfterThisPayment > $totalDue) {
+                $excess = $totalPaidAfterThisPayment - $totalDue;
+                $formattedExcess = number_format($excess, 2);
+                $formattedTotalDue = number_format($totalDue, 2);
+                $formattedTotalPaidAfter = number_format($totalPaidAfterThisPayment, 2);
+                
+                return response()->json([
+                    'message' => "El pago excedería el total debido. El total a pagar es {$formattedTotalDue} (reserva: {$finalPrice} + kiosko: {$totalPendingKiosk}), pero con este pago se pagarían {$formattedTotalPaidAfter}, excediendo en {$formattedExcess}.",
+                    'total_price' => $finalPrice,
+                    'total_paid' => $totalPaid,
+                    'pending_kiosk_invoices' => $totalPendingKiosk,
+                    'remaining_room_charges' => $remainingRoomCharges,
+                    'total_due' => $totalDue,
+                    'total_paid_after_payment' => $totalPaidAfterThisPayment,
+                    'excess_amount' => $excess,
+                    'payment_amount' => $request->amount,
+                    'max_payment_allowed' => $totalPending
                 ], 422);
             }
 
@@ -1553,13 +1641,66 @@ class ReservationController extends Controller
                 'created_by' => auth()->id(),
             ]);
 
-            // Actualizar estado de pago de la reserva
-            $newTotalPaid = $reservation->payments()->sum('amount');
+            // Actualizar estado de pago de la reserva (excluyendo pagos a crédito del kiosko)
+            $newTotalPaid = $reservation->payments()
+                ->where(function($query) {
+                    $query->where('concept', '!=', 'Compra en kiosko (a crédito)')
+                          ->orWhereNull('concept');
+                })
+                ->sum('amount');
 
-            if ($newTotalPaid >= $finalPrice) {
-                $reservation->payment_status = 'paid';
-            } elseif ($newTotalPaid > 0) {
+            // Verificar si hay facturas pendientes del kiosko (cargos a habitación)
+            // Incluir facturas asociadas directamente a la reserva
+            $pendingKioskInvoices = $reservation->kioskInvoices()
+                ->whereHas('payment_type', function ($query) {
+                    $query->where('credit', true);
+                })
+                ->where('payed', false)
+                ->with('details')
+                ->get();
+            
+            // Si la reserva está activa (checked_in), también incluir facturas pendientes del cliente
+            // que no tienen reservation_id asignado (facturas que deberían estar asociadas a esta reserva)
+            if ($reservation->status === 'checked_in') {
+                $pendingCustomerInvoices = \App\Models\KioskInvoice::where('customer_id', $reservation->customer_id)
+                    ->whereHas('payment_type', function($query) {
+                        $query->where('credit', true);
+                    })
+                    ->where('payed', false)
+                    ->whereNull('reservation_id')
+                    ->with('details')
+                    ->get();
+                
+                // Combinar ambas listas de facturas pendientes
+                $pendingKioskInvoices = $pendingKioskInvoices->merge($pendingCustomerInvoices);
+            }
+            
+            $totalPendingKiosk = $pendingKioskInvoices->sum(function ($invoice) {
+                return $invoice->details->sum('price');
+            });
+
+            // REGLAS DE ESTADO DE PAGO:
+            // 1. Si NO hay cargos a habitación pendientes:
+            //    - Si el total pagado >= precio reserva → 'paid'
+            //    - Si el total pagado > 0 pero < precio reserva → 'partial'
+            //    - Si el total pagado = 0 → 'pending'
+            // 2. Si HAY cargos a habitación pendientes:
+            //    - Siempre 'partial' (incluso si la reserva está pagada)
+            //    - Esto permite que se habilite el botón de agregar pago para pagar los cargos
+            
+            if ($totalPendingKiosk > 0) {
+                // Hay cargos a habitación pendientes → siempre 'partial'
+                // Esto permite que el frontend muestre el botón de agregar pago
                 $reservation->payment_status = 'partial';
+            } else {
+                // No hay cargos a habitación pendientes
+                if ($newTotalPaid >= $finalPrice) {
+                    $reservation->payment_status = 'paid';
+                } elseif ($newTotalPaid > 0) {
+                    $reservation->payment_status = 'partial';
+                } else {
+                    $reservation->payment_status = 'pending';
+                }
             }
 
             $reservation->save();
@@ -1622,7 +1763,13 @@ class ReservationController extends Controller
         // Para pasadías, validar que esté completamente pagada antes del check-in
         if ($reservation->reservation_type === 'day_pass') {
             $totalPrice = $reservation->final_price ?? $reservation->total_price;
-            $totalPaid = $reservation->payments()->sum('amount');
+            // Calcular total pagado EXCLUYENDO los pagos a crédito del kiosko (que son deudas pendientes, no pagos reales)
+            $totalPaid = $reservation->payments()
+                ->where(function($query) {
+                    $query->where('concept', '!=', 'Compra en kiosko (a crédito)')
+                          ->orWhereNull('concept');
+                })
+                ->sum('amount');
             $remainingBalance = max(0, $totalPrice - $totalPaid);
 
             if ($remainingBalance > 0 && $reservation->payment_status !== 'free') {
@@ -1811,21 +1958,19 @@ class ReservationController extends Controller
             ], 422);
         }
 
-        // Validar que la reserva esté completamente pagada
+        // Validar que la reserva esté completamente pagada (excluyendo pagos a crédito del kiosko)
         $totalPrice = $reservation->final_price ?? $reservation->total_price;
-        $totalPaid = $reservation->payments()->sum('amount');
+        // Calcular total pagado EXCLUYENDO los pagos a crédito del kiosko (que son deudas pendientes, no pagos reales)
+        $totalPaid = $reservation->payments()
+            ->where(function($query) {
+                $query->where('concept', '!=', 'Compra en kiosko (a crédito)')
+                      ->orWhereNull('concept');
+            })
+            ->sum('amount');
         $remainingBalance = max(0, $totalPrice - $totalPaid);
 
-        if ($remainingBalance > 0 && $reservation->payment_status !== 'free') {
-            return response()->json([
-                'message' => 'No se puede hacer check-out de una reserva que no está completamente pagada. Saldo pendiente: ' . number_format($remainingBalance, 2),
-                'total_price' => $totalPrice,
-                'total_paid' => $totalPaid,
-                'remaining_balance' => $remainingBalance
-            ], 422);
-        }
-
         // REGLA 4: Validar que todas las cuentas abiertas (facturas del kiosko con credit = 1) estén pagadas
+        // Incluir facturas asociadas directamente a la reserva
         $pendingKioskInvoices = \App\Models\KioskInvoice::where('reservation_id', $reservation->id)
             ->whereHas('payment_type', function($query) {
                 $query->where('credit', true);
@@ -1833,19 +1978,60 @@ class ReservationController extends Controller
             ->where('payed', false)
             ->with(['details.kiosk_unit.product'])
             ->get();
+        
+        // También incluir facturas pendientes del cliente que no tienen reservation_id asignado
+        // (facturas que deberían estar asociadas a esta reserva)
+        $pendingCustomerInvoices = \App\Models\KioskInvoice::where('customer_id', $reservation->customer_id)
+            ->whereHas('payment_type', function($query) {
+                $query->where('credit', true);
+            })
+            ->where('payed', false)
+            ->whereNull('reservation_id')
+            ->with(['details.kiosk_unit.product'])
+            ->get();
+        
+        // Combinar ambas listas de facturas pendientes
+        $pendingKioskInvoices = $pendingKioskInvoices->merge($pendingCustomerInvoices);
 
-        if ($pendingKioskInvoices->count() > 0) {
-            $totalPending = $pendingKioskInvoices->sum(function($invoice) {
-                // Calcular total de la factura sumando los precios de los detalles
-                return $invoice->details->sum(function($detail) {
-                    return $detail->price ?? 0;
-                });
+        // Calcular total de facturas pendientes del kiosko
+        $totalPendingKiosk = $pendingKioskInvoices->sum(function($invoice) {
+            return $invoice->details->sum(function($detail) {
+                return $detail->price ?? 0;
             });
+        });
+
+        // Calcular cuánto se ha pagado adicional a la reserva (para cargos a habitación)
+        $paidForRoomCharges = max(0, $totalPaid - $totalPrice);
+        // El saldo pendiente de cargos a habitación es el total de cargos menos lo que ya se pagó
+        $remainingRoomCharges = max(0, $totalPendingKiosk - $paidForRoomCharges);
+
+        // El saldo total pendiente incluye la reserva + saldo pendiente de cargos a habitación
+        $totalPending = $remainingBalance + $remainingRoomCharges;
+
+        // Si hay saldo pendiente (reserva o cargos a habitación), bloquear el checkout
+        if ($totalPending > 0 && $reservation->payment_status !== 'free') {
+            $messageParts = [];
+            if ($remainingBalance > 0) {
+                $messageParts[] = 'Saldo pendiente de la reserva: ' . number_format($remainingBalance, 2);
+            }
+            if ($remainingRoomCharges > 0) {
+                $messageParts[] = 'Saldo pendiente de cargos a habitación: ' . number_format($remainingRoomCharges, 2);
+            }
+            
+            $message = 'No se puede hacer check-out. Tiene saldo pendiente por pagar.';
+            if (count($messageParts) > 0) {
+                $message .= ' ' . implode('. ', $messageParts) . '.';
+            }
 
             return response()->json([
-                'message' => 'No se puede hacer check-out. Hay facturas del kiosko pendientes de pago.',
+                'message' => $message,
+                'total_price' => $totalPrice,
+                'total_paid' => $totalPaid,
+                'reservation_balance' => $remainingBalance,
+                'pending_kiosk_invoices' => $totalPendingKiosk,
+                'remaining_room_charges' => $remainingRoomCharges,
+                'total_pending' => $totalPending,
                 'pending_invoices_count' => $pendingKioskInvoices->count(),
-                'pending_amount' => number_format($totalPending, 2),
                 'pending_invoices' => $pendingKioskInvoices->map(function($invoice) {
                     $invoiceTotal = $invoice->details->sum(function($detail) {
                         return $detail->price ?? 0;

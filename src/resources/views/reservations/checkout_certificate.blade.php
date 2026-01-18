@@ -368,7 +368,9 @@
                                 <td>{{ \Carbon\Carbon::parse($payment->created_at)->format('d/m/Y H:i') }}</td>
                                 <td>{{ $payment->concept ?? 'Pago' }}</td>
                                 <td>
-                                    @if($payment->payment_method === 'cash')
+                                    @if($payment->paymentType)
+                                        {{ $payment->paymentType->name }}
+                                    @elseif($payment->payment_method === 'cash')
                                         Efectivo
                                     @elseif($payment->payment_method === 'card')
                                         Tarjeta
@@ -422,6 +424,54 @@
                 </div>
             </div>
         </div>
+
+        @if($creditPayments && $creditPayments->count() > 0)
+        <div class="section">
+            <div class="section-title">Cargos a la Habitación</div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Fecha</th>
+                        <th>Concepto</th>
+                        <th>Método</th>
+                        <th>Referencia</th>
+                        <th>Monto</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach($creditPayments as $payment)
+                        <tr>
+                            <td>{{ \Carbon\Carbon::parse($payment->created_at)->format('d/m/Y H:i') }}</td>
+                            <td>{{ $payment->concept }}</td>
+                            <td>
+                                @if($payment->paymentType)
+                                    {{ $payment->paymentType->name }}
+                                @elseif($payment->payment_method === 'cash')
+                                    Efectivo
+                                @elseif($payment->payment_method === 'card')
+                                    Tarjeta
+                                @elseif($payment->payment_method === 'transfer')
+                                    Transferencia
+                                @elseif($payment->payment_method === 'check')
+                                    Cheque
+                                @else
+                                    Otro
+                                @endif
+                            </td>
+                            <td>{{ $payment->payment_reference ?? '-' }}</td>
+                            <td style="text-align: right;">${{ number_format($payment->amount, 0, ',', '.') }}</td>
+                        </tr>
+                    @endforeach
+                </tbody>
+                <tfoot>
+                    <tr style="background-color: #fff3cd; font-weight: bold;">
+                        <td colspan="4" style="text-align: right;">Total Cargos a la Habitación:</td>
+                        <td style="text-align: right;">${{ number_format($creditPayments->sum('amount'), 0, ',', '.') }}</td>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
+        @endif
 
         @if($reservation->special_requests)
             <div class="section">

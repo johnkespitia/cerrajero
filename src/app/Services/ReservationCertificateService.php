@@ -69,7 +69,16 @@ class ReservationCertificateService
      */
     public function generateCheckoutCertificate(Reservation $reservation)
     {
-        $reservation->loadMissing(['customer', 'room', 'roomType', 'guests', 'payments']);
+        $reservation->loadMissing(['customer', 'room', 'roomType', 'guests', 'payments.paymentType']);
+
+        // Separar pagos normales de pagos a crédito (cargo a habitación)
+        $allPayments = $reservation->payments;
+        $normalPayments = $allPayments->filter(function($payment) {
+            return !$payment->concept || !str_contains($payment->concept, 'Compra en kiosko (a crédito)');
+        });
+        $creditPayments = $allPayments->filter(function($payment) {
+            return $payment->concept && str_contains($payment->concept, 'Compra en kiosko (a crédito)');
+        });
 
         // Buscar logo y convertirlo a base64 para DomPDF
         $logoBase64 = null;
@@ -100,7 +109,8 @@ class ReservationCertificateService
             'room' => $reservation->room,
             'roomType' => $reservation->roomType,
             'guests' => $reservation->guests,
-            'payments' => $reservation->payments,
+            'payments' => $normalPayments,
+            'creditPayments' => $creditPayments,
             'date' => now()->format('d/m/Y'),
             'time' => now()->format('H:i:s'),
             'logo_base64' => $logoBase64,
@@ -174,8 +184,17 @@ class ReservationCertificateService
             return $invoice->details->sum('price');
         });
         
-        // Total pagado en la reserva
-        $totalPaid = $reservation->payments()->sum('amount');
+        // Separar pagos normales de pagos a crédito (cargo a habitación)
+        $allPayments = $reservation->payments;
+        $normalPayments = $allPayments->filter(function($payment) {
+            return !$payment->concept || !str_contains($payment->concept, 'Compra en kiosko (a crédito)');
+        });
+        $creditPayments = $allPayments->filter(function($payment) {
+            return $payment->concept && str_contains($payment->concept, 'Compra en kiosko (a crédito)');
+        });
+        
+        // Total pagado en la reserva (solo pagos normales, excluyendo créditos)
+        $totalPaid = $normalPayments->sum('amount');
         
         // Saldo pendiente
         $totalPending = max(0, ($reservationTotal + $kioskTotal) - $totalPaid);
@@ -189,7 +208,8 @@ class ReservationCertificateService
             'room' => $reservation->room,
             'roomType' => $reservation->roomType,
             'guests' => $reservation->guests,
-            'payments' => $reservation->payments,
+            'payments' => $normalPayments,
+            'creditPayments' => $creditPayments,
             'kioskInvoices' => $kioskInvoices,
             'totals' => [
                 'reservation' => $reservationTotal,

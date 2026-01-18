@@ -65,23 +65,43 @@ class CashRegisterClosureController extends Controller
         $user = $request->user();
         $today = Carbon::today();
 
-        $closure = CashRegisterClosure::where('user_id', $user->id)
+        // Primero buscar un cierre abierto (prioridad: devolver el abierto si existe)
+        $openClosure = CashRegisterClosure::where('user_id', $user->id)
             ->whereDate('closure_date', $today)
             ->where('closed', false)
             ->with(['invoices.customer', 'invoices.payment_type'])
+            ->orderBy('created_at', 'desc')
             ->first();
 
-        if (!$closure) {
-            // Crear un nuevo cierre si no existe
-            $closure = CashRegisterClosure::create([
-                'user_id' => $user->id,
-                'closure_date' => $today,
-                'opening_balance' => 0,
-                'closed' => false
-            ]);
+        if ($openClosure) {
+            // Si hay un cierre abierto, calcular totales y devolverlo
+            $openClosure->calculateTotals();
+            return response()->json($openClosure);
         }
 
-        // Calcular totales actuales
+        // Si no hay cierre abierto, buscar si existe uno cerrado para este día
+        $closedClosure = CashRegisterClosure::where('user_id', $user->id)
+            ->whereDate('closure_date', $today)
+            ->where('closed', true)
+            ->with(['invoices.customer', 'invoices.payment_type'])
+            ->orderBy('created_at', 'desc')
+            ->first();
+
+        if ($closedClosure) {
+            // Si ya existe un cierre cerrado para este día, devolverlo
+            // No se puede crear un nuevo cierre el mismo día
+            return response()->json($closedClosure);
+        }
+
+        // Solo crear un nuevo cierre si no existe NINGÚN cierre para este día
+        $closure = CashRegisterClosure::create([
+            'user_id' => $user->id,
+            'closure_date' => $today,
+            'opening_balance' => 0,
+            'closed' => false
+        ]);
+
+        $closure->load(['invoices.customer', 'invoices.payment_type']);
         $closure->calculateTotals();
 
         return response()->json($closure);
@@ -104,15 +124,18 @@ class CashRegisterClosureController extends Controller
 
         $user = $request->user();
 
-        // Verificar si ya existe un cierre abierto para esta fecha
+        // Verificar si ya existe un cierre (abierto o cerrado) para esta fecha
         $existingClosure = CashRegisterClosure::where('user_id', $user->id)
             ->whereDate('closure_date', $request->closure_date)
-            ->where('closed', false)
             ->first();
 
         if ($existingClosure) {
+            $message = $existingClosure->closed 
+                ? 'Ya existe un cierre cerrado para esta fecha. No se puede crear otro cierre para el mismo día.'
+                : 'Ya existe un cierre abierto para esta fecha';
+            
             return response()->json([
-                'message' => 'Ya existe un cierre abierto para esta fecha',
+                'message' => $message,
                 'closure' => $existingClosure
             ], 409);
         }
@@ -179,6 +202,8 @@ class CashRegisterClosureController extends Controller
         if ($validator->fails()) {
             return response()->json($validator->errors(), 422);
         }
+
+        $user = $request->user();
 
         DB::beginTransaction();
         try {

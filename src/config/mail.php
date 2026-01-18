@@ -41,8 +41,15 @@ return [
             'encryption' => env('MAIL_ENCRYPTION', 'ssl'),
             'username' => env('MAIL_USERNAME', 'no-reply@centrovacacionalcampoverde.com'),
             'password' => env('MAIL_PASSWORD'),
-            'timeout' => null,
+            'timeout' => 60,
             'auth_mode' => null,
+            'stream' => [
+                'ssl' => [
+                    'allow_self_signed' => true,
+                    'verify_peer' => false,
+                    'verify_peer_name' => false,
+                ],
+            ],
         ],
 
         'ses' => [

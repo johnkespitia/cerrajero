@@ -27,15 +27,12 @@ RUN apt-get update && apt-get install -y \
     mariadb-client \
     libsqlite3-dev \
     libsqlite3-0 \
-    libc-client-dev \
     libkrb5-dev \
     libpspell-dev \
     aspell-en \
     aspell-de \
     libtidy-dev \
     libsnmp-dev \
-    librecode0 \
-    librecode-dev \
     libonig-dev \
     libcurl4-openssl-dev \
     libbz2-dev \
@@ -47,8 +44,7 @@ RUN curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/bin/ 
 
 # Configurar extensiones que requieren configuración especial
 RUN docker-php-ext-configure gd --with-freetype --with-jpeg \
-    && docker-php-ext-configure ldap --with-libdir=lib/x86_64-linux-gnu \
-    && docker-php-ext-configure imap --with-kerberos --with-imap-ssl
+    && docker-php-ext-configure ldap --with-libdir=lib/x86_64-linux-gnu
 
 # Instalar extensiones PHP que necesitan ser compiladas
 RUN docker-php-ext-install -j$(nproc) \
@@ -69,7 +65,6 @@ RUN docker-php-ext-install -j$(nproc) \
     pdo_mysql \
     pdo_sqlite \
     mysqli \
-    imap \
     curl \
     exif \
     fileinfo \

@@ -210,6 +210,33 @@
                 @foreach($payments as $payment)
                     <tr>
                         <td>{{ $payment->created_at->format('d/m/Y H:i') }}</td>
+                        <td>{{ $payment->concept ?? 'Pago' }}</td>
+                        <td>{{ $payment->paymentType->name ?? 'N/A' }}</td>
+                        <td class="text-right">${{ number_format($payment->amount, 2) }}</td>
+                    </tr>
+                @endforeach
+            </tbody>
+        </table>
+    </div>
+    @endif
+
+    <!-- Cargos a la Habitación -->
+    @if($creditPayments->count() > 0)
+    <div class="section">
+        <div class="section-title">CARGOS A LA HABITACIÓN</div>
+        <table>
+            <thead>
+                <tr>
+                    <th>Fecha</th>
+                    <th>Concepto</th>
+                    <th>Método de Pago</th>
+                    <th class="text-right">Monto</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach($creditPayments as $payment)
+                    <tr>
+                        <td>{{ $payment->created_at->format('d/m/Y H:i') }}</td>
                         <td>{{ $payment->concept }}</td>
                         <td>{{ $payment->paymentType->name ?? 'N/A' }}</td>
                         <td class="text-right">${{ number_format($payment->amount, 2) }}</td>

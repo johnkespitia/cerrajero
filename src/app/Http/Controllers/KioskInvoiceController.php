@@ -384,6 +384,13 @@ class KioskInvoiceController extends Controller
                         'notes' => "Factura kiosko #{$kioskInvoice->id} - Pendiente de pago",
                         'created_by' => auth()->id(),
                     ]);
+                    
+                    // REGLA 3: Si la reserva estaba "paid", cambiar a "partial" para habilitar botón de agregar pago
+                    // Esto permite que el frontend muestre el botón de agregar pago cuando hay cargos a habitación
+                    if ($activeReservation->payment_status === 'paid') {
+                        $activeReservation->payment_status = 'partial';
+                        $activeReservation->save();
+                    }
                 } else {
                     // REGLA 3: credit = 0 → crear pago PAGADO en reserva
                     ReservationPayment::create([
@@ -396,11 +403,46 @@ class KioskInvoiceController extends Controller
                         'created_by' => auth()->id(),
                     ]);
 
-                    // Actualizar estado de pago de la reserva
-                    $totalPaid = $activeReservation->payments()->sum('amount');
+                    // Actualizar estado de pago de la reserva (excluyendo pagos a crédito del kiosko)
+                    $totalPaid = $activeReservation->payments()
+                        ->where(function($query) {
+                            $query->where('concept', '!=', 'Compra en kiosko (a crédito)')
+                                  ->orWhereNull('concept');
+                        })
+                        ->sum('amount');
                     $finalPrice = $activeReservation->final_price ?? $activeReservation->total_price;
                     
-                    if ($totalPaid >= $finalPrice) {
+                    // Verificar si hay facturas pendientes del kiosko
+                    $pendingKioskInvoices = $activeReservation->kioskInvoices()
+                        ->whereHas('payment_type', function ($query) {
+                            $query->where('credit', true);
+                        })
+                        ->where('payed', false)
+                        ->with('details')
+                        ->get();
+                    
+                    // Si la reserva está activa, también incluir facturas pendientes del cliente sin reservation_id
+                    if ($activeReservation->status === 'checked_in') {
+                        $pendingCustomerInvoices = \App\Models\KioskInvoice::where('customer_id', $activeReservation->customer_id)
+                            ->whereHas('payment_type', function($query) {
+                                $query->where('credit', true);
+                            })
+                            ->where('payed', false)
+                            ->whereNull('reservation_id')
+                            ->with('details')
+                            ->get();
+                        
+                        $pendingKioskInvoices = $pendingKioskInvoices->merge($pendingCustomerInvoices);
+                    }
+                    
+                    $totalPendingKiosk = $pendingKioskInvoices->sum(function ($invoice) {
+                        return $invoice->details->sum('price');
+                    });
+                    
+                    // Si hay cargos a habitación pendientes, siempre 'partial'
+                    if ($totalPendingKiosk > 0) {
+                        $activeReservation->payment_status = 'partial';
+                    } elseif ($totalPaid >= $finalPrice) {
                         $activeReservation->payment_status = 'paid';
                     } elseif ($totalPaid > 0) {
                         $activeReservation->payment_status = 'partial';
@@ -459,7 +501,7 @@ class KioskInvoiceController extends Controller
         $request->validate([
             'customer_id' => 'required|exists:customers,id',
             'payed' => 'required|boolean',
-            'payment_code' => 'required|unique:kiosk_invoices,payment_code,' . $kioskInvoice->id,
+            'payment_code' => 'required',
             'payment_type_id' => 'required|exists:payment_types,id',
         ]);
 
