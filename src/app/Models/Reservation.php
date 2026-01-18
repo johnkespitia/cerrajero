@@ -247,6 +247,31 @@ class Reservation extends Model
         return $this->hasMany(KioskInvoice::class, 'reservation_id');
     }
 
+    public function additionalServices()
+    {
+        return $this->hasMany(ReservationAdditionalService::class, 'reservation_id')
+            ->with('additionalService');
+    }
+
+    /**
+     * Total de servicios adicionales de la reserva.
+     */
+    public function getAdditionalServicesTotalAttribute(): float
+    {
+        return (float) $this->additionalServices()->sum('total');
+    }
+
+    /**
+     * Recalcula final_price incluyendo alojamiento (calculated_price - discount) + servicios adicionales.
+     */
+    public function recomputeFinalPrice(): void
+    {
+        $base = (float) ($this->calculated_price ?? $this->total_price ?? 0) - (float) ($this->discount_amount ?? 0);
+        $additionalTotal = $this->additional_services_total;
+        $this->final_price = round(max(0, $base + $additionalTotal), 2);
+        $this->saveQuietly();
+    }
+
     /**
      * Obtener facturas del kiosko pendientes de pago (con credit = true y payed = false)
      */

@@ -15,6 +15,10 @@ use App\Services\ReservationAuditService;
 use App\Services\ReservationValidationService;
 use App\Services\ReservationNotificationService;
 use App\Services\ReservationCancellationService;
+use App\Services\AdditionalServicePriceCalculator;
+use App\Models\AdditionalService;
+use App\Models\ServicePackage;
+use App\Models\ReservationAdditionalService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
@@ -30,6 +34,7 @@ class ReservationController extends Controller
     protected $validationService;
     protected $notificationService;
     protected $cancellationService;
+    protected $additionalServiceCalculator;
 
     public function __construct(
         GoogleCalendarService $googleCalendarService,
@@ -39,7 +44,8 @@ class ReservationController extends Controller
         ReservationAuditService $auditService,
         ReservationValidationService $validationService,
         ReservationNotificationService $notificationService,
-        ReservationCancellationService $cancellationService
+        ReservationCancellationService $cancellationService,
+        AdditionalServicePriceCalculator $additionalServiceCalculator
     ) {
         $this->googleCalendarService = $googleCalendarService;
         $this->certificateService = $certificateService;
@@ -49,6 +55,7 @@ class ReservationController extends Controller
         $this->validationService = $validationService;
         $this->notificationService = $notificationService;
         $this->cancellationService = $cancellationService;
+        $this->additionalServiceCalculator = $additionalServiceCalculator;
     }
 
     /**
@@ -121,6 +128,7 @@ class ReservationController extends Controller
             'room.roomType',
             'roomType',
             'guests',
+            'additionalServices.additionalService',
             'childReservations' => function($query) {
                 $query->with(['room', 'room.roomType', 'customer']);
             },
@@ -264,6 +272,7 @@ class ReservationController extends Controller
             'room.roomType',
             'roomType',
             'guests',
+            'additionalServices.additionalService',
             'createdBy',
             'childReservations',
             'parentReservation',
@@ -561,6 +570,9 @@ class ReservationController extends Controller
             'campaign_name' => 'nullable|string|max:200',
             'tracking_code' => 'nullable|string|max:100',
             'marketing_notes' => 'nullable|string|max:1000',
+            'additional_service_ids' => 'nullable|array',
+            'additional_service_ids.*' => 'exists:additional_services,id',
+            'service_package_id' => 'nullable|exists:service_packages,id',
         ];
 
         // Validación condicional para check_out_date
@@ -780,6 +792,27 @@ class ReservationController extends Controller
                 }
             }
 
+            // Aplicar paquete de servicios o servicios adicionales individuales
+            if ($request->service_package_id) {
+                $package = ServicePackage::find($request->service_package_id);
+                if ($package && $package->status === 'active') {
+                    $this->additionalServiceCalculator->applyPackageToReservation(
+                        $reservation,
+                        $package,
+                        $chargeableGuests
+                    );
+                }
+            }
+            if ($request->has('additional_service_ids') && is_array($request->additional_service_ids)) {
+                foreach ($request->additional_service_ids as $sid) {
+                    $svc = AdditionalService::find($sid);
+                    if ($svc && $svc->status === 'active' && $this->additionalServiceCalculator->serviceAppliesToReservationType($svc, $request->reservation_type)) {
+                        $this->additionalServiceCalculator->addServiceToReservation($reservation, $svc, $chargeableGuests);
+                    }
+                }
+            }
+            $reservation->recomputeFinalPrice();
+
             // Aplicar política de cancelación
             try {
                 $this->cancellationService->applyPolicyToReservation($reservation);
@@ -801,7 +834,7 @@ class ReservationController extends Controller
 
             DB::commit();
 
-            $reservation->load(['customer', 'room', 'room.roomType', 'guests']);
+            $reservation->load(['customer', 'room', 'room.roomType', 'guests', 'additionalServices.additionalService']);
 
             return response()->json($reservation, 201);
         } catch (\Exception $e) {
@@ -1081,6 +1114,11 @@ class ReservationController extends Controller
 
             $reservation->update($updateData);
 
+            // Recalcular totales de servicios adicionales si cambiaron fechas o huéspedes
+            if ($dateOrPeopleChanged && $reservation->additionalServices()->exists()) {
+                $this->additionalServiceCalculator->recalculateReservationAdditionalServices($reservation->fresh());
+            }
+
             // Registrar auditoría de actualización
             $this->auditService->logUpdate($reservation, $oldValues, $updateData, $request);
 
@@ -1172,7 +1210,7 @@ class ReservationController extends Controller
 
             DB::commit();
 
-            $reservation->load(['customer', 'room', 'room.roomType']);
+            $reservation->load(['customer', 'room', 'room.roomType', 'guests', 'additionalServices.additionalService']);
 
             return response()->json($reservation);
         } catch (\Exception $e) {
@@ -1729,6 +1767,71 @@ class ReservationController extends Controller
     }
 
     /**
+     * Agregar servicio adicional a una reserva
+     */
+    public function addAdditionalService(Request $request, Reservation $reservation)
+    {
+        if (in_array($reservation->status, ['checked_in', 'checked_out'], true)) {
+            return response()->json([
+                'message' => 'No se pueden modificar servicios adicionales en una reserva con check-in o check-out realizado.',
+            ], 403);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'additional_service_id' => 'required|exists:additional_services,id',
+        ]);
+        if ($validator->fails()) {
+            return response()->json($validator->errors(), 422);
+        }
+
+        $svc = AdditionalService::findOrFail($request->additional_service_id);
+        if ($svc->status !== 'active') {
+            return response()->json(['message' => 'El servicio no está activo.'], 422);
+        }
+        if (!$this->additionalServiceCalculator->serviceAppliesToReservationType($svc, $reservation->reservation_type)) {
+            return response()->json(['message' => 'Este servicio no aplica para el tipo de reserva (habitación o pasadía).'], 422);
+        }
+        if ($reservation->additionalServices()->where('additional_service_id', $svc->id)->exists()) {
+            return response()->json(['message' => 'Este servicio ya está agregado a la reserva.'], 422);
+        }
+
+        $ras = $this->additionalServiceCalculator->addServiceToReservation($reservation, $svc);
+        $reservation->recomputeFinalPrice();
+        $reservation->load(['additionalServices.additionalService']);
+
+        return response()->json([
+            'message' => 'Servicio agregado.',
+            'reservation' => $reservation,
+            'item' => $ras,
+        ], 201);
+    }
+
+    /**
+     * Quitar servicio adicional de una reserva
+     */
+    public function removeAdditionalService(Reservation $reservation, ReservationAdditionalService $reservationAdditionalService)
+    {
+        if (in_array($reservation->status, ['checked_in', 'checked_out'], true)) {
+            return response()->json([
+                'message' => 'No se pueden modificar servicios adicionales en una reserva con check-in o check-out realizado.',
+            ], 403);
+        }
+
+        if ((int) $reservationAdditionalService->reservation_id !== (int) $reservation->id) {
+            return response()->json(['message' => 'El servicio no pertenece a esta reserva.'], 422);
+        }
+
+        $reservationAdditionalService->delete();
+        $reservation->recomputeFinalPrice();
+        $reservation->load(['additionalServices.additionalService']);
+
+        return response()->json([
+            'message' => 'Servicio quitado.',
+            'reservation' => $reservation,
+        ]);
+    }
+
+    /**
      * Obtener historial de auditoría de una reserva
      */
     public function getAuditHistory(Reservation $reservation)
@@ -2148,12 +2251,12 @@ class ReservationController extends Controller
 
         try {
             $priceCalculation = $this->priceCalculator->calculatePrice($reservation, true);
-            
+
             $reservation->update([
                 'calculated_price' => $priceCalculation['calculated_price'],
                 'price_breakdown' => $priceCalculation['price_breakdown'],
-                'final_price' => $priceCalculation['calculated_price'] - ($reservation->discount_amount ?? 0),
             ]);
+            $reservation->recomputeFinalPrice();
 
             // Registrar auditoría
             $this->auditService->log('price_recalculated', $reservation, null, [

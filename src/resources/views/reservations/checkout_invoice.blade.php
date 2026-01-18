@@ -138,6 +138,11 @@
     </div>
 
     <!-- Detalle de Reserva -->
+    @php
+        $additionalTotal = $reservation->additionalServices ? $reservation->additionalServices->sum('total') : 0;
+        $nights = max(1, $reservation->check_in_date->diffInDays($reservation->check_out_date ?? $reservation->check_in_date));
+        $baseAlojamiento = $totals['reservation'] - $additionalTotal;
+    @endphp
     <div class="section">
         <div class="section-title">DETALLE DE RESERVA Y SERVICIOS</div>
         <table>
@@ -151,11 +156,21 @@
             </thead>
             <tbody>
                 <tr>
-                    <td>Habitación {{ $roomType->name ?? 'N/A' }} - {{ $reservation->check_in_date->format('d/m/Y') }} a {{ $reservation->check_out_date ? $reservation->check_out_date->format('d/m/Y') : 'N/A' }}</td>
+                    <td>Alojamiento {{ $reservation->reservation_type === 'day_pass' ? 'Pasadía' : ($roomType->name ?? 'Habitación') }} - {{ $reservation->check_in_date->format('d/m/Y') }} a {{ $reservation->check_out_date ? $reservation->check_out_date->format('d/m/Y') : $reservation->check_in_date->format('d/m/Y') }}</td>
                     <td class="text-right">{{ $reservation->adults + $reservation->children + $reservation->infants }} huésped(es)</td>
-                    <td class="text-right">${{ number_format($totals['reservation'] / max(1, $reservation->check_in_date->diffInDays($reservation->check_out_date ?? $reservation->check_in_date)), 2) }}</td>
-                    <td class="text-right">${{ number_format($totals['reservation'], 2) }}</td>
+                    <td class="text-right">${{ number_format($baseAlojamiento / $nights, 2) }}</td>
+                    <td class="text-right">${{ number_format($baseAlojamiento, 2) }}</td>
                 </tr>
+                @if($reservation->additionalServices && $reservation->additionalServices->count() > 0)
+                    @foreach($reservation->additionalServices as $ras)
+                        <tr>
+                            <td>{{ optional($ras->additionalService)->name ?? 'N/A' }}</td>
+                            <td class="text-right">{{ $ras->quantity }} {{ $ras->quantity == 1 ? 'unidad' : 'unid.' }}</td>
+                            <td class="text-right">${{ number_format($ras->unit_price, 2) }}</td>
+                            <td class="text-right">${{ number_format($ras->total, 2) }}</td>
+                        </tr>
+                    @endforeach
+                @endif
             </tbody>
         </table>
     </div>

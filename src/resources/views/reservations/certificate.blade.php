@@ -330,9 +330,20 @@
                                 {{ $reservation->infants }} bebés
                             </div>
                         </div>
+                        @php $additionalTotal = $reservation->additionalServices ? $reservation->additionalServices->sum('total') : 0; @endphp
+                        @if($additionalTotal > 0)
+                        <div class="info-row">
+                            <div class="info-label">Alojamiento:</div>
+                            <div class="info-value">${{ number_format(($reservation->final_price ?? $reservation->total_price) - $additionalTotal, 0, ',', '.') }}</div>
+                        </div>
+                        <div class="info-row">
+                            <div class="info-label">Servicios adicionales:</div>
+                            <div class="info-value">${{ number_format($additionalTotal, 0, ',', '.') }}</div>
+                        </div>
+                        @endif
                         <div class="info-row">
                             <div class="info-label">Precio Total:</div>
-                            <div class="info-value price">${{ number_format($reservation->total_price, 0, ',', '.') }}</div>
+                            <div class="info-value price">${{ number_format($reservation->final_price ?? $reservation->total_price, 0, ',', '.') }}</div>
                         </div>
                         <div class="info-row">
                             <div class="info-label">Estado:</div>
@@ -378,6 +389,38 @@
                 </div>
             </div>
         </div>
+
+        @if($reservation->additionalServices && $reservation->additionalServices->count() > 0)
+            <div class="section">
+                <div class="section-title">Servicios adicionales contratados</div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Servicio</th>
+                            <th>Cantidad</th>
+                            <th>Huéspedes</th>
+                            <th style="text-align: right;">Total</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach($reservation->additionalServices as $ras)
+                            <tr>
+                                <td>{{ optional($ras->additionalService)->name ?? 'N/A' }}</td>
+                                <td>{{ $ras->quantity }}</td>
+                                <td>{{ $ras->guests_count }}</td>
+                                <td style="text-align: right;">${{ number_format($ras->total, 0, ',', '.') }}</td>
+                            </tr>
+                        @endforeach
+                    </tbody>
+                    <tfoot>
+                        <tr style="background-color: #f0f7f0; font-weight: bold;">
+                            <td colspan="3" style="text-align: right;">Subtotal servicios:</td>
+                            <td style="text-align: right;">${{ number_format($reservation->additionalServices->sum('total'), 0, ',', '.') }}</td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+        @endif
 
         @if($reservation->guests && $reservation->guests->count() > 0)
             <div class="section">

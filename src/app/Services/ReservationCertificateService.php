@@ -10,7 +10,7 @@ class ReservationCertificateService
 {
     public function generateCertificate(Reservation $reservation)
     {
-        $reservation->loadMissing(['customer', 'room', 'roomType', 'guests']);
+        $reservation->loadMissing(['customer', 'room', 'roomType', 'guests', 'additionalServices.additionalService']);
 
         // Buscar logo y convertirlo a base64 para DomPDF
         $logoBase64 = null;
@@ -69,7 +69,7 @@ class ReservationCertificateService
      */
     public function generateCheckoutCertificate(Reservation $reservation)
     {
-        $reservation->loadMissing(['customer', 'room', 'roomType', 'guests', 'payments.paymentType']);
+        $reservation->loadMissing(['customer', 'room', 'roomType', 'guests', 'payments.paymentType', 'additionalServices.additionalService']);
 
         // Separar pagos normales de pagos a crédito (cargo a habitación)
         $allPayments = $reservation->payments;
@@ -148,6 +148,7 @@ class ReservationCertificateService
             'roomType', 
             'guests', 
             'payments.paymentType',
+            'additionalServices.additionalService',
             'kioskInvoices.paymentType',
             'kioskInvoices.details.kiosk_unit.product'
         ]);

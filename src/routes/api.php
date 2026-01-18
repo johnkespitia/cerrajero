@@ -301,6 +301,8 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::post('/reservations/{reservation}/payments', 'addPayment')->middleware('permission:reservation.edit,reservas');
         Route::get('/reservations/{reservation}/audits', 'getAuditHistory')->middleware('permission:reservation.view,reservas');
         Route::post('/reservations/{reservation}/recalculate-price', 'recalculatePrice')->middleware('permission:reservation.edit,reservas');
+        Route::post('/reservations/{reservation}/additional-services', 'addAdditionalService')->middleware('permission:reservation.edit,reservas');
+        Route::delete('/reservations/{reservation}/additional-services/{reservationAdditionalService}', 'removeAdditionalService')->middleware('permission:reservation.edit,reservas');
         Route::post('/reservations/{reservation}/check-in', 'checkIn')->middleware('permission:reservation.edit,reservas');
         Route::post('/reservations/{reservation}/check-out', 'checkOut')->middleware('permission:reservation.edit,reservas');
         Route::get('/reservations/{reservation}/checkout-certificate/download', 'downloadCheckoutCertificate')->middleware('permission:reservation.view,reservas');
@@ -364,5 +366,23 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::post('/day-pass-capacities', 'store')->middleware('permission:reservation.edit,reservas');
         Route::put('/day-pass-capacities/{dayPassCapacity}', 'update')->middleware('permission:reservation.edit,reservas');
         Route::delete('/day-pass-capacities/{dayPassCapacity}', 'destroy')->middleware('permission:reservation.edit,reservas');
+    });
+
+    // Servicios adicionales para reservas
+    Route::controller(\App\Http\Controllers\AdditionalServiceController::class)->group(function () {
+        Route::get('/additional-services', 'index')->middleware('permission:reservation.list,reservas');
+        Route::get('/additional-services/{additionalService}', 'show')->middleware('permission:reservation.list,reservas');
+        Route::post('/additional-services', 'store')->middleware('permission:reservation.edit,reservas');
+        Route::put('/additional-services/{additionalService}', 'update')->middleware('permission:reservation.edit,reservas');
+        Route::delete('/additional-services/{additionalService}', 'destroy')->middleware('permission:reservation.edit,reservas');
+    });
+
+    // Paquetes de servicios
+    Route::controller(\App\Http\Controllers\ServicePackageController::class)->group(function () {
+        Route::get('/service-packages', 'index')->middleware('permission:reservation.list,reservas');
+        Route::get('/service-packages/{servicePackage}', 'show')->middleware('permission:reservation.list,reservas');
+        Route::post('/service-packages', 'store')->middleware('permission:reservation.edit,reservas');
+        Route::put('/service-packages/{servicePackage}', 'update')->middleware('permission:reservation.edit,reservas');
+        Route::delete('/service-packages/{servicePackage}', 'destroy')->middleware('permission:reservation.edit,reservas');
     });
 });
