@@ -15,4 +15,10 @@ class PaymentType extends Model
         "credit",
         "calculator"
     ];
+
+    protected $casts = [
+        'active' => 'boolean',
+        'credit' => 'boolean',
+        'calculator' => 'boolean',
+    ];
 }
