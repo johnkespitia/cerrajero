@@ -40,8 +40,9 @@ class KioskUnitController extends Controller
                     'code_complement' => $values["code_complement"]."-{$i}",
                     'price' => $values["price"],
                     'expiration' => $values["expiration"],
-                    'active' => $values["active"],
+                    'active' => $values["active"] ?? true,
                     'product_id' => $values["product_id"],
+                    'sold' => false, // Establecer sold como false por defecto
                 ];
             }
             $kioskUnit = KioskUnit::insert($units);
@@ -97,6 +98,7 @@ class KioskUnitController extends Controller
                     'expiration' => $values["expiration"]??$kioskUnit->expiration,
                     'active' => $values["active"]??$kioskUnit->active,
                     'product_id' => $values["product_id"]??$kioskUnit->product_id,
+                    'sold' => $values["sold"] ?? false, // Establecer sold como false por defecto
                 ];
             }
             $kioskUnit = KioskUnit::insert($units);

@@ -18,6 +18,12 @@ class KioskUnit extends Model
         'sold'
     ];
 
+    protected $casts = [
+        'active' => 'boolean',
+        'sold' => 'boolean',
+        'expiration' => 'date',
+    ];
+
     public function product()
     {
         return $this->belongsTo(KioskProduct::class, 'product_id');
