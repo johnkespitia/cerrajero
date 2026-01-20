@@ -256,14 +256,23 @@ class CashRegisterClosureController extends Controller
     public function getDailyReport(Request $request, $date)
     {
         // Normalizar la fecha: extraer solo la parte de fecha (YYYY-MM-DD) si viene con timestamp
-        try {
-            $dateObj = Carbon::parse($date);
-            $normalizedDate = $dateObj->format('Y-m-d');
-        } catch (\Exception $e) {
-            return response()->json([
-                'message' => 'Formato de fecha inválido',
-                'error' => $e->getMessage()
-            ], 422);
+        // Si ya viene en formato YYYY-MM-DD, usarlo directamente para evitar problemas de timezone
+        $normalizedDate = null;
+        
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+            // Ya está en formato YYYY-MM-DD, usarlo directamente
+            $normalizedDate = $date;
+        } else {
+            // Parsear y normalizar a YYYY-MM-DD sin interpretar timezone
+            try {
+                $dateObj = Carbon::parse($date)->startOfDay();
+                $normalizedDate = $dateObj->format('Y-m-d');
+            } catch (\Exception $e) {
+                return response()->json([
+                    'message' => 'Formato de fecha inválido',
+                    'error' => $e->getMessage()
+                ], 422);
+            }
         }
 
         $validator = Validator::make(['date' => $normalizedDate], [
