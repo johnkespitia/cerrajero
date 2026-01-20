@@ -450,8 +450,8 @@
         <div class="email-header">
             <div class="header-top">
                 <div class="header-logo">
-                    @if(isset($logo_base64) && $logo_base64)
-                        <img src="{{ $logo_base64 }}" alt="Campo Verde" class="logo">
+                    @if(isset($logoUrl) && $logoUrl)
+                        <img src="{{ $logoUrl }}" alt="Campo Verde" class="logo">
                     @else
                         <div style="font-family: Georgia, serif; font-size: 16px; color: #2F6B3F; font-weight: 700;">Campo Verde</div>
                     @endif
@@ -481,8 +481,8 @@
             
             <!-- Bloque 2: Marca + Contacto -->
             <div class="footer-brand">
-                @if(isset($logo_base64) && $logo_base64)
-                    <img src="{{ $logo_base64 }}" alt="Campo Verde" class="footer-logo-small">
+                @if(isset($logoUrl) && $logoUrl)
+                    <img src="{{ $logoUrl }}" alt="Campo Verde" class="footer-logo-small">
                 @endif
                 <div class="footer-brand-name">Campo Verde Centro Vacacional</div>
                 

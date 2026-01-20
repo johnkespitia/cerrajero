@@ -34,8 +34,8 @@ class KioskOtpService
         }
 
         try {
-            // Obtener logo en base64 para el email
-            $logoBase64 = $this->getLogoBase64();
+            // Obtener URL del logo para el email (URL directa, no base64)
+            $logoUrl = $this->getLogoUrl();
             
             // Enviar email con OTP
             Mail::send(
@@ -45,7 +45,7 @@ class KioskOtpService
                     'reservation' => $reservation,
                     'otp_code' => $otpCode,
                     'recipient' => $recipient,
-                    'logo_base64' => $logoBase64,
+                    'logoUrl' => $logoUrl,
                 ],
                 function ($message) use ($recipient, $invoice) {
                     $message->to($recipient['email'], $recipient['name'])
@@ -143,50 +143,38 @@ class KioskOtpService
     }
 
     /**
-     * Obtener logo en formato base64 para usar en emails
-     * Prioriza la ruta constante: storage/app/public/logocv.png
+     * Obtener URL del logo para usar en emails
+     * Usa URL directa (no base64) para mejor compatibilidad con clientes de email
      * 
-     * @return string|null Logo en formato base64 o null si no se encuentra
+     * @return string|null URL del logo o null si no se encuentra
      */
-    protected function getLogoBase64(): ?string
+    protected function getLogoUrl(): ?string
     {
-        // Ruta constante del logo (prioridad)
+        // Intentar primero con storage (requiere symlink)
         $logoPath = storage_path('app/public/logocv.png');
-        
         if (file_exists($logoPath)) {
-            try {
-                $imageData = file_get_contents($logoPath);
-                $imageInfo = getimagesize($logoPath);
-                $mimeType = $imageInfo['mime'] ?? 'image/png';
-                Log::info("Logo encontrado y convertido a base64: {$logoPath}");
-                return 'data:' . $mimeType . ';base64,' . base64_encode($imageData);
-            } catch (\Exception $e) {
-                Log::error("Error leyendo logo desde {$logoPath}: " . $e->getMessage());
-            }
-        } else {
-            Log::warning("Logo NO encontrado en ruta esperada: {$logoPath}");
+            $logoUrl = url('storage/logocv.png');
+            Log::info("Logo URL generada desde storage: {$logoUrl}");
+            return $logoUrl;
         }
         
-        // Fallback: buscar en otras ubicaciones posibles
-        $possibleLogoPaths = [
-            storage_path('app/public/logo-campo-verde.png'),
-            public_path('images/logo-campo-verde.png'),
-            public_path('logo.png'),
-            public_path('logo.jpg'),
-            storage_path('app/public/logo.png'),
-            base_path('public/images/logo-campo-verde.png'),
-            base_path('public/logo.png'),
-        ];
-
-        foreach ($possibleLogoPaths as $path) {
-            if (file_exists($path)) {
-                $imageData = file_get_contents($path);
-                $imageInfo = getimagesize($path);
-                $mimeType = $imageInfo['mime'] ?? 'image/png';
-                return 'data:' . $mimeType . ';base64,' . base64_encode($imageData);
-            }
+        // Fallback: buscar en public directamente (no requiere symlink)
+        $publicLogoPath = public_path('logocv.png');
+        if (file_exists($publicLogoPath)) {
+            $logoUrl = url('logocv.png');
+            Log::info("Logo URL generada desde public: {$logoUrl}");
+            return $logoUrl;
         }
         
+        // Fallback adicional: buscar en public/images
+        $publicImagesLogoPath = public_path('images/logocv.png');
+        if (file_exists($publicImagesLogoPath)) {
+            $logoUrl = url('images/logocv.png');
+            Log::info("Logo URL generada desde public/images: {$logoUrl}");
+            return $logoUrl;
+        }
+        
+        Log::warning("Logo NO encontrado en ninguna ubicación esperada");
         return null;
     }
 }
