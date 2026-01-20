@@ -453,11 +453,17 @@
                     @php
                         // Ruta constante del logo
                         $logoPath = storage_path('app/public/logocv.png');
-                        // Generar URL absoluta para emails (los emails requieren URLs absolutas)
-                        $logoUrl = file_exists($logoPath) ? url('storage/logocv.png') : null;
+                        // Convertir a base64 para emails (más confiable que URLs externas)
+                        $logoBase64 = null;
+                        if (file_exists($logoPath)) {
+                            $imageData = file_get_contents($logoPath);
+                            $imageInfo = getimagesize($logoPath);
+                            $mimeType = $imageInfo['mime'] ?? 'image/png';
+                            $logoBase64 = 'data:' . $mimeType . ';base64,' . base64_encode($imageData);
+                        }
                     @endphp
-                    @if($logoUrl)
-                        <img src="{{ $logoUrl }}" alt="Campo Verde" class="logo">
+                    @if($logoBase64)
+                        <img src="{{ $logoBase64 }}" alt="Campo Verde" class="logo">
                     @else
                         <div style="font-family: Georgia, serif; font-size: 16px; color: #2F6B3F; font-weight: 700;">Campo Verde</div>
                     @endif
@@ -490,11 +496,17 @@
                 @php
                     // Ruta constante del logo
                     $logoPath = storage_path('app/public/logocv.png');
-                    // Generar URL absoluta para emails (los emails requieren URLs absolutas)
-                    $logoUrl = file_exists($logoPath) ? url('storage/logocv.png') : null;
+                    // Convertir a base64 para emails (más confiable que URLs externas)
+                    $logoBase64 = null;
+                    if (file_exists($logoPath)) {
+                        $imageData = file_get_contents($logoPath);
+                        $imageInfo = getimagesize($logoPath);
+                        $mimeType = $imageInfo['mime'] ?? 'image/png';
+                        $logoBase64 = 'data:' . $mimeType . ';base64,' . base64_encode($imageData);
+                    }
                 @endphp
-                @if($logoUrl)
-                    <img src="{{ $logoUrl }}" alt="Campo Verde" class="footer-logo-small">
+                @if($logoBase64)
+                    <img src="{{ $logoBase64 }}" alt="Campo Verde" class="footer-logo-small">
                 @endif
                 <div class="footer-brand-name">Campo Verde Centro Vacacional</div>
                 
