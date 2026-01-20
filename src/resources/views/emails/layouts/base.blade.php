@@ -450,7 +450,13 @@
         <div class="email-header">
             <div class="header-top">
                 <div class="header-logo">
-                    @if(isset($logoUrl) && $logoUrl)
+                    @php
+                        // Ruta constante del logo
+                        $logoPath = storage_path('app/public/logocv.png');
+                        // Generar URL absoluta para emails (los emails requieren URLs absolutas)
+                        $logoUrl = file_exists($logoPath) ? url('storage/logocv.png') : null;
+                    @endphp
+                    @if($logoUrl)
                         <img src="{{ $logoUrl }}" alt="Campo Verde" class="logo">
                     @else
                         <div style="font-family: Georgia, serif; font-size: 16px; color: #2F6B3F; font-weight: 700;">Campo Verde</div>
@@ -481,7 +487,13 @@
             
             <!-- Bloque 2: Marca + Contacto -->
             <div class="footer-brand">
-                @if(isset($logoUrl) && $logoUrl)
+                @php
+                    // Ruta constante del logo
+                    $logoPath = storage_path('app/public/logocv.png');
+                    // Generar URL absoluta para emails (los emails requieren URLs absolutas)
+                    $logoUrl = file_exists($logoPath) ? url('storage/logocv.png') : null;
+                @endphp
+                @if($logoUrl)
                     <img src="{{ $logoUrl }}" alt="Campo Verde" class="footer-logo-small">
                 @endif
                 <div class="footer-brand-name">Campo Verde Centro Vacacional</div>

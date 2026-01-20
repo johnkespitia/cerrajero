@@ -8,15 +8,27 @@ use Illuminate\Support\Facades\Storage;
 
 class ReservationCertificateService
 {
-    public function generateCertificate(Reservation $reservation)
+    /**
+     * Obtener logo en formato base64 para usar en PDFs
+     * Prioriza la ruta constante: storage/app/public/logocv.png
+     * 
+     * @return string|null Logo en formato base64 o null si no se encuentra
+     */
+    private function getLogoBase64(): ?string
     {
-        $reservation->loadMissing(['customer', 'room', 'roomType', 'guests', 'additionalServices.additionalService']);
-
-        // Buscar logo y convertirlo a base64 para DomPDF
-        $logoBase64 = null;
+        // Ruta constante del logo (prioridad)
+        $logoPath = storage_path('app/public/logocv.png');
+        
+        if (file_exists($logoPath)) {
+            $imageData = file_get_contents($logoPath);
+            $imageInfo = getimagesize($logoPath);
+            $mimeType = $imageInfo['mime'] ?? 'image/png';
+            return 'data:' . $mimeType . ';base64,' . base64_encode($imageData);
+        }
+        
+        // Fallback: buscar en otras ubicaciones posibles
         $possibleLogoPaths = [
-            storage_path('app/public/logo-campo-verde.png'), // Primera opción: ubicación especificada
-            storage_path('app/public/logocv.png'), // Logo actual
+            storage_path('app/public/logo-campo-verde.png'),
             public_path('images/logo-campo-verde.png'),
             public_path('logo.png'),
             public_path('logo.jpg'),
@@ -30,10 +42,19 @@ class ReservationCertificateService
                 $imageData = file_get_contents($path);
                 $imageInfo = getimagesize($path);
                 $mimeType = $imageInfo['mime'] ?? 'image/png';
-                $logoBase64 = 'data:' . $mimeType . ';base64,' . base64_encode($imageData);
-                break;
+                return 'data:' . $mimeType . ';base64,' . base64_encode($imageData);
             }
         }
+        
+        return null;
+    }
+
+    public function generateCertificate(Reservation $reservation)
+    {
+        $reservation->loadMissing(['customer', 'room', 'roomType', 'guests', 'additionalServices.additionalService']);
+
+        // Obtener logo en formato base64 (usa ruta constante: storage/app/public/logocv.png)
+        $logoBase64 = $this->getLogoBase64();
 
         $data = [
             'reservation' => $reservation,
@@ -80,28 +101,8 @@ class ReservationCertificateService
             return $payment->concept && str_contains($payment->concept, 'Compra en kiosko (a crédito)');
         });
 
-        // Buscar logo y convertirlo a base64 para DomPDF
-        $logoBase64 = null;
-        $possibleLogoPaths = [
-            storage_path('app/public/logo-campo-verde.png'),
-            storage_path('app/public/logocv.png'),
-            public_path('images/logo-campo-verde.png'),
-            public_path('logo.png'),
-            public_path('logo.jpg'),
-            storage_path('app/public/logo.png'),
-            base_path('public/images/logo-campo-verde.png'),
-            base_path('public/logo.png'),
-        ];
-
-        foreach ($possibleLogoPaths as $path) {
-            if (file_exists($path)) {
-                $imageData = file_get_contents($path);
-                $imageInfo = getimagesize($path);
-                $mimeType = $imageInfo['mime'] ?? 'image/png';
-                $logoBase64 = 'data:' . $mimeType . ';base64,' . base64_encode($imageData);
-                break;
-            }
-        }
+        // Obtener logo en formato base64 (usa ruta constante: storage/app/public/logocv.png)
+        $logoBase64 = $this->getLogoBase64();
 
         $data = [
             'reservation' => $reservation,
@@ -153,28 +154,8 @@ class ReservationCertificateService
             'kioskInvoices.details.kiosk_unit.product'
         ]);
 
-        // Buscar logo y convertirlo a base64 para DomPDF
-        $logoBase64 = null;
-        $possibleLogoPaths = [
-            storage_path('app/public/logo-campo-verde.png'),
-            storage_path('app/public/logocv.png'),
-            public_path('images/logo-campo-verde.png'),
-            public_path('logo.png'),
-            public_path('logo.jpg'),
-            storage_path('app/public/logo.png'),
-            base_path('public/images/logo-campo-verde.png'),
-            base_path('public/logo.png'),
-        ];
-
-        foreach ($possibleLogoPaths as $path) {
-            if (file_exists($path)) {
-                $imageData = file_get_contents($path);
-                $imageInfo = getimagesize($path);
-                $mimeType = $imageInfo['mime'] ?? 'image/png';
-                $logoBase64 = 'data:' . $mimeType . ';base64,' . base64_encode($imageData);
-                break;
-            }
-        }
+        // Obtener logo en formato base64 (usa ruta constante: storage/app/public/logocv.png)
+        $logoBase64 = $this->getLogoBase64();
 
         // Calcular totales
         $reservationTotal = $reservation->final_price ?? $reservation->total_price;

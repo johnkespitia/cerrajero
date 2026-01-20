@@ -243,7 +243,7 @@
         <!-- Header -->
         <div class="header">
             <div class="header-logo">
-                @if($logo_base64)
+                @if(isset($logo_base64) && $logo_base64)
                     <img src="{{ $logo_base64 }}" alt="Campo Verde" class="logo-img">
                 @else
                     <div style="font-family: 'DejaVu Serif', serif; font-size: 14px; color: #2F6B3F; font-weight: 700;">Campo Verde</div>
@@ -500,7 +500,7 @@
         <!-- Footer -->
         <div class="footer">
             <div style="border-top: 1px solid #D9D9D9; margin: 24px 0; padding-top: 16px;"></div>
-            @if($logo_base64)
+            @if(isset($logo_base64) && $logo_base64)
                 <img src="{{ $logo_base64 }}" alt="Campo Verde" class="footer-logo">
             @endif
             <div class="footer-brand">Campo Verde</div>
