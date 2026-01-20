@@ -28,10 +28,17 @@ class ReservationEmailService
         $logoPath = storage_path('app/public/logocv.png');
         
         if (file_exists($logoPath)) {
-            $imageData = file_get_contents($logoPath);
-            $imageInfo = getimagesize($logoPath);
-            $mimeType = $imageInfo['mime'] ?? 'image/png';
-            return 'data:' . $mimeType . ';base64,' . base64_encode($imageData);
+            try {
+                $imageData = file_get_contents($logoPath);
+                $imageInfo = getimagesize($logoPath);
+                $mimeType = $imageInfo['mime'] ?? 'image/png';
+                Log::info("Logo encontrado y convertido a base64: {$logoPath}");
+                return 'data:' . $mimeType . ';base64,' . base64_encode($imageData);
+            } catch (\Exception $e) {
+                Log::error("Error leyendo logo desde {$logoPath}: " . $e->getMessage());
+            }
+        } else {
+            Log::warning("Logo NO encontrado en ruta esperada: {$logoPath}");
         }
         
         // Fallback: buscar en otras ubicaciones posibles

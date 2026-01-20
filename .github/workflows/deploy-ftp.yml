@@ -66,7 +66,21 @@ jobs:
           mkdir -p deploy/storage/framework/sessions
           mkdir -p deploy/storage/framework/views
           mkdir -p deploy/storage/logs
+          mkdir -p deploy/storage/app/public
           mkdir -p deploy/bootstrap/cache
+          
+          # Verificar que el logo existe y se copió correctamente
+          if [ -f "src/storage/app/public/logocv.png" ]; then
+            echo "✅ Logo encontrado en src/storage/app/public/logocv.png"
+            if [ -f "deploy/storage/app/public/logocv.png" ]; then
+              echo "✅ Logo copiado correctamente a deploy/storage/app/public/logocv.png"
+            else
+              echo "⚠️  Logo NO se copió. Copiando manualmente..."
+              cp src/storage/app/public/logocv.png deploy/storage/app/public/logocv.png || true
+            fi
+          else
+            echo "⚠️  Logo NO encontrado en src/storage/app/public/logocv.png"
+          fi
           
           # Asegurar que el cache de paquetes no contenga referencias a paquetes de desarrollo
           # Si packages.php existe pero tiene referencias a ignition, eliminarlo
