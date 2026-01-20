@@ -538,6 +538,73 @@ class ReservationEmailService
             throw $e;
         }
     }
+
+    /**
+     * Enviar confirmación de pago registrado
+     */
+    public function sendPaymentConfirmation(
+        Reservation $reservation,
+        \App\Models\ReservationPayment $payment,
+        $pendingKioskInvoices,
+        $totalPaid,
+        $totalDue,
+        $newBalance
+    ) {
+        $reservation->loadMissing(['customer', 'guests', 'room', 'roomType', 'additionalServices.additionalService']);
+
+        $recipients = $this->getRecipients($reservation);
+
+        if (empty($recipients)) {
+            Log::warning("No hay destinatarios para enviar confirmación de pago #{$reservation->reservation_number}");
+            return;
+        }
+
+        try {
+            Log::info("Intentando enviar confirmación de pago #{$reservation->reservation_number}", [
+                'recipients_count' => count($recipients),
+                'payment_amount' => $payment->amount
+            ]);
+
+            Mail::send(
+                'emails.payment_confirmation',
+                [
+                    'reservation' => $reservation,
+                    'customer' => $reservation->customer,
+                    'payment' => $payment,
+                    'pendingKioskInvoices' => $pendingKioskInvoices,
+                    'totalPaid' => $totalPaid,
+                    'totalDue' => $totalDue,
+                    'newBalance' => $newBalance,
+                ],
+                function ($message) use ($reservation, $recipients, $payment) {
+                    $subject = "Confirmación de Pago - Reserva #{$reservation->reservation_number}";
+
+                    foreach ($recipients as $recipient) {
+                        if (empty($message->getTo())) {
+                            $message->to($recipient['email'], $recipient['name']);
+                            Log::info("Agregando destinatario TO: {$recipient['email']}");
+                        } else {
+                            $message->cc($recipient['email'], $recipient['name']);
+                            Log::info("Agregando destinatario CC: {$recipient['email']}");
+                        }
+                    }
+
+                    $message->subject($subject);
+                }
+            );
+
+            Log::info("Confirmación de pago #{$reservation->reservation_number} enviada exitosamente a " . count($recipients) . " destinatario(s)");
+        } catch (\Swift_TransportException $e) {
+            Log::error("Error de transporte SMTP al enviar confirmación de pago #{$reservation->reservation_number}: " . $e->getMessage());
+            Log::error("Stack trace: " . $e->getTraceAsString());
+            // No lanzar excepción para no interrumpir el flujo del pago
+        } catch (\Exception $e) {
+            Log::error("Error enviando confirmación de pago #{$reservation->reservation_number}: " . $e->getMessage());
+            Log::error("Tipo de excepción: " . get_class($e));
+            Log::error("Stack trace: " . $e->getTraceAsString());
+            // No lanzar excepción para no interrumpir el flujo del pago
+        }
+    }
 }
 
 

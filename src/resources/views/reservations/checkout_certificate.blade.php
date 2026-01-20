@@ -13,212 +13,288 @@
             box-sizing: border-box;
         }
         body {
-            font-family: 'Arial', 'Helvetica', sans-serif;
-            font-size: 11pt;
+            font-family: 'DejaVu Sans', Arial, Helvetica, sans-serif;
+            font-size: 11px;
             line-height: 1.6;
-            color: #333;
-            background: #fff;
+            color: #111111;
+            background: #FFFFFF;
         }
         .container {
             max-width: 210mm;
             margin: 0 auto;
-            padding: 15mm;
-            border: 2px solid #2d5016;
-            border-radius: 8px;
+            padding: 24px;
         }
+        /* Header */
         .header {
-            text-align: center;
-            margin-bottom: 25px;
-            padding-bottom: 20px;
-            border-bottom: 2px solid #2d5016;
+            display: table;
+            width: 100%;
+            margin-bottom: 24px;
+            padding-bottom: 16px;
+            border-bottom: 1px solid #D9D9D9;
         }
-        .logo-container {
-            margin-bottom: 15px;
+        .header-logo {
+            display: table-cell;
+            vertical-align: middle;
+            width: 30%;
         }
         .logo-img {
-            max-width: 150px;
-            max-height: 80px;
-            margin: 0 auto;
+            max-width: 100px;
+            max-height: 100px;
+            width: auto;
+            height: auto;
         }
-        .logo-text {
-            font-size: 28px;
-            font-weight: bold;
-            color: #2d5016;
-            letter-spacing: 2px;
-            margin-top: 10px;
+        .header-title {
+            display: table-cell;
+            vertical-align: middle;
+            text-align: center;
+            width: 40%;
         }
-        .title {
-            font-size: 18px;
-            font-weight: bold;
-            color: #000;
-            margin-top: 10px;
+        .header-title h1 {
+            font-family: 'DejaVu Serif', Georgia, "Times New Roman", Times, serif;
+            font-size: 24px;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+            color: #111111;
+            margin: 0;
             text-transform: uppercase;
-            letter-spacing: 1px;
         }
-        .reservation-info {
-            background-color: #f5f5f5;
-            padding: 15px;
-            border-radius: 5px;
-            margin-bottom: 20px;
+        .header-reservation {
+            display: table-cell;
+            vertical-align: middle;
+            text-align: right;
+            width: 30%;
         }
+        .reservation-chip {
+            font-family: 'DejaVu Sans', Arial, Helvetica, sans-serif;
+            font-size: 12px;
+            font-weight: 700;
+            color: #111111;
+            text-transform: uppercase;
+        }
+        .subtext {
+            font-family: 'DejaVu Sans', Arial, Helvetica, sans-serif;
+            font-size: 10px;
+            color: #333333;
+            margin-top: 4px;
+        }
+        /* Secciones */
         .section {
-            margin-bottom: 25px;
+            margin-bottom: 24px;
         }
         .section-title {
-            font-size: 14px;
-            font-weight: bold;
-            color: #2d5016;
+            font-family: 'DejaVu Sans', Arial, Helvetica, sans-serif;
+            font-size: 13px;
+            font-weight: 700;
+            color: #111111;
             margin-bottom: 12px;
-            padding-bottom: 5px;
-            border-bottom: 1px solid #2d5016;
+            padding-bottom: 8px;
+            border-bottom: 1px solid #D9D9D9;
             text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        /* Bloques de información */
+        .info-block {
+            margin: 16px 0;
+            padding: 16px;
+            border: 1px solid #D9D9D9;
         }
         .info-grid {
             display: table;
             width: 100%;
-            margin-bottom: 15px;
         }
         .info-row {
             display: table-row;
         }
         .info-label {
             display: table-cell;
-            font-weight: bold;
+            font-weight: 700;
             width: 40%;
-            padding: 6px 10px 6px 0;
+            padding: 8px 10px 8px 0;
             vertical-align: top;
+            color: #333333;
+            font-size: 11px;
         }
         .info-value {
             display: table-cell;
-            padding: 6px 0;
+            padding: 8px 0;
             vertical-align: top;
+            color: #111111;
+            font-size: 11px;
         }
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 10px;
-            font-size: 10pt;
-        }
-        th {
-            background-color: #2d5016;
-            color: #fff;
-            padding: 10px;
-            text-align: left;
-            font-weight: bold;
-        }
-        td {
-            border: 1px solid #ddd;
-            padding: 8px;
-            text-align: left;
-        }
-        tr:nth-child(even) {
-            background-color: #f9f9f9;
-        }
-        .footer {
-            margin-top: 30px;
-            padding-top: 20px;
-            border-top: 1px solid #ddd;
-            text-align: center;
-            font-size: 10pt;
-            color: #666;
-        }
-        .price {
-            font-size: 14pt;
-            font-weight: bold;
-            color: #2d5016;
-        }
+        /* Dos columnas */
         .two-columns {
             display: table;
             width: 100%;
+            margin: 16px 0;
         }
         .column {
             display: table-cell;
             width: 50%;
             vertical-align: top;
-            padding-right: 20px;
+            padding-right: 16px;
         }
         .column:last-child {
             padding-right: 0;
-            padding-left: 20px;
+            padding-left: 16px;
         }
+        /* Tablas */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 16px 0;
+            font-size: 11px;
+        }
+        th {
+            background-color: #F5F5F5;
+            color: #111111;
+            padding: 10px 8px;
+            text-align: left;
+            font-weight: 700;
+            border-bottom: 1px solid #D9D9D9;
+            font-size: 11px;
+        }
+        td {
+            border-bottom: 1px solid #D9D9D9;
+            padding: 10px 8px;
+            text-align: left;
+            color: #111111;
+        }
+        tr:last-child td {
+            border-bottom: none;
+        }
+        .text-right {
+            text-align: right;
+        }
+        .text-center {
+            text-align: center;
+        }
+        .total-row {
+            font-weight: 700;
+            background-color: #F9F9F9;
+        }
+        /* Resumen financiero */
         .summary-box {
-            background-color: #f0f7f0;
-            padding: 15px;
-            border-radius: 5px;
-            border-left: 4px solid #2d5016;
-            margin-top: 15px;
+            margin: 24px 0;
+            padding: 16px;
+            border: 1px solid #D9D9D9;
         }
-        .summary-box strong {
-            color: #2d5016;
+        .summary-item {
+            display: table;
+            width: 100%;
+            margin: 8px 0;
+        }
+        .summary-label {
+            display: table-cell;
+            font-weight: 700;
+            width: 60%;
+            color: #111111;
+        }
+        .summary-value {
+            display: table-cell;
+            text-align: right;
+            font-weight: 700;
+            font-size: 14px;
+            color: #111111;
+        }
+        /* Divisor */
+        .divider {
+            border-top: 1px solid #D9D9D9;
+            margin: 24px 0;
+        }
+        /* Footer */
+        .footer {
+            margin-top: 32px;
+            padding-top: 16px;
+            border-top: 1px solid #D9D9D9;
+            text-align: center;
+            font-size: 9px;
+            color: #333333;
+        }
+        .footer-logo {
+            max-width: 56px;
+            max-height: 56px;
+            margin: 0 auto 8px;
+        }
+        .footer-brand {
+            font-weight: 700;
+            color: #111111;
+            margin-bottom: 8px;
+        }
+        .footer-contact {
+            font-size: 9px;
+            color: #333333;
+            margin: 4px 0;
+        }
+        .footer-legal {
+            font-size: 9px;
+            color: #666666;
+            margin-top: 12px;
         }
     </style>
 </head>
 <body>
     <div class="container">
+        <!-- Header -->
         <div class="header">
-            <div class="logo-container">
+            <div class="header-logo">
                 @if(isset($logo_base64) && $logo_base64)
                     <img src="{{ $logo_base64 }}" alt="Campo Verde" class="logo-img">
                 @else
-                    <div class="logo-text">CAMPO VERDE</div>
+                    <div style="font-family: 'DejaVu Serif', serif; font-size: 14px; color: #2F6B3F; font-weight: 700;">Campo Verde</div>
                 @endif
             </div>
-            <div class="title">CERTIFICADO DE CHECK-OUT</div>
-        </div>
-
-        <div class="reservation-info">
-            <div class="info-grid">
-                <div class="info-row">
-                    <div class="info-label">Número de Reserva:</div>
-                    <div class="info-value"><strong>{{ $reservation->reservation_number }}</strong></div>
-                </div>
-                <div class="info-row">
-                    <div class="info-label">Fecha de Check-out:</div>
-                    <div class="info-value">{{ $date }} {{ $time }}</div>
-                </div>
+            <div class="header-title">
+                <h1>CERTIFICADO DE CHECK-OUT</h1>
+                <div class="subtext">Fecha de emisión: {{ $date }} {{ $time }}</div>
+            </div>
+            <div class="header-reservation">
+                <div class="reservation-chip">RESERVA: {{ $reservation->reservation_number }}</div>
             </div>
         </div>
 
+        <!-- Bloque 2 columnas: Datos del cliente y Detalles de la reserva -->
         <div class="two-columns">
             <div class="column">
                 <div class="section">
                     <div class="section-title">Datos del Cliente</div>
-                    <div class="info-grid">
-                        @if($customer->customer_type === 'company')
-                            <div class="info-row">
-                                <div class="info-label">Empresa:</div>
-                                <div class="info-value">{{ $customer->company_name }}</div>
-                            </div>
-                            <div class="info-row">
-                                <div class="info-label">NIT:</div>
-                                <div class="info-value">{{ $customer->company_nit }}</div>
-                            </div>
-                            @if($customer->company_legal_representative)
+                    <div class="info-block">
+                        <div class="info-grid">
+                            @if($customer->customer_type === 'company')
                                 <div class="info-row">
-                                    <div class="info-label">Representante Legal:</div>
-                                    <div class="info-value">{{ $customer->company_legal_representative }}</div>
+                                    <div class="info-label">Empresa:</div>
+                                    <div class="info-value">{{ $customer->company_name }}</div>
+                                </div>
+                                <div class="info-row">
+                                    <div class="info-label">NIT:</div>
+                                    <div class="info-value">{{ $customer->company_nit }}</div>
+                                </div>
+                                @if($customer->company_legal_representative)
+                                    <div class="info-row">
+                                        <div class="info-label">Representante Legal:</div>
+                                        <div class="info-value">{{ $customer->company_legal_representative }}</div>
+                                    </div>
+                                @endif
+                            @else
+                                <div class="info-row">
+                                    <div class="info-label">Nombre:</div>
+                                    <div class="info-value">{{ $customer->name }} {{ $customer->last_name }}</div>
+                                </div>
+                                <div class="info-row">
+                                    <div class="info-label">Documento:</div>
+                                    <div class="info-value">{{ $customer->dni }}</div>
                                 </div>
                             @endif
-                        @else
                             <div class="info-row">
-                                <div class="info-label">Nombre:</div>
-                                <div class="info-value">{{ $customer->name }} {{ $customer->last_name }}</div>
+                                <div class="info-label">Email:</div>
+                                <div class="info-value">{{ $customer->email }}</div>
                             </div>
-                            <div class="info-row">
-                                <div class="info-label">Documento:</div>
-                                <div class="info-value">{{ $customer->dni }}</div>
-                            </div>
-                        @endif
-                        <div class="info-row">
-                            <div class="info-label">Email:</div>
-                            <div class="info-value">{{ $customer->email }}</div>
+                            @if($customer->phone_number)
+                                <div class="info-row">
+                                    <div class="info-label">Teléfono:</div>
+                                    <div class="info-value">{{ $customer->phone_number }}</div>
+                                </div>
+                            @endif
                         </div>
-                        @if($customer->phone_number)
-                            <div class="info-row">
-                                <div class="info-label">Teléfono:</div>
-                                <div class="info-value">{{ $customer->phone_number }}</div>
-                            </div>
-                        @endif
                     </div>
                 </div>
             </div>
@@ -226,67 +302,69 @@
             <div class="column">
                 <div class="section">
                     <div class="section-title">Detalles de la Reserva</div>
-                    <div class="info-grid">
-                        @if($reservation->reservation_type === 'room')
-                            @if($roomType)
+                    <div class="info-block">
+                        <div class="info-grid">
+                            @if($reservation->reservation_type === 'room')
+                                @if($roomType)
+                                    <div class="info-row">
+                                        <div class="info-label">Tipo de Habitación:</div>
+                                        <div class="info-value">{{ $roomType->name }}</div>
+                                    </div>
+                                @endif
                                 <div class="info-row">
-                                    <div class="info-label">Tipo de Habitación:</div>
-                                    <div class="info-value">{{ $roomType->name }}</div>
+                                    <div class="info-label">Habitación:</div>
+                                    <div class="info-value">
+                                        @if($room)
+                                            {{ $room->display_name }}
+                                        @else
+                                            No asignada
+                                        @endif
+                                    </div>
+                                </div>
+                                <div class="info-row">
+                                    <div class="info-label">Check-in:</div>
+                                    <div class="info-value">
+                                        {{ $reservation->check_in_date->format('d/m/Y') }}
+                                        @if($reservation->check_in_time)
+                                            {{ \Carbon\Carbon::parse($reservation->check_in_time)->format('H:i') }}
+                                        @endif
+                                    </div>
+                                </div>
+                                <div class="info-row">
+                                    <div class="info-label">Check-out:</div>
+                                    <div class="info-value">
+                                        {{ $reservation->check_out_date ? $reservation->check_out_date->format('d/m/Y') : 'N/A' }}
+                                        @if($reservation->check_out_time)
+                                            {{ \Carbon\Carbon::parse($reservation->check_out_time)->format('H:i') }}
+                                        @endif
+                                    </div>
+                                </div>
+                                @php
+                                    $checkIn = \Carbon\Carbon::parse($reservation->check_in_date);
+                                    $checkOut = $reservation->check_out_date ? \Carbon\Carbon::parse($reservation->check_out_date) : $checkIn;
+                                    $nights = $checkIn->diffInDays($checkOut);
+                                @endphp
+                                <div class="info-row">
+                                    <div class="info-label">Noches:</div>
+                                    <div class="info-value">{{ $nights }}</div>
+                                </div>
+                            @else
+                                <div class="info-row">
+                                    <div class="info-label">Tipo:</div>
+                                    <div class="info-value">Pasadía - Día de Sol</div>
+                                </div>
+                                <div class="info-row">
+                                    <div class="info-label">Fecha:</div>
+                                    <div class="info-value">{{ $reservation->check_in_date->format('d/m/Y') }}</div>
                                 </div>
                             @endif
                             <div class="info-row">
-                                <div class="info-label">Habitación:</div>
+                                <div class="info-label">Huéspedes:</div>
                                 <div class="info-value">
-                                    @if($room)
-                                        {{ $room->display_name }}
-                                    @else
-                                        No asignada
-                                    @endif
+                                    {{ $reservation->adults }} adultos,
+                                    {{ $reservation->children }} niños,
+                                    {{ $reservation->infants }} bebés
                                 </div>
-                            </div>
-                            <div class="info-row">
-                                <div class="info-label">Check-in:</div>
-                                <div class="info-value">
-                                    {{ $reservation->check_in_date->format('d/m/Y') }}
-                                    @if($reservation->check_in_time)
-                                        {{ \Carbon\Carbon::parse($reservation->check_in_time)->format('H:i') }}
-                                    @endif
-                                </div>
-                            </div>
-                            <div class="info-row">
-                                <div class="info-label">Check-out:</div>
-                                <div class="info-value">
-                                    {{ $reservation->check_out_date ? $reservation->check_out_date->format('d/m/Y') : 'N/A' }}
-                                    @if($reservation->check_out_time)
-                                        {{ \Carbon\Carbon::parse($reservation->check_out_time)->format('H:i') }}
-                                    @endif
-                                </div>
-                            </div>
-                            @php
-                                $checkIn = \Carbon\Carbon::parse($reservation->check_in_date);
-                                $checkOut = $reservation->check_out_date ? \Carbon\Carbon::parse($reservation->check_out_date) : $checkIn;
-                                $nights = $checkIn->diffInDays($checkOut);
-                            @endphp
-                            <div class="info-row">
-                                <div class="info-label">Noches:</div>
-                                <div class="info-value">{{ $nights }}</div>
-                            </div>
-                        @else
-                            <div class="info-row">
-                                <div class="info-label">Tipo:</div>
-                                <div class="info-value">Pasadía - Día de Sol</div>
-                            </div>
-                            <div class="info-row">
-                                <div class="info-label">Fecha:</div>
-                                <div class="info-value">{{ $reservation->check_in_date->format('d/m/Y') }}</div>
-                            </div>
-                        @endif
-                        <div class="info-row">
-                            <div class="info-label">Huéspedes:</div>
-                            <div class="info-value">
-                                {{ $reservation->adults }} adultos,
-                                {{ $reservation->children }} niños,
-                                {{ $reservation->infants }} bebés
                             </div>
                         </div>
                     </div>
@@ -313,7 +391,7 @@
                                 <td>
                                     <strong>{{ $guest->first_name }} {{ $guest->last_name }}</strong>
                                     @if($guest->is_primary_guest)
-                                        <span style="color: #2d5016; font-size: 9pt;">(Principal)</span>
+                                        <span style="color: #2F6B3F; font-size: 9px;">(Principal)</span>
                                     @endif
                                     @if($guest->birth_date)
                                         <br><small style="color: #666;">Nacimiento: {{ \Carbon\Carbon::parse($guest->birth_date)->format('d/m/Y') }}</small>
@@ -332,7 +410,7 @@
                             </tr>
                             @if($guest->special_needs)
                                 <tr>
-                                    <td colspan="5" style="font-size: 9pt; background-color: #fff3cd; padding-left: 15px;">
+                                    <td colspan="5" style="font-size: 9px; background-color: #F9F9F9; padding-left: 15px;">
                                         <strong>Necesidades Especiales:</strong> {{ $guest->special_needs }}
                                     </td>
                                 </tr>
@@ -350,25 +428,25 @@
                     <thead>
                         <tr>
                             <th>Servicio</th>
-                            <th>Cantidad</th>
-                            <th>Huéspedes</th>
-                            <th style="text-align: right;">Total</th>
+                            <th class="text-center">Cantidad</th>
+                            <th class="text-center">Huéspedes</th>
+                            <th class="text-right">Total</th>
                         </tr>
                     </thead>
                     <tbody>
                         @foreach($reservation->additionalServices as $ras)
                             <tr>
                                 <td>{{ optional($ras->additionalService)->name ?? 'N/A' }}</td>
-                                <td>{{ $ras->quantity }}</td>
-                                <td>{{ $ras->guests_count }}</td>
-                                <td style="text-align: right;">${{ number_format($ras->total, 0, ',', '.') }}</td>
+                                <td class="text-center">{{ $ras->quantity }}</td>
+                                <td class="text-center">{{ $ras->guests_count }}</td>
+                                <td class="text-right">${{ number_format($ras->total, 0, ',', '.') }}</td>
                             </tr>
                         @endforeach
                     </tbody>
                     <tfoot>
-                        <tr style="background-color: #f0f7f0; font-weight: bold;">
-                            <td colspan="3" style="text-align: right;">Subtotal servicios:</td>
-                            <td style="text-align: right;">${{ number_format($reservation->additionalServices->sum('total'), 0, ',', '.') }}</td>
+                        <tr class="total-row">
+                            <td colspan="3" class="text-right"><strong>Subtotal servicios:</strong></td>
+                            <td class="text-right"><strong>${{ number_format($reservation->additionalServices->sum('total'), 0, ',', '.') }}</strong></td>
                         </tr>
                     </tfoot>
                 </table>
@@ -391,7 +469,7 @@
                             <th>Concepto</th>
                             <th>Método</th>
                             <th>Referencia</th>
-                            <th>Monto</th>
+                            <th class="text-right">Monto</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -415,45 +493,43 @@
                                     @endif
                                 </td>
                                 <td>{{ $payment->payment_reference ?? '-' }}</td>
-                                <td style="text-align: right;">${{ number_format($payment->amount, 0, ',', '.') }}</td>
+                                <td class="text-right">${{ number_format($payment->amount, 0, ',', '.') }}</td>
                             </tr>
                         @endforeach
                     </tbody>
                     <tfoot>
-                        <tr style="background-color: #f0f7f0; font-weight: bold;">
-                            <td colspan="4" style="text-align: right;">Total Pagado:</td>
-                            <td style="text-align: right;">${{ number_format($totalPaid, 0, ',', '.') }}</td>
+                        <tr class="total-row">
+                            <td colspan="4" class="text-right"><strong>Total Pagado:</strong></td>
+                            <td class="text-right"><strong>${{ number_format($totalPaid, 0, ',', '.') }}</strong></td>
                         </tr>
                     </tfoot>
                 </table>
             @else
-                <p style="padding: 15px; background-color: #fff3cd; border-radius: 5px;">
+                <div class="info-block" style="background-color: #F9F9F9;">
                     No se registraron pagos para esta reserva.
-                </p>
+                </div>
             @endif
 
             <div class="summary-box">
-                <div class="info-grid">
-                    <div class="info-row">
-                        <div class="info-label">Precio Total de la Reserva:</div>
-                        <div class="info-value price">${{ number_format($totalPrice, 0, ',', '.') }}</div>
-                    </div>
-                    <div class="info-row">
-                        <div class="info-label">Total Pagado:</div>
-                        <div class="info-value price">${{ number_format($totalPaid, 0, ',', '.') }}</div>
-                    </div>
-                    @if($remainingBalance > 0)
-                        <div class="info-row">
-                            <div class="info-label">Saldo Pendiente:</div>
-                            <div class="info-value" style="color: #dc3545; font-weight: bold;">${{ number_format($remainingBalance, 0, ',', '.') }}</div>
-                        </div>
-                    @else
-                        <div class="info-row">
-                            <div class="info-label">Estado:</div>
-                            <div class="info-value" style="color: #28a745; font-weight: bold;">✓ Reserva Completamente Pagada</div>
-                        </div>
-                    @endif
+                <div class="summary-item">
+                    <div class="summary-label">Precio Total de la Reserva:</div>
+                    <div class="summary-value">${{ number_format($totalPrice, 0, ',', '.') }}</div>
                 </div>
+                <div class="summary-item">
+                    <div class="summary-label">Total Pagado:</div>
+                    <div class="summary-value">${{ number_format($totalPaid, 0, ',', '.') }}</div>
+                </div>
+                @if($remainingBalance > 0)
+                    <div class="summary-item">
+                        <div class="summary-label">Saldo Pendiente:</div>
+                        <div class="summary-value" style="color: #111111;">${{ number_format($remainingBalance, 0, ',', '.') }}</div>
+                    </div>
+                @else
+                    <div class="summary-item">
+                        <div class="summary-label">Estado:</div>
+                        <div class="summary-value" style="color: #111111;">✓ Reserva Completamente Pagada</div>
+                    </div>
+                @endif
             </div>
         </div>
 
@@ -467,7 +543,7 @@
                         <th>Concepto</th>
                         <th>Método</th>
                         <th>Referencia</th>
-                        <th>Monto</th>
+                        <th class="text-right">Monto</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -491,14 +567,14 @@
                                 @endif
                             </td>
                             <td>{{ $payment->payment_reference ?? '-' }}</td>
-                            <td style="text-align: right;">${{ number_format($payment->amount, 0, ',', '.') }}</td>
+                            <td class="text-right">${{ number_format($payment->amount, 0, ',', '.') }}</td>
                         </tr>
                     @endforeach
                 </tbody>
                 <tfoot>
-                    <tr style="background-color: #fff3cd; font-weight: bold;">
-                        <td colspan="4" style="text-align: right;">Total Cargos a la Habitación:</td>
-                        <td style="text-align: right;">${{ number_format($creditPayments->sum('amount'), 0, ',', '.') }}</td>
+                    <tr class="total-row">
+                        <td colspan="4" class="text-right"><strong>Total Cargos a la Habitación:</strong></td>
+                        <td class="text-right"><strong>${{ number_format($creditPayments->sum('amount'), 0, ',', '.') }}</strong></td>
                     </tr>
                 </tfoot>
             </table>
@@ -508,21 +584,23 @@
         @if($reservation->special_requests)
             <div class="section">
                 <div class="section-title">Solicitudes Especiales</div>
-                <div style="background-color: #f9f9f9; padding: 12px; border-radius: 5px; border-left: 4px solid #2d5016;">
+                <div class="info-block">
                     {{ $reservation->special_requests }}
                 </div>
             </div>
         @endif
 
+        <!-- Footer -->
         <div class="footer">
-            <p style="margin-bottom: 10px;"><strong>Gracias por su estadía en Campo Verde</strong></p>
-            <p style="font-size: 9pt;">Esperamos haber superado sus expectativas y tener el placer de recibirlos nuevamente.</p>
-            <p style="font-size: 9pt; margin-top: 10px;">Para consultas, contacte a: {{ config('mail.from.address', 'reservas@campoverde.com') }}</p>
-            <p style="font-size: 9pt; margin-top: 5px;">Documento generado el {{ $date }} a las {{ $time }}</p>
+            <div class="divider"></div>
+            @if(isset($logo_base64) && $logo_base64)
+                <img src="{{ $logo_base64 }}" alt="Campo Verde" class="footer-logo">
+            @endif
+            <div class="footer-brand">Campo Verde</div>
+            <div class="footer-contact">Teléfono: 322 614 3787</div>
+            <div class="footer-contact">Email: c.vacacionalcampoverde@gmail.com</div>
+            <div class="footer-legal">Documento generado el {{ $date }} a las {{ $time }}</div>
         </div>
     </div>
 </body>
 </html>
-
-
-

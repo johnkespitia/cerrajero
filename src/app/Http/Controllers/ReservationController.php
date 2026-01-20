@@ -1773,6 +1773,35 @@ class ReservationController extends Controller
             // Registrar auditoría
             $this->auditService->logPayment($reservation, $request->amount, $paymentMethodName, $request->notes, $request);
 
+            // Calcular totales para el correo
+            // Nota: final_price ya incluye los servicios adicionales según el método recomputeFinalPrice
+            $finalPrice = $reservation->final_price ?? $reservation->total_price;
+            $totalPendingKiosk = $pendingKioskInvoices->sum(function ($invoice) {
+                return $invoice->details->sum('price');
+            });
+            // El total debido es: precio de reserva (que ya incluye servicios adicionales) + compras kiosko pendientes
+            $totalDue = $finalPrice + $totalPendingKiosk;
+            $newBalance = max(0, $totalDue - $newTotalPaid);
+
+            // Cargar relaciones necesarias para el correo
+            $pendingKioskInvoices->load(['details.kiosk_unit.product', 'payment_type']);
+            $payment->load('paymentType');
+
+            // Enviar correo de confirmación de pago
+            try {
+                $this->emailService->sendPaymentConfirmation(
+                    $reservation,
+                    $payment,
+                    $pendingKioskInvoices,
+                    $newTotalPaid,
+                    $totalDue,
+                    $newBalance
+                );
+            } catch (\Exception $e) {
+                // Log del error pero no interrumpir el flujo del pago
+                \Log::error("Error enviando correo de confirmación de pago: " . $e->getMessage());
+            }
+
             DB::commit();
 
             return response()->json([

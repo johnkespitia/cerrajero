@@ -1,113 +1,89 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <title>Actualización de Reserva</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            line-height: 1.6;
-            color: #333;
-        }
-        .container {
-            max-width: 600px;
-            margin: 0 auto;
-            padding: 20px;
-        }
-        .header {
-            background-color: #2d5016;
-            color: white;
-            padding: 20px;
-            text-align: center;
-        }
-        .content {
-            background-color: #f9f9f9;
-            padding: 20px;
-            border: 1px solid #ddd;
-        }
-        .info-box {
-            background-color: white;
-            padding: 15px;
-            margin: 15px 0;
-            border-left: 4px solid #2d5016;
-        }
-        .changes-box {
-            background-color: #e7f3ff;
-            border: 1px solid #0066cc;
-            padding: 15px;
-            margin: 15px 0;
-            border-radius: 5px;
-        }
-        .change-item {
-            padding: 8px 0;
-            border-bottom: 1px solid #ddd;
-        }
-        .change-item:last-child {
-            border-bottom: none;
-        }
-        .footer {
-            text-align: center;
-            padding: 20px;
-            color: #666;
-            font-size: 12px;
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="header">
-            <h2>Actualización de Reserva</h2>
-        </div>
-        <div class="content">
-            <p>Hola {{ $customer->display_name ?? ($customer->name . ' ' . $customer->last_name) }},</p>
+@extends('emails.layouts.base')
 
-            <p>Te informamos que se han realizado cambios en tu reserva <strong>#{{ $reservation->reservation_number }}</strong>.</p>
+@section('title', 'Actualización de Reserva #' . $reservation->reservation_number)
 
-            @if(!empty($changes))
-                <div class="changes-box">
-                    <h3>Cambios Realizados:</h3>
-                    @foreach($changes as $field => $change)
-                        <div class="change-item">
-                            <strong>{{ ucfirst(str_replace('_', ' ', $field)) }}:</strong><br>
-                            @if(isset($change['old']))
-                                <span style="color: #dc3545;">Anterior: {{ $change['old'] }}</span><br>
-                            @endif
-                            @if(isset($change['new']))
-                                <span style="color: #28a745;">Nuevo: {{ $change['new'] }}</span>
-                            @endif
-                        </div>
-                    @endforeach
+@section('header-title')
+    <h1>ACTUALIZACIÓN RESERVA</h1>
+    <div class="subtitle">CAMPO VERDE</div>
+@endsection
+
+@section('reservation-number')
+    <div class="reservation-number">RESERVA #{{ $reservation->reservation_number }}</div>
+@endsection
+
+@section('content')
+    <p>Hola <strong>{{ $customer->display_name ?? ($customer->name . ' ' . $customer->last_name) }}</strong>,</p>
+
+    <p>Te informamos que se han realizado cambios en tu reserva <strong>#{{ $reservation->reservation_number }}</strong>.</p>
+
+    @if(!empty($changes))
+        <div class="info-block" style="background-color: #e7f3ff; border-left-color: #0066cc;">
+            <h3>Cambios Realizados:</h3>
+            @foreach($changes as $field => $change)
+                <div style="padding: 8px 0; border-bottom: 1px solid #D9D9D9;">
+                    <strong>{{ ucfirst(str_replace('_', ' ', $field)) }}:</strong><br>
+                    @if(isset($change['old']))
+                        <span style="color: #dc3545;">Anterior: {{ $change['old'] }}</span><br>
+                    @endif
+                    @if(isset($change['new']))
+                        <span style="color: #28a745;">Nuevo: {{ $change['new'] }}</span>
+                    @endif
                 </div>
-            @endif
+            @endforeach
+        </div>
+    @endif
 
-            <div class="info-box">
-                <h3>Detalles Actualizados de tu Reserva</h3>
-                <p>
-                    <strong>Número de Reserva:</strong> {{ $reservation->reservation_number }}<br>
-                    <strong>Fecha de Check-in:</strong> {{ \Carbon\Carbon::parse($reservation->check_in_date)->format('d/m/Y') }}<br>
-                    @if($reservation->check_in_time)
-                        <strong>Hora de Check-in:</strong> {{ \Carbon\Carbon::parse($reservation->check_in_time)->format('H:i') }}<br>
-                    @endif
-                    @if($reservation->check_out_date)
-                        <strong>Fecha de Check-out:</strong> {{ \Carbon\Carbon::parse($reservation->check_out_date)->format('d/m/Y') }}<br>
-                    @endif
-                    @if($reservation->check_out_time)
-                        <strong>Hora de Check-out:</strong> {{ \Carbon\Carbon::parse($reservation->check_out_time)->format('H:i') }}<br>
-                    @endif
-                    @if($reservation->room)
-                        <strong>Habitación:</strong> {{ $reservation->room->name }}<br>
-                    @elseif($reservation->roomType)
-                        <strong>Tipo de Habitación:</strong> {{ $reservation->roomType->name }}<br>
-                    @endif
-                    <strong>Huéspedes:</strong> {{ $reservation->adults }} adultos,
+    <div class="info-block">
+        <h3>Detalles Actualizados de tu Reserva</h3>
+        <div class="info-block-two-columns">
+            <div class="info-block-left">
+                <div class="info-label">NÚMERO DE RESERVA:</div>
+                <div class="info-label">FECHA DE CHECK-IN:</div>
+                @if($reservation->check_in_time)
+                    <div class="info-label">HORA DE CHECK-IN:</div>
+                @endif
+                @if($reservation->check_out_date)
+                    <div class="info-label">FECHA DE CHECK-OUT:</div>
+                @endif
+                @if($reservation->check_out_time)
+                    <div class="info-label">HORA DE CHECK-OUT:</div>
+                @endif
+                @if($reservation->room)
+                    <div class="info-label">HABITACIÓN:</div>
+                @elseif($reservation->roomType)
+                    <div class="info-label">TIPO DE HABITACIÓN:</div>
+                @endif
+                <div class="info-label">HUÉSPEDES:</div>
+                <div class="info-label">ESTADO:</div>
+                <div class="info-label">TOTAL:</div>
+            </div>
+            <div class="info-block-right">
+                <div class="info-value">{{ $reservation->reservation_number }}</div>
+                <div class="info-value">{{ \Carbon\Carbon::parse($reservation->check_in_date)->format('d/m/Y') }}</div>
+                @if($reservation->check_in_time)
+                    <div class="info-value">{{ \Carbon\Carbon::parse($reservation->check_in_time)->format('H:i') }}</div>
+                @endif
+                @if($reservation->check_out_date)
+                    <div class="info-value">{{ \Carbon\Carbon::parse($reservation->check_out_date)->format('d/m/Y') }}</div>
+                @endif
+                @if($reservation->check_out_time)
+                    <div class="info-value">{{ \Carbon\Carbon::parse($reservation->check_out_time)->format('H:i') }}</div>
+                @endif
+                @if($reservation->room)
+                    <div class="info-value">{{ $reservation->room->name }}</div>
+                @elseif($reservation->roomType)
+                    <div class="info-value">{{ $reservation->roomType->name }}</div>
+                @endif
+                <div class="info-value">
+                    {{ $reservation->adults }} adultos
                     @if($reservation->children > 0)
-                        {{ $reservation->children }} niños,
+                        , {{ $reservation->children }} niños
                     @endif
                     @if($reservation->infants > 0)
-                        {{ $reservation->infants }} bebés
+                        , {{ $reservation->infants }} bebés
                     @endif
-                    <br>
-                    <strong>Estado:</strong> 
+                </div>
+                <div class="info-value">
                     @if($reservation->status === 'confirmed')
                         Confirmada
                     @elseif($reservation->status === 'checked_in')
@@ -117,21 +93,13 @@
                     @else
                         {{ ucfirst($reservation->status) }}
                     @endif
-                    <br>
-                    <strong>Total:</strong> ${{ number_format($reservation->final_price ?? $reservation->total_price ?? 0, 2) }}
-                </p>
+                </div>
+                <div class="info-value">${{ number_format($reservation->final_price ?? $reservation->total_price ?? 0, 2) }}</div>
             </div>
-
-            <p>Si tienes alguna pregunta sobre estos cambios o necesitas realizar alguna modificación adicional, por favor contáctanos.</p>
-
-            <p>Si no realizaste estos cambios y no los reconoces, por favor contáctanos inmediatamente.</p>
-        </div>
-        <div class="footer">
-            <p>Atentamente,<br>
-            <strong>Equipo de Campo Verde</strong></p>
-            <p>Si tienes alguna pregunta, responde a este correo o contáctanos.</p>
         </div>
     </div>
-</body>
-</html>
 
+    <p>Si tienes alguna pregunta sobre estos cambios o necesitas realizar alguna modificación adicional, por favor contáctanos.</p>
+
+    <p>Si no realizaste estos cambios y no los reconoces, por favor contáctanos inmediatamente.</p>
+@endsection
