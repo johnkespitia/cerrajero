@@ -16,6 +16,47 @@ class ReservationEmailService
         $this->certificateService = $certificateService;
     }
 
+    /**
+     * Obtener logo en formato base64 para usar en emails
+     * Prioriza la ruta constante: storage/app/public/logocv.png
+     * 
+     * @return string|null Logo en formato base64 o null si no se encuentra
+     */
+    protected function getLogoBase64(): ?string
+    {
+        // Ruta constante del logo (prioridad)
+        $logoPath = storage_path('app/public/logocv.png');
+        
+        if (file_exists($logoPath)) {
+            $imageData = file_get_contents($logoPath);
+            $imageInfo = getimagesize($logoPath);
+            $mimeType = $imageInfo['mime'] ?? 'image/png';
+            return 'data:' . $mimeType . ';base64,' . base64_encode($imageData);
+        }
+        
+        // Fallback: buscar en otras ubicaciones posibles
+        $possibleLogoPaths = [
+            storage_path('app/public/logo-campo-verde.png'),
+            public_path('images/logo-campo-verde.png'),
+            public_path('logo.png'),
+            public_path('logo.jpg'),
+            storage_path('app/public/logo.png'),
+            base_path('public/images/logo-campo-verde.png'),
+            base_path('public/logo.png'),
+        ];
+
+        foreach ($possibleLogoPaths as $path) {
+            if (file_exists($path)) {
+                $imageData = file_get_contents($path);
+                $imageInfo = getimagesize($path);
+                $mimeType = $imageInfo['mime'] ?? 'image/png';
+                return 'data:' . $mimeType . ';base64,' . base64_encode($imageData);
+            }
+        }
+        
+        return null;
+    }
+
     public function sendReservationConfirmation(Reservation $reservation)
     {
         $reservation->loadMissing(['customer', 'guests']);
@@ -77,11 +118,15 @@ class ReservationEmailService
                 'recipients_count' => count($recipients)
             ]);
 
+            // Obtener logo en base64 para el email
+            $logoBase64 = $this->getLogoBase64();
+            
             Mail::send(
                 'emails.reservation_confirmation',
                 [
                     'reservation' => $reservation,
                     'customer' => $reservation->customer,
+                    'logo_base64' => $logoBase64,
                 ],
                 function ($message) use ($reservation, $certificate, $recipients) {
                     $subject = "Confirmación de Reserva #{$reservation->reservation_number}";
@@ -191,11 +236,15 @@ class ReservationEmailService
                 'recipients_count' => count($recipients)
             ]);
 
+            // Obtener logo en base64 para el email
+            $logoBase64 = $this->getLogoBase64();
+            
             Mail::send(
                 'emails.checkout_confirmation',
                 [
                     'reservation' => $reservation,
                     'customer' => $reservation->customer,
+                    'logo_base64' => $logoBase64,
                 ],
                 function ($message) use ($reservation, $certificate, $invoice, $recipients) {
                     $subject = "Check-out Completado - Reserva #{$reservation->reservation_number}";
@@ -316,6 +365,7 @@ class ReservationEmailService
                 [
                     'reservation' => $reservation,
                     'customer' => $reservation->customer,
+                    'logo_base64' => $this->getLogoBase64(),
                 ],
                 function ($message) use ($reservation, $recipients) {
                     $subject = "Recordatorio de Check-in - Reserva #{$reservation->reservation_number}";
@@ -365,6 +415,7 @@ class ReservationEmailService
                 [
                     'reservation' => $reservation,
                     'customer' => $reservation->customer,
+                    'logo_base64' => $this->getLogoBase64(),
                 ],
                 function ($message) use ($reservation, $recipients) {
                     $subject = "Check-in Confirmado - Reserva #{$reservation->reservation_number}";
@@ -414,6 +465,7 @@ class ReservationEmailService
                 [
                     'reservation' => $reservation,
                     'customer' => $reservation->customer,
+                    'logo_base64' => $this->getLogoBase64(),
                 ],
                 function ($message) use ($reservation, $recipients) {
                     $subject = "Recordatorio de Check-out - Reserva #{$reservation->reservation_number}";
@@ -463,6 +515,7 @@ class ReservationEmailService
                 [
                     'reservation' => $reservation,
                     'customer' => $reservation->customer,
+                    'logo_base64' => $this->getLogoBase64(),
                 ],
                 function ($message) use ($reservation, $recipients) {
                     $subject = "Cancelación de Reserva #{$reservation->reservation_number}";
@@ -514,6 +567,7 @@ class ReservationEmailService
                     'reservation' => $reservation,
                     'customer' => $reservation->customer,
                     'changes' => $changes,
+                    'logo_base64' => $this->getLogoBase64(),
                 ],
                 function ($message) use ($reservation, $recipients) {
                     $subject = "Actualización de Reserva #{$reservation->reservation_number}";
@@ -565,11 +619,15 @@ class ReservationEmailService
                 'payment_amount' => $payment->amount
             ]);
 
+            // Obtener logo en base64 para el email
+            $logoBase64 = $this->getLogoBase64();
+            
             Mail::send(
                 'emails.payment_confirmation',
                 [
                     'reservation' => $reservation,
                     'customer' => $reservation->customer,
+                    'logo_base64' => $logoBase64,
                     'payment' => $payment,
                     'pendingKioskInvoices' => $pendingKioskInvoices,
                     'totalPaid' => $totalPaid,

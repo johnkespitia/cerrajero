@@ -34,6 +34,9 @@ class KioskOtpService
         }
 
         try {
+            // Obtener logo en base64 para el email
+            $logoBase64 = $this->getLogoBase64();
+            
             // Enviar email con OTP
             Mail::send(
                 'emails.kiosk_otp',
@@ -42,6 +45,7 @@ class KioskOtpService
                     'reservation' => $reservation,
                     'otp_code' => $otpCode,
                     'recipient' => $recipient,
+                    'logo_base64' => $logoBase64,
                 ],
                 function ($message) use ($recipient, $invoice) {
                     $message->to($recipient['email'], $recipient['name'])
@@ -135,6 +139,47 @@ class KioskOtpService
             ];
         }
 
+        return null;
+    }
+
+    /**
+     * Obtener logo en formato base64 para usar en emails
+     * Prioriza la ruta constante: storage/app/public/logocv.png
+     * 
+     * @return string|null Logo en formato base64 o null si no se encuentra
+     */
+    protected function getLogoBase64(): ?string
+    {
+        // Ruta constante del logo (prioridad)
+        $logoPath = storage_path('app/public/logocv.png');
+        
+        if (file_exists($logoPath)) {
+            $imageData = file_get_contents($logoPath);
+            $imageInfo = getimagesize($logoPath);
+            $mimeType = $imageInfo['mime'] ?? 'image/png';
+            return 'data:' . $mimeType . ';base64,' . base64_encode($imageData);
+        }
+        
+        // Fallback: buscar en otras ubicaciones posibles
+        $possibleLogoPaths = [
+            storage_path('app/public/logo-campo-verde.png'),
+            public_path('images/logo-campo-verde.png'),
+            public_path('logo.png'),
+            public_path('logo.jpg'),
+            storage_path('app/public/logo.png'),
+            base_path('public/images/logo-campo-verde.png'),
+            base_path('public/logo.png'),
+        ];
+
+        foreach ($possibleLogoPaths as $path) {
+            if (file_exists($path)) {
+                $imageData = file_get_contents($path);
+                $imageInfo = getimagesize($path);
+                $mimeType = $imageInfo['mime'] ?? 'image/png';
+                return 'data:' . $mimeType . ';base64,' . base64_encode($imageData);
+            }
+        }
+        
         return null;
     }
 }
