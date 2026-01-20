@@ -255,7 +255,18 @@ class CashRegisterClosureController extends Controller
      */
     public function getDailyReport(Request $request, $date)
     {
-        $validator = Validator::make(['date' => $date], [
+        // Normalizar la fecha: extraer solo la parte de fecha (YYYY-MM-DD) si viene con timestamp
+        try {
+            $dateObj = Carbon::parse($date);
+            $normalizedDate = $dateObj->format('Y-m-d');
+        } catch (\Exception $e) {
+            return response()->json([
+                'message' => 'Formato de fecha inválido',
+                'error' => $e->getMessage()
+            ], 422);
+        }
+
+        $validator = Validator::make(['date' => $normalizedDate], [
             'date' => 'required|date',
         ]);
 
@@ -265,7 +276,7 @@ class CashRegisterClosureController extends Controller
 
         $user = $request->user();
         $closure = CashRegisterClosure::where('user_id', $user->id)
-            ->whereDate('closure_date', $date)
+            ->whereDate('closure_date', $normalizedDate)
             ->with(['invoices.customer', 'invoices.payment_type', 'invoices.details'])
             ->first();
 
