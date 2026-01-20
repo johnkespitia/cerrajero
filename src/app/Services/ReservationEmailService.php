@@ -19,20 +19,13 @@ class ReservationEmailService
     /**
      * Obtener URL del logo para usar en emails
      * Usa URL directa (no base64) para mejor compatibilidad con clientes de email
+     * Prioriza public/logocv.png (no requiere symlink)
      * 
      * @return string|null URL del logo o null si no se encuentra
      */
     protected function getLogoUrl(): ?string
     {
-        // Intentar primero con storage (requiere symlink)
-        $logoPath = storage_path('app/public/logocv.png');
-        if (file_exists($logoPath)) {
-            $logoUrl = url('storage/logocv.png');
-            Log::info("Logo URL generada desde storage: {$logoUrl}");
-            return $logoUrl;
-        }
-        
-        // Fallback: buscar en public directamente (no requiere symlink)
+        // Prioridad 1: public/logocv.png (no requiere symlink, más simple)
         $publicLogoPath = public_path('logocv.png');
         if (file_exists($publicLogoPath)) {
             $logoUrl = url('logocv.png');
@@ -40,11 +33,19 @@ class ReservationEmailService
             return $logoUrl;
         }
         
-        // Fallback adicional: buscar en public/images
+        // Fallback: buscar en public/images
         $publicImagesLogoPath = public_path('images/logocv.png');
         if (file_exists($publicImagesLogoPath)) {
             $logoUrl = url('images/logocv.png');
             Log::info("Logo URL generada desde public/images: {$logoUrl}");
+            return $logoUrl;
+        }
+        
+        // Fallback: storage (requiere symlink)
+        $logoPath = storage_path('app/public/logocv.png');
+        if (file_exists($logoPath)) {
+            $logoUrl = url('storage/logocv.png');
+            Log::info("Logo URL generada desde storage: {$logoUrl}");
             return $logoUrl;
         }
         
