@@ -20,6 +20,11 @@ class KioskProduct extends Model
         "tax_id"
     ];
 
+    protected $casts = [
+        'active' => 'boolean',
+        'sale_price' => 'decimal:2',
+    ];
+
     public function category()
     {
         return $this->belongsTo(KioskCategory::class, 'category_id');

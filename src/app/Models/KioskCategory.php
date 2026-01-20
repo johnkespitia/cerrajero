@@ -14,6 +14,10 @@ class KioskCategory extends Model
         'active'
     ];
 
+    protected $casts = [
+        'active' => 'boolean',
+    ];
+
     public function products()
     {
         return $this->hasMany(KioskProduct::class, "category_id");
