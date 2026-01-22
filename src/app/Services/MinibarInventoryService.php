@@ -278,13 +278,19 @@ class MinibarInventoryService
             // Obtener el registro más reciente para cada producto
             $latest = RoomMinibarInventory::where('reservation_id', $reservation->id)
                 ->where('product_id', $record->product_id)
+                ->with('product')
                 ->orderBy('recorded_at', 'desc')
                 ->first();
 
-            $latestRecords[] = $latest;
+            if ($latest) {
+                $latestRecords[] = $latest;
+            }
         }
 
-        return $latestRecords;
+        // Convertir a array para incluir las relaciones
+        return array_map(function($record) {
+            return $record->toArray();
+        }, $latestRecords);
     }
 
     /**
