@@ -96,7 +96,7 @@ class CleaningRecordController extends Controller
             'cleaning_date' => 'required|date',
             'cleaning_time' => 'nullable|date_format:H:i',
             'cleaning_type' => 'required|in:daily,checkout,checkin,deep,maintenance',
-            'status' => 'nullable|in:completed,in_progress,pending',
+            'status' => 'nullable|in:completed,pending',
             'duration_minutes' => 'nullable|integer|min:1',
             'observations' => 'nullable|string',
             'issues_found' => 'nullable|string',
@@ -343,10 +343,9 @@ class CleaningRecordController extends Controller
 
         $stats = [
             'total_cleanings' => $query->count(),
-            'completed' => (clone $query)->where('status', 'completed')->count(),
-            'pending' => (clone $query)->where('status', 'pending')->count(),
-            'in_progress' => (clone $query)->where('status', 'in_progress')->count(),
-            'average_quality' => (clone $query)->whereNotNull('quality_score')->avg('quality_score'),
+            'total_completed' => (clone $query)->where('status', 'completed')->count(),
+            'total_pending' => (clone $query)->where('status', 'pending')->count(),
+            'average_quality_score' => (clone $query)->whereNotNull('quality_score')->avg('quality_score'),
             'average_duration' => (clone $query)->whereNotNull('duration_minutes')->avg('duration_minutes'),
         ];
 
