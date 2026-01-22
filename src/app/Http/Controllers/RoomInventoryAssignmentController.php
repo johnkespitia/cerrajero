@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\RoomInventoryAssignment;
+use App\Models\RoomInventoryItem;
 use App\Models\Room;
 use App\Models\CommonArea;
 use App\Services\RoomInventoryAuditService;
@@ -92,6 +93,37 @@ class RoomInventoryAssignmentController extends Controller
             return response(['message' => 'La ubicación no está activa'], Response::HTTP_UNPROCESSABLE_ENTITY);
         }
 
+        // Validar que el artículo existe y está activo
+        $item = RoomInventoryItem::find($request->item_id);
+        if (!$item) {
+            return response(['message' => 'El artículo no existe'], Response::HTTP_NOT_FOUND);
+        }
+        if (!$item->active) {
+            return response(['message' => 'El artículo no está activo'], Response::HTTP_UNPROCESSABLE_ENTITY);
+        }
+
+        // Validar que el artículo no tenga una asignación activa con estado 'in_use'
+        // Permitir crear asignaciones si el artículo tiene estado 'available' (disponible para reasignación)
+        $status = $request->status ?? 'in_use';
+        if ($status === 'in_use') {
+            $existingAssignment = RoomInventoryAssignment::where('item_id', $request->item_id)
+                ->where('active', true)
+                ->where('status', 'in_use')
+                ->first();
+            
+            if ($existingAssignment) {
+                $locationName = $existingAssignment->location_name ?? "ubicación #{$existingAssignment->assignable_id}";
+                return response([
+                    'message' => "Este artículo ya está asignado y en uso en {$locationName}. No se puede crear una nueva asignación mientras esté en uso.",
+                    'existing_assignment' => [
+                        'id' => $existingAssignment->id,
+                        'location' => $locationName,
+                        'status' => $existingAssignment->status
+                    ]
+                ], Response::HTTP_UNPROCESSABLE_ENTITY);
+            }
+        }
+
         DB::beginTransaction();
         try {
             $assignment = RoomInventoryAssignment::create([
@@ -99,10 +131,11 @@ class RoomInventoryAssignmentController extends Controller
                 'assignable_id' => $request->assignable_id,
                 'item_id' => $request->item_id,
                 'quantity' => $request->quantity,
-                'status' => $request->status ?? 'in_use', // Estado por defecto: en uso cuando se asigna
+                'status' => $status, // Estado por defecto: en uso cuando se asigna
                 'condition_notes' => $request->condition_notes,
                 'assigned_by' => auth()->id(),
                 'assigned_at' => now(),
+                'active' => true, // Asegurar que active sea true explícitamente
             ]);
 
             // Registrar en historial
