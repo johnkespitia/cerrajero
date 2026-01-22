@@ -10,6 +10,7 @@ use App\Models\RoomMinibarStock;
 use App\Models\ReservationMinibarCharge;
 use App\Models\MinibarRestockingLog;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class MinibarInventoryService
 {
@@ -159,7 +160,7 @@ class MinibarInventoryService
         DB::beginTransaction();
         try {
             foreach ($products as $productId => $currentQuantity) {
-                // Buscar registro inicial
+                // Buscar registro inicial (check-in)
                 $initialRecord = RoomMinibarInventory::where('reservation_id', $reservation->id)
                     ->where('product_id', $productId)
                     ->where('record_type', 'check_in')
@@ -180,8 +181,16 @@ class MinibarInventoryService
                     ]);
                 }
 
-                // Crear nuevo registro de actualización
-                $consumed = max(0, $initialRecord->initial_quantity - $currentQuantity);
+                // Buscar el registro más reciente (puede ser check-in o limpieza previa)
+                $latestRecord = RoomMinibarInventory::where('reservation_id', $reservation->id)
+                    ->where('product_id', $productId)
+                    ->orderBy('recorded_at', 'desc')
+                    ->first();
+
+                // Calcular consumo: diferencia entre la cantidad más reciente y la actual
+                // Si es la primera limpieza, comparar con check-in; si hay limpiezas previas, comparar con la última
+                $previousQuantity = $latestRecord ? $latestRecord->current_quantity : $initialRecord->initial_quantity;
+                $consumed = max(0, $previousQuantity - $currentQuantity);
 
                 $updateRecord = RoomMinibarInventory::create([
                     'reservation_id' => $reservation->id,
@@ -199,6 +208,19 @@ class MinibarInventoryService
 
                 // Si es producto vendible y hay consumo, crear cargo
                 $product = MinibarProduct::findOrFail($productId);
+                
+                // Log para debugging
+                Log::info('Minibar charge check', [
+                    'product_id' => $productId,
+                    'product_name' => $product->name,
+                    'is_sellable' => $product->is_sellable,
+                    'consumed' => $consumed,
+                    'previous_quantity' => $previousQuantity,
+                    'current_quantity' => $currentQuantity,
+                    'record_type' => $recordType,
+                    'reservation_id' => $reservation->id
+                ]);
+                
                 if ($product->is_sellable && $consumed > 0) {
                     // Verificar si ya existe un cargo para este producto en esta reserva
                     $existingCharge = ReservationMinibarCharge::where('reservation_id', $reservation->id)

@@ -7,6 +7,7 @@ use App\Services\MinibarInventoryService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\Log;
 
 class RoomMinibarInventoryController extends Controller
 {
@@ -95,10 +96,19 @@ class RoomMinibarInventoryController extends Controller
             auth()->id()
         );
 
+        // Log para debugging
+        Log::info('Minibar cleaning recorded', [
+            'reservation_id' => $reservation->id,
+            'records_count' => count($result['records']),
+            'charges_count' => count($result['charges']),
+            'charges' => $result['charges']
+        ]);
+
         return response([
             'message' => 'Consumo registrado exitosamente',
             'records' => $result['records'],
-            'charges' => $result['charges']
+            'charges' => $result['charges'],
+            'charges_total' => array_sum(array_column($result['charges'], 'total'))
         ], Response::HTTP_OK);
     }
 
