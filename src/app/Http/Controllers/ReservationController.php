@@ -1614,6 +1614,23 @@ class ReservationController extends Controller
             return response()->json($validator->errors(), 422);
         }
 
+        // Validar que no haya un pago duplicado reciente (últimos 5 segundos)
+        // Esto previene doble clics o envíos accidentales múltiples
+        $recentDuplicate = \App\Models\ReservationPayment::where('reservation_id', $reservation->id)
+            ->where('amount', $request->amount)
+            ->where('concept', $request->concept ?? '')
+            ->where('payment_type_id', $request->payment_type_id)
+            ->where('payment_reference', $request->payment_reference ?? '')
+            ->where('created_at', '>=', now()->subSeconds(5))
+            ->exists();
+
+        if ($recentDuplicate) {
+            return response()->json([
+                'message' => 'Este pago ya fue registrado recientemente. Por favor, verifica la lista de pagos.',
+                'error' => 'duplicate_payment'
+            ], 409); // 409 Conflict
+        }
+
         DB::beginTransaction();
         try {
             // Calcular total ya pagado EXCLUYENDO los pagos a crédito del kiosko (que son deudas pendientes, no pagos reales)
