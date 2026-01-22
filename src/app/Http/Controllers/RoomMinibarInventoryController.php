@@ -44,10 +44,10 @@ class RoomMinibarInventoryController extends Controller
             ], Response::HTTP_UNPROCESSABLE_ENTITY);
         }
 
-        // Validar que la reserva esté en estado correcto
-        if ($reservation->status !== 'checked_in') {
+        // Validar que la reserva esté en estado correcto (permitir confirmed para registrar antes del check-in)
+        if (!in_array($reservation->status, ['confirmed', 'checked_in'])) {
             return response()->json([
-                'message' => 'Solo se puede registrar inventario de minibar para reservas con check-in realizado'
+                'message' => 'Solo se puede registrar inventario de minibar para reservas confirmadas o con check-in realizado'
             ], Response::HTTP_UNPROCESSABLE_ENTITY);
         }
 
