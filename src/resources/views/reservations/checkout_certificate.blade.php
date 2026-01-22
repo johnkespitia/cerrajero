@@ -453,6 +453,38 @@
             </div>
         @endif
 
+        @if($minibarCharges && $minibarCharges->count() > 0)
+            <div class="section">
+                <div class="section-title">Consumo de Minibar</div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Producto</th>
+                            <th class="text-center">Cantidad</th>
+                            <th class="text-right">Precio Unitario</th>
+                            <th class="text-right">Total</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach($minibarCharges as $charge)
+                            <tr>
+                                <td>{{ optional($charge->product)->name ?? 'N/A' }}</td>
+                                <td class="text-center">{{ $charge->quantity }}</td>
+                                <td class="text-right">${{ number_format($charge->unit_price, 0, ',', '.') }}</td>
+                                <td class="text-right">${{ number_format($charge->total, 0, ',', '.') }}</td>
+                            </tr>
+                        @endforeach
+                    </tbody>
+                    <tfoot>
+                        <tr class="total-row">
+                            <td colspan="3" class="text-right"><strong>Subtotal Minibar:</strong></td>
+                            <td class="text-right"><strong>${{ number_format($minibarCharges->sum('total'), 0, ',', '.') }}</strong></td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+        @endif
+
         <div class="section">
             <div class="section-title">Resumen de Pagos</div>
             @php
@@ -512,7 +544,7 @@
 
             <div class="summary-box">
                 <div class="summary-item">
-                    <div class="summary-label">Precio Total de la Reserva:</div>
+                    <div class="summary-label">Precio Total de la Reserva (incluye servicios adicionales y minibar):</div>
                     <div class="summary-value">${{ number_format($totalPrice, 0, ',', '.') }}</div>
                 </div>
                 <div class="summary-item">

@@ -82,6 +82,37 @@
     </div>
     @endif
 
+    <!-- Consumo de Minibar -->
+    @if($minibarCharges && $minibarCharges->count() > 0)
+    <div class="info-block">
+        <h2>Consumo de Minibar</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th class="text-left">PRODUCTO</th>
+                    <th class="text-center">CANTIDAD</th>
+                    <th class="text-right">PRECIO UNITARIO</th>
+                    <th class="text-right">TOTAL</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach($minibarCharges as $charge)
+                    <tr>
+                        <td class="text-left">{{ $charge->product->name ?? 'N/A' }}</td>
+                        <td class="text-center">{{ number_format($charge->quantity, 0) }}</td>
+                        <td class="text-right">${{ number_format($charge->unit_price, 2) }}</td>
+                        <td class="text-right">${{ number_format($charge->total, 2) }}</td>
+                    </tr>
+                @endforeach
+                <tr class="total-row">
+                    <td colspan="3" class="text-right"><strong>Subtotal Minibar:</strong></td>
+                    <td class="text-right"><strong>${{ number_format($minibarCharges->sum('total'), 2) }}</strong></td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+    @endif
+
     <!-- Compras en el Kiosko Pendientes de Pago -->
     @if($pendingKioskInvoices && $pendingKioskInvoices->count() > 0)
     <div class="info-block">
@@ -149,9 +180,15 @@
         <h2>Resumen Financiero</h2>
         <div class="payment-summary">
             <div class="payment-summary-item">
-                <div class="payment-summary-label">TOTAL DE LA RESERVA (incluye servicios adicionales):</div>
+                <div class="payment-summary-label">TOTAL DE LA RESERVA (incluye servicios adicionales y minibar):</div>
                 <div class="payment-summary-value">${{ number_format($reservation->final_price ?? $reservation->total_price, 2) }}</div>
             </div>
+            @if($minibarCharges && $minibarCharges->count() > 0)
+            <div class="payment-summary-item">
+                <div class="payment-summary-label">CONSUMO DE MINIBAR:</div>
+                <div class="payment-summary-value">${{ number_format($minibarCharges->sum('total'), 2) }}</div>
+            </div>
+            @endif
             @if($pendingKioskInvoices && $pendingKioskInvoices->count() > 0)
             <div class="payment-summary-item">
                 <div class="payment-summary-label">COMPRAS KIOSKO PENDIENTES:</div>

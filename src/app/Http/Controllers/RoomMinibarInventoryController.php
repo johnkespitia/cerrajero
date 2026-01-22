@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Reservation;
+use App\Models\RoomMinibarInventory;
 use App\Services\MinibarInventoryService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
@@ -49,6 +50,17 @@ class RoomMinibarInventoryController extends Controller
         if (!in_array($reservation->status, ['confirmed', 'checked_in'])) {
             return response()->json([
                 'message' => 'Solo se puede registrar inventario de minibar para reservas confirmadas o con check-in realizado'
+            ], Response::HTTP_UNPROCESSABLE_ENTITY);
+        }
+
+        // Validar que no exista ya un registro de inventario de check-in para esta reserva
+        $existingCheckIn = RoomMinibarInventory::where('reservation_id', $reservation->id)
+            ->where('record_type', 'check_in')
+            ->exists();
+
+        if ($existingCheckIn) {
+            return response()->json([
+                'message' => 'Ya existe un registro de inventario de check-in para esta reserva. No se puede registrar otro.'
             ], Response::HTTP_UNPROCESSABLE_ENTITY);
         }
 

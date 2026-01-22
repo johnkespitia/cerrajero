@@ -88,6 +88,15 @@ class MinibarInventoryService
         array $products = [], // [product_id => quantity] o vacío para usar stock actual
         ?int $userId = null
     ): array {
+        // Validar que no exista ya un registro de inventario de check-in para esta reserva
+        $existingCheckIn = RoomMinibarInventory::where('reservation_id', $reservation->id)
+            ->where('record_type', 'check_in')
+            ->exists();
+
+        if ($existingCheckIn) {
+            throw new \Exception('Ya existe un registro de inventario de check-in para esta reserva. No se puede registrar otro.');
+        }
+
         $records = [];
 
         DB::beginTransaction();

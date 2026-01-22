@@ -90,7 +90,7 @@ class ReservationCertificateService
      */
     public function generateCheckoutCertificate(Reservation $reservation)
     {
-        $reservation->loadMissing(['customer', 'room', 'roomType', 'guests', 'payments.paymentType', 'additionalServices.additionalService']);
+        $reservation->loadMissing(['customer', 'room', 'roomType', 'guests', 'payments.paymentType', 'additionalServices.additionalService', 'minibarCharges.product']);
 
         // Separar pagos normales de pagos a crédito (cargo a habitación)
         $allPayments = $reservation->payments;
@@ -100,6 +100,9 @@ class ReservationCertificateService
         $creditPayments = $allPayments->filter(function($payment) {
             return $payment->concept && str_contains($payment->concept, 'Compra en kiosko (a crédito)');
         });
+
+        // Obtener cargos de minibar
+        $minibarCharges = $reservation->minibarCharges;
 
         // Obtener logo en formato base64 (usa ruta constante: storage/app/public/logocv.png)
         $logoBase64 = $this->getLogoBase64();
@@ -112,6 +115,7 @@ class ReservationCertificateService
             'guests' => $reservation->guests,
             'payments' => $normalPayments,
             'creditPayments' => $creditPayments,
+            'minibarCharges' => $minibarCharges,
             'date' => now()->format('d/m/Y'),
             'time' => now()->format('H:i:s'),
             'logo_base64' => $logoBase64,

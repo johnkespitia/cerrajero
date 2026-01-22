@@ -600,7 +600,10 @@ class ReservationEmailService
         $totalDue,
         $newBalance
     ) {
-        $reservation->loadMissing(['customer', 'guests', 'room', 'roomType', 'additionalServices.additionalService']);
+        $reservation->loadMissing(['customer', 'guests', 'room', 'roomType', 'additionalServices.additionalService', 'minibarCharges.product']);
+
+        // Obtener cargos de minibar
+        $minibarCharges = $reservation->minibarCharges;
 
         $recipients = $this->getRecipients($reservation);
 
@@ -626,6 +629,7 @@ class ReservationEmailService
                     'logoUrl' => $logoUrl,
                     'payment' => $payment,
                     'pendingKioskInvoices' => $pendingKioskInvoices,
+                    'minibarCharges' => $minibarCharges,
                     'totalPaid' => $totalPaid,
                     'totalDue' => $totalDue,
                     'newBalance' => $newBalance,
