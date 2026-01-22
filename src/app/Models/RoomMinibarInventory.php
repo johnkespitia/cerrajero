@@ -9,6 +9,8 @@ class RoomMinibarInventory extends Model
 {
     use HasFactory;
 
+    protected $table = 'room_minibar_inventory';
+
     protected $fillable = [
         'reservation_id',
         'room_id',
