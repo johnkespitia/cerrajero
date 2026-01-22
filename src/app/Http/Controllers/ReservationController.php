@@ -303,6 +303,7 @@ class ReservationController extends Controller
             'payments.paymentType',
             'kioskInvoices.payment_type',
             'kioskInvoices.details.kiosk_unit.product',
+            'minibarCharges.product',
             'audits.user',
             'promotion',
             'cancellationPolicy'
