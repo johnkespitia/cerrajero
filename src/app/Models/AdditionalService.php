@@ -17,11 +17,14 @@ class AdditionalService extends Model
         'applies_to',
         'is_per_guest',
         'status',
+        'meal_type',
+        'is_food_service',
     ];
 
     protected $casts = [
         'price' => 'decimal:2',
         'is_per_guest' => 'boolean',
+        'is_food_service' => 'boolean',
     ];
 
     public function reservationAdditionalServices()
@@ -49,5 +52,15 @@ class AdditionalService extends Model
             return $query->whereIn('applies_to', ['day_pass', 'both']);
         }
         return $query;
+    }
+
+    public function scopeFoodServices($query)
+    {
+        return $query->where('is_food_service', true);
+    }
+
+    public function scopeByMealType($query, string $mealType)
+    {
+        return $query->where('meal_type', $mealType);
     }
 }

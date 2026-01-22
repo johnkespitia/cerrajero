@@ -7,6 +7,7 @@ use App\Models\Room;
 use App\Models\RoomType;
 use App\Models\ReservationPayment;
 use App\Models\ReservationSetting;
+use App\Models\CleaningRecord;
 use App\Services\GoogleCalendarService;
 use App\Services\ReservationCertificateService;
 use App\Services\ReservationEmailService;
@@ -667,6 +668,18 @@ class ReservationController extends Controller
                         ], 409);
                     }
 
+                    // Verificar si la habitación tiene mantenimientos activos
+                    if ($room->hasActiveMaintenance()) {
+                        $activeMaintenance = $room->maintenanceRequests()
+                            ->whereIn('status', ['pending', 'assigned', 'in_progress', 'on_hold'])
+                            ->first();
+                        
+                        return response()->json([
+                            'message' => 'La habitación está en mantenimiento y no puede ser reservada. ' . 
+                                       ($activeMaintenance ? "Motivo: {$activeMaintenance->title}" : '')
+                        ], 409);
+                    }
+
                     if (!$room->isAvailable(
                         $request->check_in_date,
                         $request->check_out_date ?? $request->check_in_date
@@ -789,6 +802,11 @@ class ReservationController extends Controller
 
             // Registrar auditoría de creación
             $this->auditService->logCreation($reservation, $request);
+
+            // Programar limpiezas automáticas para check-in y check-out
+            if ($reservation->room_id && $reservation->check_in_date && $reservation->check_out_date) {
+                $this->scheduleCleaningForReservation($reservation);
+            }
 
             // Actualizar aforo de pasadía si es una reserva de pasadía
             if ($request->reservation_type === 'day_pass') {
@@ -1229,6 +1247,11 @@ class ReservationController extends Controller
                 } catch (\Exception $e) {
                     \Log::warning('Error updating Google Calendar event: ' . $e->getMessage());
                 }
+            }
+
+            // Actualizar limpiezas programadas si cambiaron las fechas
+            if ($reservation->wasChanged(['check_in_date', 'check_out_date']) && $reservation->room_id) {
+                $this->updateCleaningForReservation($reservation);
             }
 
             DB::commit();
@@ -2009,6 +2032,20 @@ class ReservationController extends Controller
                 $reservation->room->update(['status' => 'occupied']);
             }
 
+            // Registrar inventario inicial del minibar si se proporciona
+            if ($reservation->room_id && $request->has('minibar_products')) {
+                try {
+                    $minibarService = app(\App\Services\MinibarInventoryService::class);
+                    $minibarService->recordCheckInInventory(
+                        $reservation,
+                        $request->minibar_products,
+                        auth()->id()
+                    );
+                } catch (\Exception $e) {
+                    \Log::warning('Error registrando inventario del minibar en check-in: ' . $e->getMessage());
+                }
+            }
+
             // Registrar auditoría
             $this->auditService->logStatusChange(
                 $reservation,
@@ -2219,6 +2256,24 @@ class ReservationController extends Controller
                 $room = Room::find($reservation->room_id);
                 if ($room) {
                     $room->update(['status' => 'available']);
+                }
+            }
+
+            // Registrar inventario final del minibar si se proporciona
+            if ($reservation->room_id && $request->has('minibar_products')) {
+                try {
+                    $minibarService = app(\App\Services\MinibarInventoryService::class);
+                    $minibarService->recordInventoryUpdate(
+                        $reservation,
+                        $request->minibar_products,
+                        'check_out',
+                        auth()->id()
+                    );
+                    // Recalcular precio final después de agregar cargos del minibar
+                    $reservation->refresh();
+                    $reservation->recomputeFinalPrice();
+                } catch (\Exception $e) {
+                    \Log::warning('Error registrando inventario final del minibar en check-out: ' . $e->getMessage());
                 }
             }
 
@@ -2642,6 +2697,60 @@ class ReservationController extends Controller
                 ];
             })->values(),
         ]);
+    }
+
+    /**
+     * Programa limpiezas automáticas para una reserva
+     * Crea limpiezas para check-in y check-out
+     */
+    private function scheduleCleaningForReservation(Reservation $reservation)
+    {
+        // Solo programar si la reserva tiene habitación asignada
+        if (!$reservation->room_id || !$reservation->check_in_date || !$reservation->check_out_date) {
+            return;
+        }
+
+        // Limpieza de check-in (día de entrada)
+        CleaningRecord::create([
+            'cleanable_type' => Room::class,
+            'cleanable_id' => $reservation->room_id,
+            'reservation_id' => $reservation->id,
+            'cleaning_date' => $reservation->check_in_date,
+            'cleaning_type' => 'checkin',
+            'status' => 'pending',
+            'cleaned_by' => null, // Se asignará cuando se complete
+        ]);
+
+        // Limpieza de check-out (día de salida)
+        CleaningRecord::create([
+            'cleanable_type' => Room::class,
+            'cleanable_id' => $reservation->room_id,
+            'reservation_id' => $reservation->id,
+            'cleaning_date' => $reservation->check_out_date,
+            'cleaning_type' => 'checkout',
+            'status' => 'pending',
+            'cleaned_by' => null, // Se asignará cuando se complete
+        ]);
+    }
+
+    /**
+     * Actualiza limpiezas programadas cuando cambian las fechas de una reserva
+     */
+    private function updateCleaningForReservation(Reservation $reservation)
+    {
+        // Obtener limpiezas pendientes relacionadas con esta reserva
+        $pendingCleanings = CleaningRecord::where('reservation_id', $reservation->id)
+            ->where('status', 'pending')
+            ->get();
+
+        foreach ($pendingCleanings as $cleaning) {
+            // Actualizar fecha según el tipo de limpieza
+            if ($cleaning->cleaning_type === 'checkin' && $reservation->check_in_date) {
+                $cleaning->update(['cleaning_date' => $reservation->check_in_date]);
+            } elseif ($cleaning->cleaning_type === 'checkout' && $reservation->check_out_date) {
+                $cleaning->update(['cleaning_date' => $reservation->check_out_date]);
+            }
+        }
     }
 }
 

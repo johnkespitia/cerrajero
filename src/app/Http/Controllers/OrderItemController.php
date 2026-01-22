@@ -24,8 +24,40 @@ class OrderItemController extends Controller
             'status' => 'required|in:pending, preparing, prepared, delivered',
         ]);
 
+        // Validar inventario antes de crear el item
+        $orderItem = new OrderItem($validatedData);
+        $orderItem->load('recipe.recipeIngredients.inventoryInput');
+        
+        $inventoryVerificationService = app(\App\Services\InventoryVerificationService::class);
+        $verification = $inventoryVerificationService->verifyOrderItemInventory($orderItem);
+        
+        if (!$verification['available']) {
+            return response()->json([
+                'error' => 'No hay suficiente inventario para esta receta',
+                'issues' => $verification['issues']
+            ], 422);
+        }
+
         $orderItem = OrderItem::create($validatedData);
         return response()->json($orderItem, 201);
+    }
+
+    /**
+     * Verificar inventario disponible para una receta
+     */
+    public function checkInventory(Request $request)
+    {
+        $request->validate([
+            'recipe_id' => 'required|exists:kitchen_recipes,id',
+            'quantity' => 'required|numeric|min:0.01',
+        ]);
+
+        $recipe = \App\Models\KitchenRecipe::with('recipeIngredients.inventoryInput')->findOrFail($request->recipe_id);
+        
+        $inventoryVerificationService = app(\App\Services\InventoryVerificationService::class);
+        $verification = $inventoryVerificationService->getAvailableInventory($recipe, $request->quantity);
+
+        return response()->json($verification);
     }
 
     public function update(Request $request, OrderItem $orderItem)

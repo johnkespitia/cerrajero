@@ -10,9 +10,33 @@ use Illuminate\Support\Facades\Validator;
 
 class RoomController extends Controller
 {
-    public function index()
+    public function index(Request $request)
     {
-        $rooms = Room::with('roomType')->orderBy('id')->get();
+        $query = Room::with('roomType');
+
+        // Filtro por activos
+        if ($request->has('active')) {
+            $query->where('active', $request->boolean('active'));
+        }
+
+        $rooms = $query->orderBy('id')->get();
+        return response($rooms, Response::HTTP_OK);
+    }
+
+    /**
+     * Listar habitaciones básicas (solo para selectores, sin información sensible)
+     * No requiere permiso específico, solo autenticación
+     */
+    public function listBasic(Request $request)
+    {
+        $query = Room::select('id', 'number', 'name', 'active');
+
+        // Filtro por activos
+        if ($request->has('active')) {
+            $query->where('active', $request->boolean('active'));
+        }
+
+        $rooms = $query->orderBy('number')->orderBy('name')->get();
         return response($rooms, Response::HTTP_OK);
     }
 

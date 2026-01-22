@@ -173,5 +173,59 @@ class ReservationValidationService
             'errors' => $errors,
         ];
     }
+
+    /**
+     * Verificar si una reserva está activa (considerando pasadías)
+     */
+    public function isReservationActive(Reservation $reservation): bool
+    {
+        if ($reservation->status === 'checked_in') {
+            return true;
+        }
+
+        // Para pasadías, considerar también checked_out del mismo día
+        if ($reservation->reservation_type === 'day_pass') {
+            if ($reservation->status === 'checked_out') {
+                $checkInDate = Carbon::parse($reservation->check_in_date);
+                $today = Carbon::today();
+                
+                // Si el check-out fue el mismo día del check-in, aún está "activa" para efectos de consumo
+                return $checkInDate->isSameDay($today);
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Obtener reserva activa de un cliente
+     */
+    public function getActiveReservationForCustomer(int $customerId, $date = null): ?Reservation
+    {
+        $date = $date ? Carbon::parse($date) : Carbon::today();
+
+        // Para reservas normales: estado checked_in
+        $normalReservation = Reservation::where('customer_id', $customerId)
+            ->where('status', 'checked_in')
+            ->where('check_in_date', '<=', $date)
+            ->where(function($query) use ($date) {
+                $query->whereNull('check_out_date')
+                    ->orWhere('check_out_date', '>=', $date);
+            })
+            ->first();
+
+        if ($normalReservation) {
+            return $normalReservation;
+        }
+
+        // Para pasadías: checked_in o checked_out del mismo día
+        $dayPassReservation = Reservation::where('customer_id', $customerId)
+            ->where('reservation_type', 'day_pass')
+            ->whereDate('check_in_date', $date)
+            ->whereIn('status', ['checked_in', 'checked_out'])
+            ->first();
+
+        return $dayPassReservation;
+    }
 }
 

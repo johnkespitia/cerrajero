@@ -29,6 +29,15 @@ class RolePermissionRequest extends FormRequest
      */
     public function rules()
     {
+        // Aceptar tanto un solo permiso como un array de permisos
+        if ($this->has('permissions') && is_array($this->permissions)) {
+            return [
+                'permissions' => ['required', 'array', 'min:1'],
+                'permissions.*' => ['required', 'string', 'max:125', 'exists:permissions,name'],
+            ];
+        }
+        
+        // Mantener compatibilidad con el formato anterior (un solo permiso)
         return [
             'permission' => ['required', 'string', 'max:125', 'exists:permissions,name'],
         ];

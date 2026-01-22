@@ -102,7 +102,7 @@ class RolController extends Controller
     }
 
     /**
-     * Otorgar un permiso a un rol
+     * Otorgar uno o múltiples permisos a un rol
      *
      * @param RolePermissionRequest $request
      * @param Role $rol
@@ -110,6 +110,21 @@ class RolController extends Controller
      */
     public function grantPermission(RolePermissionRequest $request, Role $rol): JsonResponse
     {
+        // Si se envía un array de permisos
+        if ($request->has('permissions') && is_array($request->permissions)) {
+            $permissions = $request->permissions;
+            $rol->givePermissionTo($permissions);
+            
+            $count = count($permissions);
+            return response()->json([
+                'message' => $count === 1 
+                    ? 'Permiso otorgado exitosamente' 
+                    : "{$count} permisos otorgados exitosamente",
+                'role' => $rol->load('permissions')
+            ], Response::HTTP_OK);
+        }
+        
+        // Mantener compatibilidad con el formato anterior (un solo permiso)
         $rol->givePermissionTo($request->permission);
 
         return response()->json([

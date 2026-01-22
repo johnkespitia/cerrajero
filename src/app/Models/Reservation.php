@@ -253,6 +253,16 @@ class Reservation extends Model
             ->with('additionalService');
     }
 
+    public function mealConsumptions()
+    {
+        return $this->hasMany(ReservationMealConsumption::class, 'reservation_id');
+    }
+
+    public function orders()
+    {
+        return $this->hasMany(Order::class, 'reservation_id');
+    }
+
     /**
      * Total de servicios adicionales de la reserva.
      */
@@ -261,14 +271,33 @@ class Reservation extends Model
         return (float) $this->additionalServices()->sum('total');
     }
 
+    public function minibarInventory()
+    {
+        return $this->hasMany(RoomMinibarInventory::class, 'reservation_id');
+    }
+
+    public function minibarCharges()
+    {
+        return $this->hasMany(ReservationMinibarCharge::class, 'reservation_id');
+    }
+
     /**
-     * Recalcula final_price incluyendo alojamiento (calculated_price - discount) + servicios adicionales.
+     * Total de cargos del minibar
+     */
+    public function getMinibarChargesTotalAttribute(): float
+    {
+        return (float) $this->minibarCharges()->sum('total');
+    }
+
+    /**
+     * Recalcula final_price incluyendo alojamiento (calculated_price - discount) + servicios adicionales + cargos del minibar.
      */
     public function recomputeFinalPrice(): void
     {
         $base = (float) ($this->calculated_price ?? $this->total_price ?? 0) - (float) ($this->discount_amount ?? 0);
         $additionalTotal = $this->additional_services_total;
-        $this->final_price = round(max(0, $base + $additionalTotal), 2);
+        $minibarTotal = $this->minibar_charges_total;
+        $this->final_price = round(max(0, $base + $additionalTotal + $minibarTotal), 2);
         $this->saveQuietly();
     }
 
@@ -306,5 +335,58 @@ class Reservation extends Model
         $reservationBalance = $this->remaining_balance;
         $kioskBalance = $this->total_pending_kiosk_invoices;
         return $reservationBalance + $kioskBalance;
+    }
+
+    /**
+     * Obtener consumo de alimentación por tipo y fecha
+     */
+    public function getMealConsumptionByType(string $mealType, $date = null): int
+    {
+        $query = $this->mealConsumptions()->where('meal_type', $mealType);
+        
+        if ($date) {
+            $query->whereDate('consumption_date', $date);
+        }
+        
+        return $query->sum('quantity_consumed');
+    }
+
+    /**
+     * Obtener cantidad de comidas incluidas por tipo
+     */
+    public function getIncludedMealQuantity(string $mealType): int
+    {
+        return $this->additionalServices()
+            ->whereHas('additionalService', function($query) use ($mealType) {
+                $query->where('is_food_service', true)
+                      ->where('meal_type', $mealType);
+            })
+            ->get()
+            ->sum(function($ras) {
+                // Calcular cantidad: quantity (días) * guests_count
+                return $ras->quantity * $ras->guests_count;
+            });
+    }
+
+    /**
+     * Verificar si puede consumir comida incluida
+     */
+    public function canConsumeIncludedMeal(string $mealType, $date = null): bool
+    {
+        $included = $this->getIncludedMealQuantity($mealType);
+        $consumed = $this->getMealConsumptionByType($mealType, $date);
+        
+        return $consumed < $included;
+    }
+
+    /**
+     * Obtener cantidad restante de comidas incluidas
+     */
+    public function getRemainingIncludedMeals(string $mealType, $date = null): int
+    {
+        $included = $this->getIncludedMealQuantity($mealType);
+        $consumed = $this->getMealConsumptionByType($mealType, $date);
+        
+        return max(0, $included - $consumed);
     }
 }

@@ -34,6 +34,8 @@ class DatabaseSeeder extends Seeder
         $this->call(ClientesPermissionsSeeder::class);
         $this->call(UsuariosPermissionsSeeder::class);
         $this->call(ReservationPermissionsSeeder::class);
+        $this->call(CleaningMaintenancePermissionsSeeder::class);
+        $this->call(MinibarPermissionsSeeder::class);
         
         // ============================================
         // 3. Crear roles (depende de permisos)

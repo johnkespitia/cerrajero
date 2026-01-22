@@ -106,6 +106,22 @@ class Room extends Model
             return false;
         }
 
+        // Si hay mantenimientos activos que requieren sacar la habitación de servicio, no está disponible
+        if ($this->hasMaintenanceInProgress()) {
+            return false;
+        }
+
+        // Verificar mantenimientos urgentes activos
+        $urgentMaintenance = $this->maintenanceRequests()
+            ->whereIn('status', ['pending', 'assigned', 'in_progress', 'on_hold'])
+            ->whereIn('priority', ['high', 'urgent'])
+            ->whereIn('issue_type', ['damage', 'repair'])
+            ->exists();
+        
+        if ($urgentMaintenance) {
+            return false;
+        }
+
         // Lógica correcta de solapamiento:
         // Dos períodos se solapan si:
         // - El inicio de la reserva existente es menor que el fin del período solicitado
@@ -132,5 +148,138 @@ class Room extends Model
         // Solo contar adultos y niños para la capacidad; los bebés no ocupan cama completa
         $totalGuests = $adults + $children;
         return $totalGuests <= $this->capacity; // Usar capacity (aforo) en lugar de max_capacity
+    }
+
+    public function inventoryAssignments()
+    {
+        return $this->morphMany(RoomInventoryAssignment::class, 'assignable');
+    }
+
+    public function activeInventoryAssignments()
+    {
+        return $this->morphMany(RoomInventoryAssignment::class, 'assignable')
+                    ->where('active', true);
+    }
+
+    public function inventoryHistory()
+    {
+        return $this->morphMany(RoomInventoryHistory::class, 'assignable');
+    }
+
+    // Relaciones para aseo y mantenimiento
+    public function cleaningRecords()
+    {
+        return $this->morphMany(CleaningRecord::class, 'cleanable');
+    }
+
+    public function latestCleaningRecord()
+    {
+        return $this->morphOne(CleaningRecord::class, 'cleanable')->latestOfMany('cleaning_date');
+    }
+
+    public function maintenanceRequests()
+    {
+        return $this->morphMany(MaintenanceRequest::class, 'maintainable');
+    }
+
+    public function maintenanceWorks()
+    {
+        return $this->morphMany(MaintenanceWork::class, 'maintainable');
+    }
+
+    public function cleaningSchedule()
+    {
+        return $this->morphOne(CleaningSchedule::class, 'cleanable');
+    }
+
+    public function getDaysSinceLastCleaningAttribute()
+    {
+        $lastCleaning = $this->latestCleaningRecord;
+        if (!$lastCleaning) {
+            return null;
+        }
+        return Carbon::now()->diffInDays($lastCleaning->cleaning_date);
+    }
+
+    // Relaciones para minibar
+    public function minibarStock()
+    {
+        return $this->hasMany(RoomMinibarStock::class)
+                    ->where('active', true);
+    }
+
+    public function minibarStockForProduct($productId)
+    {
+        return $this->hasOne(RoomMinibarStock::class)
+                    ->where('product_id', $productId)
+                    ->where('active', true);
+    }
+
+    public function getMinibarStockNeedingRestockAttribute()
+    {
+        return $this->minibarStock()
+                    ->whereColumn('current_quantity', '<', 'standard_quantity')
+                    ->get();
+    }
+
+    /**
+     * Verificar si la habitación tiene mantenimientos activos
+     * Mantenimientos activos: pending, assigned, in_progress, on_hold
+     */
+    public function hasActiveMaintenance()
+    {
+        return $this->maintenanceRequests()
+            ->whereIn('status', ['pending', 'assigned', 'in_progress', 'on_hold'])
+            ->exists();
+    }
+
+    /**
+     * Verificar si la habitación tiene mantenimientos en progreso
+     * (trabajo activo que requiere sacar la habitación de servicio)
+     */
+    public function hasMaintenanceInProgress()
+    {
+        return $this->maintenanceRequests()
+            ->where('status', 'in_progress')
+            ->whereIn('issue_type', ['damage', 'repair']) // Solo daños y reparaciones requieren sacar de servicio
+            ->exists();
+    }
+
+    /**
+     * Actualizar el estado de la habitación basado en mantenimientos activos
+     */
+    public function updateStatusBasedOnMaintenance()
+    {
+        // Si hay mantenimiento en progreso (daños/reparaciones), poner en maintenance
+        if ($this->hasMaintenanceInProgress()) {
+            if ($this->status !== 'maintenance') {
+                $this->update(['status' => 'maintenance']);
+            }
+        } 
+        // Si hay otros mantenimientos activos pero no en progreso, verificar si debe estar en maintenance
+        elseif ($this->hasActiveMaintenance()) {
+            // Para mantenimientos preventivos o inspecciones, solo cambiar si es urgente
+            $urgentMaintenance = $this->maintenanceRequests()
+                ->whereIn('status', ['pending', 'assigned', 'on_hold'])
+                ->whereIn('priority', ['high', 'urgent'])
+                ->whereIn('issue_type', ['damage', 'repair'])
+                ->exists();
+            
+            if ($urgentMaintenance && $this->status !== 'maintenance') {
+                $this->update(['status' => 'maintenance']);
+            }
+        }
+        // Si no hay mantenimientos activos y está en maintenance, restaurar a available
+        elseif ($this->status === 'maintenance' && !$this->hasActiveMaintenance()) {
+            // Verificar que no esté ocupada por una reserva
+            $hasActiveReservation = $this->reservations()
+                ->whereIn('status', ['confirmed', 'checked_in'])
+                ->where('check_out_date', '>=', Carbon::today()->format('Y-m-d'))
+                ->exists();
+            
+            if (!$hasActiveReservation) {
+                $this->update(['status' => 'available']);
+            }
+        }
     }
 }

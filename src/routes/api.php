@@ -48,8 +48,11 @@ Route::middleware(['auth:sanctum'])->group(function () {
 
     // Rutas de Usuarios
     Route::controller(\App\Http\Controllers\UserController::class)->group(function () {
+        // Ruta básica para obtener usuarios (sin permisos específicos, solo autenticación)
+        Route::get('/users', 'listBasic'); // Para selectores en formularios
         Route::get('/accounts', 'list')->middleware('permission:user.list,cerrajero');
         Route::get('/accounts/{user}', 'show')->middleware('permission:user.view,cerrajero');
+        Route::get('/users/{user}', 'show')->middleware('permission:user.view,cerrajero'); // Alias para compatibilidad
         Route::post('/accounts', 'save')->middleware('permission:user.create,cerrajero');
         Route::put('/accounts/{user}', 'update')->middleware('permission:user.edit,cerrajero');
         Route::post('/accounts/role/{user}', 'assignRole')->middleware('permission:user.assign_role,cerrajero');
@@ -136,11 +139,15 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::post('/order', 'store')->middleware('permission:order.create,restcaja');
         Route::put('/order/{order}', 'update')->middleware('permission:order.edit,restcaja');
         Route::delete('/order/{order}', 'destroy')->middleware('permission:order.edit,restcaja');
+        Route::get('/order/active-reservation', 'getActiveReservation')->middleware('permission:order.list,restcaja');
+        Route::get('/order/reservation/{reservationId}/meal-consumption', 'getMealConsumption')->middleware('permission:order.list,restcaja');
+        Route::post('/order/{order}/verify-inventory', 'verifyInventory')->middleware('permission:order.create,restcaja');
     });
     Route::controller(\App\Http\Controllers\OrderItemController::class)->group(function () {
         Route::post('/order-item', 'store')->middleware('permission:order.create,restcaja');
         Route::put('/order-item/{orderItem}', 'update')->middleware('permission:order.edit,restcaja');
         Route::delete('/order-item/{orderItem}', 'destroy')->middleware('permission:order.edit,restcaja');
+        Route::post('/order-item/check-inventory', 'checkInventory')->middleware('permission:order.create,restcaja');
     });
 
     Route::controller(\App\Http\Controllers\ProducedBatchController::class)->group(function () {
@@ -303,6 +310,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::post('/reservations/{reservation}/recalculate-price', 'recalculatePrice')->middleware('permission:reservation.edit,reservas');
         Route::post('/reservations/{reservation}/additional-services', 'addAdditionalService')->middleware('permission:reservation.edit,reservas');
         Route::delete('/reservations/{reservation}/additional-services/{reservationAdditionalService}', 'removeAdditionalService')->middleware('permission:reservation.edit,reservas');
+        Route::get('/reservations/{reservation}/meal-consumption', 'getMealConsumption')->middleware('permission:reservation.view,reservas');
         Route::post('/reservations/{reservation}/check-in', 'checkIn')->middleware('permission:reservation.edit,reservas');
         Route::post('/reservations/{reservation}/check-out', 'checkOut')->middleware('permission:reservation.edit,reservas');
         Route::get('/reservations/{reservation}/checkout-certificate/download', 'downloadCheckoutCertificate')->middleware('permission:reservation.view,reservas');
@@ -343,7 +351,8 @@ Route::middleware(['auth:sanctum'])->group(function () {
     });
 
     Route::controller(\App\Http\Controllers\RoomController::class)->group(function () {
-        Route::get('/rooms', 'index')->middleware('permission:room.list,reservas');
+        // Ruta básica para obtener habitaciones (sin permisos específicos, solo autenticación)
+        Route::get('/rooms', 'listBasic'); // Para selectores en formularios (sin permisos específicos)
         Route::get('/rooms/{room}', 'show')->middleware('permission:room.view,reservas');
         Route::post('/rooms', 'store')->middleware('permission:room.create,reservas');
         Route::put('/rooms/{room}', 'update')->middleware('permission:room.edit,reservas');
@@ -384,5 +393,203 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::post('/service-packages', 'store')->middleware('permission:reservation.edit,reservas');
         Route::put('/service-packages/{servicePackage}', 'update')->middleware('permission:reservation.edit,reservas');
         Route::delete('/service-packages/{servicePackage}', 'destroy')->middleware('permission:reservation.edit,reservas');
+    });
+
+    // =========================
+    // Módulo de Inventario de Habitaciones y Zonas Comunes
+    // Guard: reservas
+    // =========================
+
+    // Categorías de inventario
+    Route::controller(\App\Http\Controllers\RoomInventoryCategoryController::class)->group(function () {
+        Route::get('/room-inventory/categories', 'index')->middleware('permission:room_inventory.category.list,reservas');
+        Route::get('/room-inventory/categories/{roomInventoryCategory}', 'show')->middleware('permission:room_inventory.category.list,reservas');
+        Route::post('/room-inventory/categories', 'store')->middleware('permission:room_inventory.category.create,reservas');
+        Route::put('/room-inventory/categories/{roomInventoryCategory}', 'update')->middleware('permission:room_inventory.category.edit,reservas');
+        Route::delete('/room-inventory/categories/{roomInventoryCategory}', 'destroy')->middleware('permission:room_inventory.category.delete,reservas');
+    });
+
+    // Artículos de inventario
+    Route::controller(\App\Http\Controllers\RoomInventoryItemController::class)->group(function () {
+        Route::get('/room-inventory/items', 'index')->middleware('permission:room_inventory.item.list,reservas');
+        Route::get('/room-inventory/items/{roomInventoryItem}', 'show')->middleware('permission:room_inventory.item.list,reservas');
+        Route::post('/room-inventory/items', 'store')->middleware('permission:room_inventory.item.create,reservas');
+        Route::put('/room-inventory/items/{roomInventoryItem}', 'update')->middleware('permission:room_inventory.item.edit,reservas');
+        Route::delete('/room-inventory/items/{roomInventoryItem}', 'destroy')->middleware('permission:room_inventory.item.delete,reservas');
+    });
+
+    // Zonas comunes
+    Route::controller(\App\Http\Controllers\CommonAreaController::class)->group(function () {
+        // Ruta básica para obtener zonas comunes (sin permisos específicos, solo autenticación)
+        Route::get('/room-inventory/common-areas', 'listBasic'); // Para selectores en formularios (sin permisos específicos)
+        Route::get('/room-inventory/common-areas/{commonArea}', 'show')->middleware('permission:room_inventory.common_area.list,reservas');
+        Route::post('/room-inventory/common-areas', 'store')->middleware('permission:room_inventory.common_area.create,reservas');
+        Route::put('/room-inventory/common-areas/{commonArea}', 'update')->middleware('permission:room_inventory.common_area.edit,reservas');
+        Route::delete('/room-inventory/common-areas/{commonArea}', 'destroy')->middleware('permission:room_inventory.common_area.delete,reservas');
+    });
+
+    // Asignaciones de inventario
+    Route::controller(\App\Http\Controllers\RoomInventoryAssignmentController::class)->group(function () {
+        Route::get('/room-inventory/assignments', 'index')->middleware('permission:room_inventory.assignment.list,reservas');
+        Route::get('/room-inventory/assignments/{roomInventoryAssignment}', 'show')->middleware('permission:room_inventory.assignment.list,reservas');
+        Route::post('/room-inventory/assignments', 'store')->middleware('permission:room_inventory.assignment.create,reservas');
+        Route::put('/room-inventory/assignments/{roomInventoryAssignment}', 'update')->middleware('permission:room_inventory.assignment.edit,reservas');
+        Route::put('/room-inventory/assignments/{roomInventoryAssignment}/status', 'updateStatus')->middleware('permission:room_inventory.assignment.edit,reservas');
+        Route::post('/room-inventory/assignments/{roomInventoryAssignment}/move', 'move')->middleware('permission:room_inventory.assignment.edit,reservas');
+        Route::post('/room-inventory/assignments/{roomInventoryAssignment}/check', 'check')->middleware('permission:room_inventory.assignment.edit,reservas');
+        Route::post('/room-inventory/assignments/{roomInventoryAssignment}/repair', 'registerRepair')->middleware('permission:room_inventory.assignment.edit,reservas');
+        Route::delete('/room-inventory/assignments/{roomInventoryAssignment}', 'destroy')->middleware('permission:room_inventory.assignment.delete,reservas');
+    });
+
+    // Historial de inventario
+    Route::controller(\App\Http\Controllers\RoomInventoryHistoryController::class)->group(function () {
+        Route::get('/room-inventory/history', 'index')->middleware('permission:room_inventory.history.view,reservas');
+        Route::get('/room-inventory/history/{roomInventoryHistory}', 'show')->middleware('permission:room_inventory.history.view,reservas');
+        Route::get('/room-inventory/history/room/{roomId}', 'getByRoom')->middleware('permission:room_inventory.history.view,reservas');
+        Route::get('/room-inventory/history/common-area/{commonAreaId}', 'getByCommonArea')->middleware('permission:room_inventory.history.view,reservas');
+        Route::get('/room-inventory/history/item/{itemId}', 'getByItem')->middleware('permission:room_inventory.history.view,reservas');
+        Route::get('/room-inventory/history/assignment/{assignmentId}', 'getByAssignment')->middleware('permission:room_inventory.history.view,reservas');
+    });
+
+    // ============================================
+    // Módulo de Minibar
+    // Guard: reservas
+    // ============================================
+
+    // Categorías de productos del minibar
+    Route::controller(\App\Http\Controllers\MinibarProductCategoryController::class)->group(function () {
+        Route::get('/minibar/categories', 'index')->middleware('permission:minibar.category.list,reservas');
+        Route::get('/minibar/categories/{category}', 'show')->middleware('permission:minibar.category.list,reservas');
+        Route::post('/minibar/categories', 'store')->middleware('permission:minibar.category.create,reservas');
+        Route::put('/minibar/categories/{category}', 'update')->middleware('permission:minibar.category.edit,reservas');
+        Route::delete('/minibar/categories/{category}', 'destroy')->middleware('permission:minibar.category.delete,reservas');
+    });
+
+    // Productos del minibar
+    Route::controller(\App\Http\Controllers\MinibarProductController::class)->group(function () {
+        Route::get('/minibar/products', 'index')->middleware('permission:minibar.product.list,reservas');
+        Route::get('/minibar/products/sellable', 'getSellable')->middleware('permission:minibar.product.list,reservas');
+        Route::get('/minibar/products/non-sellable', 'getNonSellable')->middleware('permission:minibar.product.list,reservas');
+        Route::get('/minibar/products/{product}', 'show')->middleware('permission:minibar.product.list,reservas');
+        Route::post('/minibar/products', 'store')->middleware('permission:minibar.product.create,reservas');
+        Route::put('/minibar/products/{product}', 'update')->middleware('permission:minibar.product.edit,reservas');
+        Route::delete('/minibar/products/{product}', 'destroy')->middleware('permission:minibar.product.delete,reservas');
+    });
+
+    // Stock de minibar por habitación
+    Route::controller(\App\Http\Controllers\RoomMinibarStockController::class)->group(function () {
+        Route::get('/rooms/{room}/minibar/stock', 'index')->middleware('permission:minibar.inventory.view,reservas');
+        Route::post('/rooms/{room}/minibar/stock', 'store')->middleware('permission:minibar.inventory.record,reservas');
+        Route::put('/rooms/{room}/minibar/stock/{stock}', 'update')->middleware('permission:minibar.inventory.record,reservas');
+        Route::post('/rooms/{room}/minibar/restock', 'restock')->middleware('permission:minibar.inventory.record,reservas');
+        Route::get('/rooms/{room}/minibar/stock/needing-restock', 'needingRestock')->middleware('permission:minibar.inventory.view,reservas');
+    });
+
+    // Inventario de minibar por reserva
+    Route::controller(\App\Http\Controllers\RoomMinibarInventoryController::class)->group(function () {
+        Route::get('/reservations/{reservation}/minibar/inventory', 'getByReservation')->middleware('permission:minibar.inventory.view,reservas');
+        Route::post('/reservations/{reservation}/minibar/check-in', 'recordCheckIn')->middleware('permission:minibar.inventory.record,reservas');
+        Route::post('/reservations/{reservation}/minibar/cleaning', 'recordCleaning')->middleware('permission:minibar.inventory.record,reservas');
+        Route::post('/reservations/{reservation}/minibar/check-out', 'recordCheckOut')->middleware('permission:minibar.inventory.record,reservas');
+    });
+
+    // Cargos del minibar
+    Route::controller(\App\Http\Controllers\ReservationMinibarChargeController::class)->group(function () {
+        Route::get('/reservations/{reservation}/minibar/charges', 'getByReservation')->middleware('permission:minibar.charge.view,reservas');
+        Route::delete('/reservations/minibar/charges/{charge}', 'destroy')->middleware('permission:minibar.charge.delete,reservas');
+    });
+
+    // Historial de reposiciones
+    Route::controller(\App\Http\Controllers\MinibarRestockingLogController::class)->group(function () {
+        Route::get('/minibar/restocking', 'index')->middleware('permission:minibar.inventory.view,reservas');
+        Route::get('/minibar/restocking/room/{room}', 'getByRoom')->middleware('permission:minibar.inventory.view,reservas');
+        Route::get('/minibar/restocking/product/{product}', 'getByProduct')->middleware('permission:minibar.inventory.view,reservas');
+    });
+
+    // ============================================
+    // Módulo de Aseo y Mantenimiento
+    // ============================================
+
+    // Proveedores
+    Route::controller(\App\Http\Controllers\SupplierController::class)->group(function () {
+        Route::get('/suppliers', 'index')->middleware('permission:maintenance.supplier.manage,reservas');
+        Route::get('/suppliers/{supplier}', 'show')->middleware('permission:maintenance.supplier.manage,reservas');
+        Route::post('/suppliers', 'store')->middleware('permission:maintenance.supplier.manage,reservas');
+        Route::put('/suppliers/{supplier}', 'update')->middleware('permission:maintenance.supplier.manage,reservas');
+        Route::delete('/suppliers/{supplier}', 'destroy')->middleware('permission:maintenance.supplier.manage,reservas');
+    });
+
+    // Registros de Aseo
+    Route::controller(\App\Http\Controllers\CleaningRecordController::class)->group(function () {
+        // Rutas específicas primero (antes de las rutas con parámetros)
+        Route::get('/cleaning/records', 'index')->middleware('permission:cleaning.list,reservas');
+        Route::post('/cleaning/records', 'store')->middleware('permission:cleaning.create,reservas');
+        Route::get('/cleaning/records/pending', 'getPending')->middleware('permission:cleaning.list,reservas');
+        Route::get('/cleaning/records/statistics', 'getStatistics')->middleware('permission:cleaning.report,reservas');
+        Route::get('/cleaning/records/room/{roomId}', 'getByRoom')->middleware('permission:cleaning.list,reservas');
+        Route::get('/cleaning/records/common-area/{areaId}', 'getByCommonArea')->middleware('permission:cleaning.list,reservas');
+        Route::get('/cleaning/records/reservation/{reservationId}', 'getByReservation')->middleware('permission:cleaning.list,reservas');
+        Route::get('/cleaning/records/employee/{userId}', 'getByEmployee')->middleware('permission:cleaning.list,reservas');
+        Route::post('/cleaning/records/{cleaningRecord}/complete', 'completePending')->middleware('permission:cleaning.create,reservas');
+        // Rutas con parámetros dinámicos al final
+        Route::get('/cleaning/records/{cleaningRecord}', 'show')->middleware('permission:cleaning.list,reservas');
+        Route::put('/cleaning/records/{cleaningRecord}', 'update')->middleware('permission:cleaning.edit,reservas');
+    });
+
+    // Programación de Aseo
+    Route::controller(\App\Http\Controllers\CleaningScheduleController::class)->group(function () {
+        Route::get('/cleaning/schedule', 'index')->middleware('permission:cleaning.schedule,reservas');
+        Route::post('/cleaning/schedule', 'store')->middleware('permission:cleaning.schedule,reservas');
+        Route::get('/cleaning/schedule/{cleaningSchedule}', 'show')->middleware('permission:cleaning.schedule,reservas');
+        Route::put('/cleaning/schedule/{cleaningSchedule}', 'update')->middleware('permission:cleaning.schedule,reservas');
+        Route::get('/cleaning/schedule/room/{roomId}', 'getByRoom')->middleware('permission:cleaning.schedule,reservas');
+        Route::get('/cleaning/schedule/common-area/{areaId}', 'getByCommonArea')->middleware('permission:cleaning.schedule,reservas');
+        Route::get('/cleaning/schedule/due', 'getDueCleanings')->middleware('permission:cleaning.list,reservas');
+        Route::post('/cleaning/schedule/{cleaningSchedule}/mark-cleaned', 'markAsCleaned')->middleware('permission:cleaning.create,reservas');
+    });
+
+    // Solicitudes de Mantenimiento
+    Route::controller(\App\Http\Controllers\MaintenanceRequestController::class)->group(function () {
+        Route::get('/maintenance/requests', 'index')->middleware('permission:maintenance.list,reservas');
+        Route::post('/maintenance/requests', 'store')->middleware('permission:maintenance.request.create,reservas');
+        Route::get('/maintenance/requests/{maintenanceRequest}', 'show')->middleware('permission:maintenance.list,reservas');
+        Route::put('/maintenance/requests/{maintenanceRequest}', 'update')->middleware('permission:maintenance.request.edit,reservas');
+        Route::post('/maintenance/requests/{maintenanceRequest}/assign', 'assign')->middleware('permission:maintenance.request.assign,reservas');
+        Route::post('/maintenance/requests/{maintenanceRequest}/complete', 'complete')->middleware('permission:maintenance.request.edit,reservas');
+        Route::post('/maintenance/requests/{maintenanceRequest}/cancel', 'cancel')->middleware('permission:maintenance.request.edit,reservas');
+        Route::get('/maintenance/requests/room/{roomId}', 'getByRoom')->middleware('permission:maintenance.list,reservas');
+        Route::get('/maintenance/requests/common-area/{areaId}', 'getByCommonArea')->middleware('permission:maintenance.list,reservas');
+        Route::get('/maintenance/requests/status/{status}', 'getByStatus')->middleware('permission:maintenance.list,reservas');
+    });
+
+    // Trabajos de Mantenimiento
+    Route::controller(\App\Http\Controllers\MaintenanceWorkController::class)->group(function () {
+        Route::get('/maintenance/works', 'index')->middleware('permission:maintenance.list,reservas');
+        Route::post('/maintenance/works', 'store')->middleware('permission:maintenance.work.create,reservas');
+        Route::get('/maintenance/works/{maintenanceWork}', 'show')->middleware('permission:maintenance.list,reservas');
+        Route::put('/maintenance/works/{maintenanceWork}', 'update')->middleware('permission:maintenance.work.edit,reservas');
+        Route::get('/maintenance/works/room/{roomId}', 'getByRoom')->middleware('permission:maintenance.list,reservas');
+        Route::get('/maintenance/works/common-area/{areaId}', 'getByCommonArea')->middleware('permission:maintenance.list,reservas');
+        Route::get('/maintenance/works/supplier/{supplierId}', 'getBySupplier')->middleware('permission:maintenance.list,reservas');
+        Route::get('/maintenance/works/warranty-expiring', 'getWarrantyExpiring')->middleware('permission:maintenance.list,reservas');
+        Route::get('/maintenance/works/costs-report', 'getCostsReport')->middleware('permission:maintenance.report,reservas');
+    });
+
+    // Consumo de alimentación de reservas
+    Route::controller(\App\Http\Controllers\ReservationMealConsumptionController::class)->group(function () {
+        Route::get('/reservations/{reservationId}/meal-consumption', 'index')->middleware('permission:reservation.view,reservas');
+        Route::post('/reservations/meal-consumption', 'store')->middleware('permission:reservation.edit,reservas');
+        Route::get('/reservations/meal-consumption/{reservationMealConsumption}', 'show')->middleware('permission:reservation.view,reservas');
+        Route::delete('/reservations/meal-consumption/{reservationMealConsumption}', 'destroy')->middleware('permission:reservation.edit,reservas');
+    });
+
+    // Comidas de trabajadores
+    Route::controller(\App\Http\Controllers\EmployeeMealController::class)->group(function () {
+        Route::get('/employee-meals', 'index')->middleware('permission:order.list,restcaja');
+        Route::get('/employee-meals/{employeeMeal}', 'show')->middleware('permission:order.list,restcaja');
+        Route::post('/employee-meals', 'store')->middleware('permission:order.create,restcaja');
+        Route::put('/employee-meals/{employeeMeal}', 'update')->middleware('permission:order.edit,restcaja');
+        Route::delete('/employee-meals/{employeeMeal}', 'destroy')->middleware('permission:order.edit,restcaja');
+        Route::get('/employee-meals/report', 'getReport')->middleware('permission:order.list,restcaja');
     });
 });

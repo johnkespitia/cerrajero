@@ -156,6 +156,23 @@ class UserController extends Controller
     }
 
     /**
+     * Listar usuarios básicos (solo para selectores, sin información sensible)
+     * No requiere permiso específico, solo autenticación
+     *
+     * @param Request $request
+     * @return JsonResponse
+     */
+    public function listBasic(Request $request): JsonResponse
+    {
+        $users = User::where('active', true)
+            ->select('id', 'name', 'email')
+            ->orderBy('name')
+            ->get();
+
+        return response()->json($users, Response::HTTP_OK);
+    }
+
+    /**
      * Mostrar un usuario específico
      *
      * @param User $user
