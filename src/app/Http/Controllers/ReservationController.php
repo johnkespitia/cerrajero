@@ -2168,7 +2168,11 @@ class ReservationController extends Controller
         }
 
         // Validar que la reserva esté completamente pagada (excluyendo pagos a crédito del kiosko)
+        // IMPORTANTE: Los cargos del minibar SÍ deben estar pagados para hacer checkout
         $totalPrice = $reservation->final_price ?? $reservation->total_price;
+        // Obtener el total de cargos del minibar
+        $minibarChargesTotal = $reservation->minibar_charges_total ?? 0;
+        
         // Calcular total pagado EXCLUYENDO los pagos a crédito del kiosko (que son deudas pendientes, no pagos reales)
         $totalPaid = $reservation->payments()
             ->where(function($query) {
@@ -2176,7 +2180,20 @@ class ReservationController extends Controller
                       ->orWhereNull('concept');
             })
             ->sum('amount');
+        
+        // Calcular cuánto se ha pagado específicamente para cargos del minibar
+        $minibarPaid = $reservation->payments()
+            ->where(function($query) {
+                $query->where('concept', 'like', '%minibar%')
+                      ->orWhere('concept', 'like', '%Minibar%');
+            })
+            ->sum('amount');
+        
+        // Calcular saldo pendiente de la reserva (incluyendo cargos del minibar)
         $remainingBalance = max(0, $totalPrice - $totalPaid);
+        
+        // Calcular saldo pendiente específico de cargos del minibar
+        $remainingMinibarBalance = max(0, $minibarChargesTotal - $minibarPaid);
 
         // REGLA 4: Validar que todas las cuentas abiertas (facturas del kiosko con credit = 1) estén pagadas
         // Incluir facturas asociadas directamente a la reserva
@@ -2209,22 +2226,34 @@ class ReservationController extends Controller
             });
         });
 
-        // Calcular cuánto se ha pagado adicional a la reserva (para cargos a habitación)
-        $paidForRoomCharges = max(0, $totalPaid - $totalPrice);
+        // Calcular cuánto se ha pagado adicional a la reserva (para cargos a habitación del kiosko)
+        // Primero calcular el precio base sin cargos del minibar para determinar pagos adicionales
+        $basePrice = $totalPrice - $minibarChargesTotal;
+        $paidForRoomCharges = max(0, $totalPaid - $basePrice - $minibarPaid);
         // El saldo pendiente de cargos a habitación es el total de cargos menos lo que ya se pagó
         $remainingRoomCharges = max(0, $totalPendingKiosk - $paidForRoomCharges);
 
-        // El saldo total pendiente incluye la reserva + saldo pendiente de cargos a habitación
+        // El saldo total pendiente incluye la reserva + cargos del minibar + saldo pendiente de cargos a habitación
+        // IMPORTANTE: Los cargos del minibar SÍ bloquean el checkout
         $totalPending = $remainingBalance + $remainingRoomCharges;
 
-        // Si hay saldo pendiente (reserva o cargos a habitación), bloquear el checkout
+        // Si hay saldo pendiente (reserva, cargos del minibar o cargos a habitación del kiosko), bloquear el checkout
         if ($totalPending > 0 && $reservation->payment_status !== 'free') {
             $messageParts = [];
             if ($remainingBalance > 0) {
-                $messageParts[] = 'Saldo pendiente de la reserva: ' . number_format($remainingBalance, 2);
+                // Si hay saldo pendiente de la reserva, desglosar si es por minibar o por reserva base
+                if ($remainingMinibarBalance > 0) {
+                    $baseRemaining = $remainingBalance - $remainingMinibarBalance;
+                    if ($baseRemaining > 0) {
+                        $messageParts[] = 'Saldo pendiente de la reserva base: ' . number_format($baseRemaining, 2);
+                    }
+                    $messageParts[] = 'Saldo pendiente de cargos del minibar: ' . number_format($remainingMinibarBalance, 2);
+                } else {
+                    $messageParts[] = 'Saldo pendiente de la reserva: ' . number_format($remainingBalance, 2);
+                }
             }
             if ($remainingRoomCharges > 0) {
-                $messageParts[] = 'Saldo pendiente de cargos a habitación: ' . number_format($remainingRoomCharges, 2);
+                $messageParts[] = 'Saldo pendiente de cargos a habitación (kiosko): ' . number_format($remainingRoomCharges, 2);
             }
             
             $message = 'No se puede hacer check-out. Tiene saldo pendiente por pagar.';
@@ -2235,6 +2264,9 @@ class ReservationController extends Controller
             return response()->json([
                 'message' => $message,
                 'total_price' => $totalPrice,
+                'minibar_charges_total' => $minibarChargesTotal,
+                'minibar_paid' => $minibarPaid,
+                'remaining_minibar_balance' => $remainingMinibarBalance,
                 'total_paid' => $totalPaid,
                 'reservation_balance' => $remainingBalance,
                 'pending_kiosk_invoices' => $totalPendingKiosk,
