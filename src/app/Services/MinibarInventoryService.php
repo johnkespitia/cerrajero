@@ -268,29 +268,18 @@ class MinibarInventoryService
      */
     public function getReservationInventory(Reservation $reservation): array
     {
-        $checkInRecords = RoomMinibarInventory::where('reservation_id', $reservation->id)
-            ->where('record_type', 'check_in')
+        // Obtener TODOS los registros de inventario (check-in, limpieza, check-out)
+        // ordenados por producto y fecha para mostrar el historial completo
+        $allRecords = RoomMinibarInventory::where('reservation_id', $reservation->id)
             ->with('product')
+            ->orderBy('product_id')
+            ->orderBy('recorded_at', 'desc')
             ->get();
-
-        $latestRecords = [];
-        foreach ($checkInRecords as $record) {
-            // Obtener el registro más reciente para cada producto
-            $latest = RoomMinibarInventory::where('reservation_id', $reservation->id)
-                ->where('product_id', $record->product_id)
-                ->with('product')
-                ->orderBy('recorded_at', 'desc')
-                ->first();
-
-            if ($latest) {
-                $latestRecords[] = $latest;
-            }
-        }
 
         // Convertir a array para incluir las relaciones
         return array_map(function($record) {
             return $record->toArray();
-        }, $latestRecords);
+        }, $allRecords->all());
     }
 
     /**
