@@ -141,14 +141,20 @@ class ReservationController extends Controller
         ];
 
         // Incluir pagos si se solicita
-        if ($request->has('include') && str_contains($request->include, 'payments')) {
-            $with[] = 'payments.paymentType';
-        }
+        if ($request->has('include')) {
+            $includeParams = is_array($request->include) 
+                ? $request->include 
+                : explode(',', $request->include);
+            
+            if (in_array('payments', $includeParams)) {
+                $with[] = 'payments.paymentType';
+            }
 
-        // Incluir facturas del kiosko si se solicita o si se está mostrando una reserva individual
-        if ($request->has('include') && str_contains($request->include, 'kiosk_invoices')) {
-            $with[] = 'kioskInvoices.payment_type';
-            $with[] = 'kioskInvoices.details.kiosk_unit.product';
+            // Incluir facturas del kiosko si se solicita
+            if (in_array('kiosk_invoices', $includeParams)) {
+                $with[] = 'kioskInvoices.payment_type';
+                $with[] = 'kioskInvoices.details.kiosk_unit.product';
+            }
         }
 
         $query = Reservation::with($with);
@@ -272,6 +278,29 @@ class ReservationController extends Controller
         if ($request->has('per_page') || $request->has('page')) {
             $perPage = $request->input('per_page', 50);
             $reservations = $query->orderBy('check_in_date', 'desc')->paginate($perPage);
+            
+            // Si se incluyeron facturas del kiosko, agregar facturas pendientes del cliente para reservas checked_in
+            if ($request->has('include') && (is_array($request->include) ? in_array('kiosk_invoices', $request->include) : str_contains($request->include, 'kiosk_invoices'))) {
+                $reservations->getCollection()->transform(function($reservation) {
+                    if ($reservation->status === 'checked_in' && $reservation->customer_id) {
+                        $pendingCustomerInvoices = \App\Models\KioskInvoice::where('customer_id', $reservation->customer_id)
+                            ->whereHas('payment_type', function($query) {
+                                $query->where('credit', true);
+                            })
+                            ->where('payed', false)
+                            ->whereNull('reservation_id')
+                            ->with(['payment_type', 'details.kiosk_unit.product'])
+                            ->get();
+
+                        if ($pendingCustomerInvoices->count() > 0) {
+                            $existingInvoices = $reservation->kioskInvoices;
+                            $reservation->setRelation('kioskInvoices', $existingInvoices->merge($pendingCustomerInvoices));
+                        }
+                    }
+                    return $reservation;
+                });
+            }
+            
             return response()->json([
                 'data' => $reservations->items(),
                 'current_page' => $reservations->currentPage(),
@@ -283,9 +312,31 @@ class ReservationController extends Controller
             ]);
         }
 
-        return response()->json(
-            $query->orderBy('check_in_date', 'desc')->get()
-        );
+        $reservations = $query->orderBy('check_in_date', 'desc')->get();
+        
+        // Si se incluyeron facturas del kiosko, agregar facturas pendientes del cliente para reservas checked_in
+        if ($request->has('include') && (is_array($request->include) ? in_array('kiosk_invoices', $request->include) : str_contains($request->include, 'kiosk_invoices'))) {
+            $reservations->transform(function($reservation) {
+                if ($reservation->status === 'checked_in' && $reservation->customer_id) {
+                    $pendingCustomerInvoices = \App\Models\KioskInvoice::where('customer_id', $reservation->customer_id)
+                        ->whereHas('payment_type', function($query) {
+                            $query->where('credit', true);
+                        })
+                        ->where('payed', false)
+                        ->whereNull('reservation_id')
+                        ->with(['payment_type', 'details.kiosk_unit.product'])
+                        ->get();
+
+                    if ($pendingCustomerInvoices->count() > 0) {
+                        $existingInvoices = $reservation->kioskInvoices;
+                        $reservation->setRelation('kioskInvoices', $existingInvoices->merge($pendingCustomerInvoices));
+                    }
+                }
+                return $reservation;
+            });
+        }
+
+        return response()->json($reservations);
     }
 
     public function show(Reservation $reservation)
