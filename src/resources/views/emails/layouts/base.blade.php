@@ -500,6 +500,13 @@
                     <strong>📞 Teléfono:</strong><br>
                     <a href="tel:+573226143787">322 614 3787</a>
                 </div>
+                
+                <div class="footer-contact" style="margin-top: 16px;">
+                    <strong>🌐 Síguenos en:</strong><br>
+                    <a href="https://www.instagram.com/campoverdecocorna" style="color: #2F6B3F; text-decoration: none; margin-right: 12px;">Instagram</a>
+                    <a href="https://www.facebook.com/centrovacacional.campoverde" style="color: #2F6B3F; text-decoration: none; margin-right: 12px;">Facebook</a>
+                    <a href="https://www.youtube.com/@centrovacacionalcampoverde4511" style="color: #2F6B3F; text-decoration: none;">YouTube</a>
+                </div>
             </div>
             
             <div class="divider"></div>

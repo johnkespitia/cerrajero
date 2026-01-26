@@ -283,7 +283,7 @@
                                 <div class="info-label">Documento:</div>
                                 <div class="info-value">
                                     @if($customer->customer_type === 'company')
-                                        NIT: {{ $customer->company_nit }}
+                                        NIT: {{ $customer->company_nit }} | RNT: 150590
                                     @else
                                         {{ $customer->dni }}
                                     @endif
@@ -506,6 +506,12 @@
             <div class="footer-brand">Campo Verde</div>
             <div class="footer-contact">Teléfono: 322 614 3787</div>
             <div class="footer-contact">Email: c.vacacionalcampoverde@gmail.com</div>
+            <div class="footer-contact" style="margin-top: 12px;">
+                <strong>Síguenos en:</strong><br>
+                <a href="https://www.instagram.com/campoverdecocorna" style="color: #2F6B3F; text-decoration: none; margin-right: 12px;">Instagram</a>
+                <a href="https://www.facebook.com/centrovacacional.campoverde" style="color: #2F6B3F; text-decoration: none; margin-right: 12px;">Facebook</a>
+                <a href="https://www.youtube.com/@centrovacacionalcampoverde4511" style="color: #2F6B3F; text-decoration: none;">YouTube</a>
+            </div>
             <div class="footer-legal">Gracias por su estadía en Campo Verde Centro Vacacional</div>
             <div class="footer-legal">Este documento es una factura consolidada de todos los consumos durante su estadía.</div>
             <div class="footer-legal">Documento generado el {{ $date }} a las {{ $time }}</div>
