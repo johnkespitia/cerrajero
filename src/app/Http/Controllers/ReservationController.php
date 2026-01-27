@@ -395,129 +395,158 @@ class ReservationController extends Controller
      */
     protected function createMultiRoomReservation(Request $request, $roomTypeId, $totalGuests)
     {
-        $availableRooms = Room::where('room_type_id', $roomTypeId)
-            ->where('status', 'available')
-            ->where('active', true)
-            ->orderBy('capacity', 'desc')
-            ->get()
-            ->filter(function ($room) use ($request) {
-                return $room->isAvailable(
-                    $request->check_in_date,
-                    $request->check_out_date ?? $request->check_in_date
-                );
-            });
+        \Log::info('Iniciando creación de reserva múltiple', [
+            'room_type_id' => $roomTypeId,
+            'total_guests' => $totalGuests,
+            'check_in_date' => $request->check_in_date,
+            'check_out_date' => $request->check_out_date,
+        ]);
 
-        if ($availableRooms->isEmpty()) {
-            return response()->json([
-                'message' => 'No hay suficientes habitaciones disponibles para alojar a todos los huéspedes'
-            ], 409);
-        }
+        // Verificar si se proporcionaron habitaciones seleccionadas manualmente
+        $selectedRoomIds = $request->has('selected_room_ids') && is_array($request->selected_room_ids) 
+            ? $request->selected_room_ids 
+            : null;
 
-        $roomsNeeded = [];
-        $remainingGuests = $totalGuests;
-        $guests = $request->has('guests') && is_array($request->guests) ? $request->guests : [];
+        if ($selectedRoomIds && count($selectedRoomIds) > 0) {
+            // Usar habitaciones seleccionadas manualmente
+            \Log::info('Usando habitaciones seleccionadas manualmente', [
+                'selected_room_ids' => $selectedRoomIds,
+            ]);
 
-        foreach ($availableRooms as $room) {
-            if ($remainingGuests <= 0) {
-                break;
+            // Validar que todas las habitaciones seleccionadas existan y sean del tipo correcto
+            $selectedRooms = Room::whereIn('id', $selectedRoomIds)
+                ->where('room_type_id', $roomTypeId)
+                ->where('active', true)
+                ->get();
+
+            if ($selectedRooms->count() !== count($selectedRoomIds)) {
+                DB::rollBack();
+                return response()->json([
+                    'message' => 'Algunas habitaciones seleccionadas no existen o no son del tipo correcto'
+                ], 422);
             }
 
-            $guestsForThisRoom = min($remainingGuests, $room->capacity);
-            $roomsNeeded[] = [
-                'room' => $room,
-                'guests_count' => $guestsForThisRoom,
-                'adults' => min($request->adults, $guestsForThisRoom),
-                'children' => min($request->children ?? 0, max(0, $guestsForThisRoom - $request->adults)),
-                'infants' => min(
-                    $request->infants ?? 0,
-                    max(0, $guestsForThisRoom - $request->adults - ($request->children ?? 0))
-                )
-            ];
+            // Validar disponibilidad de cada habitación seleccionada
+            $unavailableRooms = [];
+            foreach ($selectedRooms as $room) {
+                if (!$room->isAvailable(
+                    $request->check_in_date,
+                    $request->check_out_date ?? $request->check_in_date
+                )) {
+                    $unavailableRooms[] = $room->room_number ?? "Habitación #{$room->id}";
+                }
+            }
 
-            $remainingGuests -= $guestsForThisRoom;
+            if (!empty($unavailableRooms)) {
+                DB::rollBack();
+                return response()->json([
+                    'message' => 'Las siguientes habitaciones no están disponibles: ' . implode(', ', $unavailableRooms)
+                ], 409);
+            }
+
+            // Validar que la capacidad total sea suficiente
+            $totalCapacity = $selectedRooms->sum('capacity');
+            if ($totalCapacity < $totalGuests) {
+                DB::rollBack();
+                return response()->json([
+                    'message' => "La capacidad total de las habitaciones seleccionadas ({$totalCapacity}) es menor que el número de huéspedes ({$totalGuests})"
+                ], 422);
+            }
+
+            $availableRooms = $selectedRooms->sortByDesc('capacity');
+        } else {
+            // Buscar habitaciones disponibles automáticamente
+            $availableRooms = Room::where('room_type_id', $roomTypeId)
+                ->where('status', 'available')
+                ->where('active', true)
+                ->orderBy('capacity', 'desc')
+                ->get()
+                ->filter(function ($room) use ($request) {
+                    return $room->isAvailable(
+                        $request->check_in_date,
+                        $request->check_out_date ?? $request->check_in_date
+                    );
+                });
+
+            if ($availableRooms->isEmpty()) {
+                \Log::warning('No hay habitaciones disponibles para reserva múltiple', [
+                    'room_type_id' => $roomTypeId,
+                    'total_guests' => $totalGuests,
+                ]);
+                return response()->json([
+                    'message' => 'No hay suficientes habitaciones disponibles para alojar a todos los huéspedes'
+                ], 409);
+            }
         }
 
-        if ($remainingGuests > 0) {
+        // Calcular habitaciones necesarias con distribución inteligente de huéspedes
+        $roomsNeeded = [];
+        $guests = $request->has('guests') && is_array($request->guests) ? $request->guests : [];
+        
+        // Mejorar distribución: mantener familias juntas
+        $roomsNeeded = $this->distributeGuestsIntelligently(
+            $availableRooms,
+            $totalGuests,
+            $request->adults ?? 0,
+            $request->children ?? 0,
+            $request->infants ?? 0,
+            $guests
+        );
+
+        // Validar que todos los huéspedes fueron asignados
+        $totalAssigned = array_sum(array_column($roomsNeeded, 'guests_count'));
+        if ($totalAssigned < $totalGuests) {
+            $remainingGuests = $totalGuests - $totalAssigned;
+            \Log::warning('No hay suficientes habitaciones para todos los huéspedes', [
+                'remaining_guests' => $remainingGuests,
+                'total_guests' => $totalGuests,
+                'assigned_guests' => $totalAssigned,
+            ]);
             return response()->json([
                 'message' => 'No hay suficientes habitaciones disponibles. Faltan ' . $remainingGuests . ' espacios'
             ], 409);
         }
 
-        // Reserva principal
-        $mainRoom = $roomsNeeded[0];
-        $mainReservation = Reservation::create([
-            'customer_id' => $request->customer_id,
-            'room_id' => $mainRoom['room']->id,
-            'room_type_id' => $roomTypeId,
-            'reservation_type' => $request->reservation_type,
-            'check_in_date' => $request->check_in_date,
-            'check_out_date' => $request->check_out_date,
-            'adults' => $mainRoom['adults'],
-            'children' => $mainRoom['children'],
-            'infants' => $mainRoom['infants'],
-            'total_price' => $mainRoom['room']->room_price,
-            'deposit_amount' => 0,
-            'special_requests' => $request->special_requests,
-            'status' => 'confirmed',
-            'payment_status' => $request->payment_status ?? 'pending',
-            'free_reservation_reason' => $request->free_reservation_reason,
-            'free_reservation_reference' => $request->free_reservation_reference,
-            'created_by' => $request->user()->id ?? null,
-            'is_group_reservation' => true,
-            'room_sequence' => 1,
-            'contact_channel' => $request->contact_channel,
-            'referral_source' => $request->referral_source,
-            'social_media_platform' => $request->social_media_platform,
-            'campaign_name' => $request->campaign_name,
-            'tracking_code' => $request->tracking_code,
-            'marketing_notes' => $request->marketing_notes,
+        \Log::info('Habitaciones calculadas para reserva múltiple', [
+            'rooms_count' => count($roomsNeeded),
+            'rooms' => array_map(function($r) {
+                return ['room_id' => $r['room']->id, 'room_number' => $r['room']->room_number, 'guests' => $r['guests_count']];
+            }, $roomsNeeded),
         ]);
 
-        // Huéspedes en habitación principal
-        $guestsAssigned = 0;
-        if (!empty($guests)) {
-            foreach ($guests as $index => $guestData) {
-                if ($guestsAssigned >= $mainRoom['guests_count']) {
-                    break;
-                }
-
-                $mainReservation->guests()->create([
-                    'first_name' => $guestData['first_name'],
-                    'last_name' => $guestData['last_name'],
-                    'document_type' => $guestData['document_type'] ?? null,
-                    'document_number' => $guestData['document_number'] ?? null,
-                    'birth_date' => $guestData['birth_date'] ?? null,
-                    'gender' => $guestData['gender'] ?? null,
-                    'nationality' => $guestData['nationality'] ?? null,
-                    'email' => $guestData['email'] ?? null,
-                    'phone' => $guestData['phone'] ?? null,
-                    'special_needs' => $guestData['special_needs'] ?? null,
-                    'is_primary_guest' => $index === 0,
-                    'health_insurance_name' => $guestData['health_insurance_name'] ?? null,
-                    'health_insurance_type' => $guestData['health_insurance_type'] ?? null,
+        // Iniciar transacción para asegurar atomicidad
+        DB::beginTransaction();
+        try {
+            // Reserva principal
+            $mainRoom = $roomsNeeded[0];
+            
+            // Re-verificar disponibilidad justo antes de crear la reserva principal
+            $mainRoomFresh = Room::find($mainRoom['room']->id);
+            if (!$mainRoomFresh || !$mainRoomFresh->isAvailable(
+                $request->check_in_date,
+                $request->check_out_date ?? $request->check_in_date
+            )) {
+                DB::rollBack();
+                \Log::warning('Habitación principal ya no está disponible', [
+                    'room_id' => $mainRoom['room']->id,
+                    'room_number' => $mainRoom['room']->room_number,
                 ]);
-                $guestsAssigned++;
+                return response()->json([
+                    'message' => 'La habitación ' . $mainRoom['room']->room_number . ' ya no está disponible. Por favor, intente nuevamente.'
+                ], 409);
             }
-        }
 
-        // Reservas hijas
-        $totalPrice = $mainRoom['room']->room_price;
-        $childReservations = [];
-
-        for ($i = 1; $i < count($roomsNeeded); $i++) {
-            $roomData = $roomsNeeded[$i];
-
-            $childReservation = Reservation::create([
+            $mainReservation = Reservation::create([
                 'customer_id' => $request->customer_id,
-                'room_id' => $roomData['room']->id,
+                'room_id' => $mainRoom['room']->id,
                 'room_type_id' => $roomTypeId,
                 'reservation_type' => $request->reservation_type,
                 'check_in_date' => $request->check_in_date,
                 'check_out_date' => $request->check_out_date,
-                'adults' => $roomData['adults'],
-                'children' => $roomData['children'],
-                'infants' => $roomData['infants'],
-                'total_price' => $roomData['room']->room_price,
+                'adults' => $mainRoom['adults'],
+                'children' => $mainRoom['children'],
+                'infants' => $mainRoom['infants'],
+                'total_price' => $mainRoom['room']->room_price,
                 'deposit_amount' => 0,
                 'special_requests' => $request->special_requests,
                 'status' => 'confirmed',
@@ -525,9 +554,8 @@ class ReservationController extends Controller
                 'free_reservation_reason' => $request->free_reservation_reason,
                 'free_reservation_reference' => $request->free_reservation_reference,
                 'created_by' => $request->user()->id ?? null,
-                'parent_reservation_id' => $mainReservation->id,
                 'is_group_reservation' => true,
-                'room_sequence' => $i + 1,
+                'room_sequence' => 1,
                 'contact_channel' => $request->contact_channel,
                 'referral_source' => $request->referral_source,
                 'social_media_platform' => $request->social_media_platform,
@@ -536,72 +564,221 @@ class ReservationController extends Controller
                 'marketing_notes' => $request->marketing_notes,
             ]);
 
-            // Huéspedes en reservas hijas
-            $guestsForRoom = $roomData['guests_count'];
-            for ($j = 0; $j < $guestsForRoom && $guestsAssigned < count($guests); $j++) {
-                $guestData = $guests[$guestsAssigned];
-                $childReservation->guests()->create([
-                    'first_name' => $guestData['first_name'],
-                    'last_name' => $guestData['last_name'],
-                    'document_type' => $guestData['document_type'] ?? null,
-                    'document_number' => $guestData['document_number'] ?? null,
-                    'birth_date' => $guestData['birth_date'] ?? null,
-                    'gender' => $guestData['gender'] ?? null,
-                    'nationality' => $guestData['nationality'] ?? null,
-                    'email' => $guestData['email'] ?? null,
-                    'phone' => $guestData['phone'] ?? null,
-                    'special_needs' => $guestData['special_needs'] ?? null,
-                    'is_primary_guest' => false,
-                    'health_insurance_name' => $guestData['health_insurance_name'] ?? null,
-                    'health_insurance_type' => $guestData['health_insurance_type'] ?? null,
+            // Huéspedes en habitación principal
+            $guestsAssigned = 0;
+            if (!empty($guests)) {
+                foreach ($guests as $index => $guestData) {
+                    if ($guestsAssigned >= $mainRoom['guests_count']) {
+                        break;
+                    }
+
+                    $mainReservation->guests()->create([
+                        'first_name' => $guestData['first_name'],
+                        'last_name' => $guestData['last_name'],
+                        'document_type' => $guestData['document_type'] ?? null,
+                        'document_number' => $guestData['document_number'] ?? null,
+                        'birth_date' => $guestData['birth_date'] ?? null,
+                        'gender' => $guestData['gender'] ?? null,
+                        'nationality' => $guestData['nationality'] ?? null,
+                        'email' => $guestData['email'] ?? null,
+                        'phone' => $guestData['phone'] ?? null,
+                        'special_needs' => $guestData['special_needs'] ?? null,
+                        'is_primary_guest' => $index === 0,
+                        'health_insurance_name' => $guestData['health_insurance_name'] ?? null,
+                        'health_insurance_type' => $guestData['health_insurance_type'] ?? null,
+                    ]);
+                    $guestsAssigned++;
+                }
+            }
+
+            // Reservas hijas
+            $totalPrice = $mainRoom['room']->room_price;
+            $childReservations = [];
+
+            for ($i = 1; $i < count($roomsNeeded); $i++) {
+                $roomData = $roomsNeeded[$i];
+
+                // Re-verificar disponibilidad justo antes de crear cada reserva hija
+                $roomFresh = Room::find($roomData['room']->id);
+                if (!$roomFresh || !$roomFresh->isAvailable(
+                    $request->check_in_date,
+                    $request->check_out_date ?? $request->check_in_date
+                )) {
+                    DB::rollBack();
+                    \Log::warning('Habitación hija ya no está disponible durante creación', [
+                        'room_id' => $roomData['room']->id,
+                        'room_number' => $roomData['room']->room_number,
+                        'sequence' => $i + 1,
+                    ]);
+                    return response()->json([
+                        'message' => 'La habitación ' . $roomData['room']->room_number . ' ya no está disponible. Por favor, intente nuevamente.'
+                    ], 409);
+                }
+
+                $childReservation = Reservation::create([
+                    'customer_id' => $request->customer_id,
+                    'room_id' => $roomData['room']->id,
+                    'room_type_id' => $roomTypeId,
+                    'reservation_type' => $request->reservation_type,
+                    'check_in_date' => $request->check_in_date,
+                    'check_out_date' => $request->check_out_date,
+                    'adults' => $roomData['adults'],
+                    'children' => $roomData['children'],
+                    'infants' => $roomData['infants'],
+                    'total_price' => $roomData['room']->room_price,
+                    'deposit_amount' => 0,
+                    'special_requests' => $request->special_requests,
+                    'status' => 'confirmed',
+                    'payment_status' => $request->payment_status ?? 'pending',
+                    'free_reservation_reason' => $request->free_reservation_reason,
+                    'free_reservation_reference' => $request->free_reservation_reference,
+                    'created_by' => $request->user()->id ?? null,
+                    'parent_reservation_id' => $mainReservation->id,
+                    'is_group_reservation' => true,
+                    'room_sequence' => $i + 1,
+                    'contact_channel' => $request->contact_channel,
+                    'referral_source' => $request->referral_source,
+                    'social_media_platform' => $request->social_media_platform,
+                    'campaign_name' => $request->campaign_name,
+                    'tracking_code' => $request->tracking_code,
+                    'marketing_notes' => $request->marketing_notes,
                 ]);
-                $guestsAssigned++;
+
+                // Huéspedes en reservas hijas
+                $guestsForRoom = $roomData['guests_count'];
+                for ($j = 0; $j < $guestsForRoom && $guestsAssigned < count($guests); $j++) {
+                    $guestData = $guests[$guestsAssigned];
+                    $childReservation->guests()->create([
+                        'first_name' => $guestData['first_name'],
+                        'last_name' => $guestData['last_name'],
+                        'document_type' => $guestData['document_type'] ?? null,
+                        'document_number' => $guestData['document_number'] ?? null,
+                        'birth_date' => $guestData['birth_date'] ?? null,
+                        'gender' => $guestData['gender'] ?? null,
+                        'nationality' => $guestData['nationality'] ?? null,
+                        'email' => $guestData['email'] ?? null,
+                        'phone' => $guestData['phone'] ?? null,
+                        'special_needs' => $guestData['special_needs'] ?? null,
+                        'is_primary_guest' => false,
+                        'health_insurance_name' => $guestData['health_insurance_name'] ?? null,
+                        'health_insurance_type' => $guestData['health_insurance_type'] ?? null,
+                    ]);
+                    $guestsAssigned++;
+                }
+
+                $totalPrice += $roomData['room']->room_price;
+                $childReservations[] = $childReservation;
             }
 
-            $totalPrice += $roomData['room']->room_price;
-            $childReservations[] = $childReservation;
-        }
-
-        if ($request->has('total_price')) {
-            $mainReservation->total_price = $request->total_price;
-        } else {
-            $mainReservation->total_price = $totalPrice;
-        }
-        $mainReservation->save();
-
-        // Google Calendar
-        try {
-            $this->googleCalendarService->createEvent($mainReservation);
-            foreach ($childReservations as $child) {
-                $this->googleCalendarService->createEvent($child);
+            // Actualizar precio total de la reserva principal
+            if ($request->has('total_price')) {
+                $mainReservation->total_price = $request->total_price;
+            } else {
+                $mainReservation->total_price = $totalPrice;
             }
+            $mainReservation->save();
+
+            // Confirmar transacción
+            DB::commit();
+
+            \Log::info('Reserva múltiple creada exitosamente', [
+                'main_reservation_id' => $mainReservation->id,
+                'total_rooms' => count($roomsNeeded),
+                'total_price' => $totalPrice,
+                'child_reservations_count' => count($childReservations),
+            ]);
+
+            // Google Calendar (fuera de la transacción, no crítico)
+            try {
+                $this->googleCalendarService->createEvent($mainReservation);
+                foreach ($childReservations as $child) {
+                    $this->googleCalendarService->createEvent($child);
+                }
+            } catch (\Exception $e) {
+                \Log::warning('Error creating Google Calendar events: ' . $e->getMessage());
+            }
+
+            // Email (fuera de la transacción, no crítico)
+            try {
+                $this->emailService->sendReservationConfirmation($mainReservation);
+            } catch (\Exception $e) {
+                \Log::warning('Error sending email: ' . $e->getMessage());
+            }
+
+            $mainReservation->load([
+                'customer',
+                'room',
+                'room.roomType',
+                'roomType',
+                'guests',
+                'childReservations.room',
+                'childReservations.room.roomType',
+            ]);
+
+            // Preparar información detallada de habitaciones asignadas
+            $roomsAssigned = [];
+            $roomsAssigned[] = [
+                'room_id' => $mainReservation->room_id,
+                'room_number' => $mainReservation->room->room_number ?? 'N/A',
+                'guests' => $mainRoom['guests_count'],
+                'adults' => $mainRoom['adults'],
+                'children' => $mainRoom['children'],
+                'infants' => $mainRoom['infants'],
+                'price' => $mainRoom['room']->room_price,
+                'sequence' => 1,
+            ];
+
+            foreach ($childReservations as $index => $child) {
+                $roomData = $roomsNeeded[$index + 1];
+                $roomsAssigned[] = [
+                    'room_id' => $child->room_id,
+                    'room_number' => $child->room->room_number ?? 'N/A',
+                    'guests' => $roomData['guests_count'],
+                    'adults' => $roomData['adults'],
+                    'children' => $roomData['children'],
+                    'infants' => $roomData['infants'],
+                    'price' => $roomData['room']->room_price,
+                    'sequence' => $index + 2,
+                ];
+            }
+
+            // Preparar desglose de precios
+            $priceBreakdown = [
+                'rooms' => array_map(function($r) {
+                    return [
+                        'room_number' => $r['room_number'],
+                        'price' => $r['price'],
+                    ];
+                }, $roomsAssigned),
+                'subtotal' => $totalPrice,
+                'total' => $totalPrice,
+            ];
+
+            return response()->json([
+                'message' => 'Reserva creada exitosamente con ' . count($roomsNeeded) . ' habitación(es)',
+                'main_reservation' => $mainReservation,
+                'child_reservations' => $childReservations,
+                'total_rooms' => count($roomsNeeded),
+                'total_price' => $totalPrice,
+                'rooms_assigned' => $roomsAssigned,
+                'price_breakdown' => $priceBreakdown,
+            ], 201);
+
         } catch (\Exception $e) {
-            \Log::warning('Error creating Google Calendar events: ' . $e->getMessage());
+            // Rollback en caso de error
+            DB::rollBack();
+            \Log::error('Error creando reserva múltiple', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+                'room_type_id' => $roomTypeId,
+                'total_guests' => $totalGuests,
+            ]);
+            
+            return response()->json([
+                'message' => 'Error al crear la reserva múltiple. Por favor, intente nuevamente.',
+                'error' => config('app.debug') ? $e->getMessage() : null,
+            ], 500);
         }
-
-        // Email (solo reserva principal)
-        try {
-            $this->emailService->sendReservationConfirmation($mainReservation);
-        } catch (\Exception $e) {
-            \Log::warning('Error sending email: ' . $e->getMessage());
-        }
-
-        $mainReservation->load([
-            'customer',
-            'room',
-            'room.roomType',
-            'roomType',
-            'guests',
-            'childReservations'
-        ]);
-
-        return response()->json([
-            'message' => 'Reserva creada con múltiples habitaciones',
-            'main_reservation' => $mainReservation,
-            'child_reservations' => $childReservations,
-            'total_rooms' => count($roomsNeeded),
-            'total_price' => $totalPrice
-        ], 201);
     }
 
     public function store(Request $request)
@@ -1417,6 +1594,201 @@ class ReservationController extends Controller
             'check_in' => $checkIn->format('Y-m-d'),
             'check_out' => $checkOut->format('Y-m-d'),
         ]);
+    }
+
+    /**
+     * Obtener habitaciones disponibles para selección manual en reservas múltiples
+     */
+    public function getAvailableRoomsForSelection(Request $request)
+    {
+        $request->validate([
+            'room_type_id' => 'required|exists:room_types,id',
+            'check_in_date' => 'required|date',
+            'check_out_date' => 'required|date|after:check_in_date',
+            'exclude_reservation_id' => 'nullable|exists:reservations,id', // Para excluir habitaciones de una reserva existente
+        ]);
+
+        $checkIn = Carbon::parse($request->check_in_date);
+        $checkOut = Carbon::parse($request->check_out_date);
+
+        // Buscar habitaciones disponibles del tipo especificado
+        $query = Room::where('room_type_id', $request->room_type_id)
+            ->where('active', true)
+            ->where(function($q) {
+                $q->where('status', 'available')
+                  ->orWhere('status', 'occupied'); // Incluir ocupadas que pueden estar disponibles en las fechas
+            });
+
+        // Si se excluye una reserva, no incluir sus habitaciones actuales
+        if ($request->exclude_reservation_id) {
+            $excludeReservation = Reservation::findOrFail($request->exclude_reservation_id);
+            $excludeRoomIds = [$excludeReservation->room_id];
+            
+            if ($excludeReservation->childReservations) {
+                $excludeRoomIds = array_merge(
+                    $excludeRoomIds,
+                    $excludeReservation->childReservations->pluck('room_id')->toArray()
+                );
+            }
+            
+            $query->whereNotIn('id', array_filter($excludeRoomIds));
+        }
+
+        $rooms = $query->with('roomType')->get()->filter(function ($room) use ($checkIn, $checkOut, $request) {
+            return $room->isAvailable($checkIn, $checkOut);
+        });
+
+        return response()->json([
+            'rooms' => $rooms->map(function ($room) {
+                return [
+                    'id' => $room->id,
+                    'room_number' => $room->room_number,
+                    'name' => $room->name,
+                    'display_name' => $room->display_name ?? $room->name ?? $room->room_number,
+                    'capacity' => $room->capacity,
+                    'max_capacity' => $room->max_capacity,
+                    'room_price' => $room->room_price,
+                    'room_type' => $room->roomType ? [
+                        'id' => $room->roomType->id,
+                        'name' => $room->roomType->name,
+                    ] : null,
+                    'status' => $room->status,
+                ];
+            })->values(),
+            'total_capacity' => $rooms->sum('capacity'),
+            'count' => $rooms->count(),
+        ]);
+    }
+
+    /**
+     * Reasignar habitación en una reserva múltiple
+     */
+    public function changeRoom(Request $request, Reservation $reservation)
+    {
+        $request->validate([
+            'room_id' => 'required|exists:rooms,id',
+        ]);
+
+        // Validar que la reserva sea parte de un grupo
+        if (!$reservation->is_group_reservation && !$reservation->parent_reservation_id) {
+            return response()->json([
+                'message' => 'Esta reserva no es parte de un grupo de reservas múltiples'
+            ], 422);
+        }
+
+        // Validar que la reserva no esté en check-out
+        if ($reservation->status === 'checked_out') {
+            return response()->json([
+                'message' => 'No se puede cambiar la habitación de una reserva con check-out realizado'
+            ], 422);
+        }
+
+        $newRoom = Room::findOrFail($request->room_id);
+
+        // Validar que la nueva habitación esté disponible en las fechas de la reserva
+        if (!$newRoom->isAvailable($reservation->check_in_date, $reservation->check_out_date)) {
+            return response()->json([
+                'message' => 'La habitación seleccionada no está disponible para las fechas de la reserva'
+            ], 409);
+        }
+
+        // Validar que la nueva habitación pueda alojar a los huéspedes
+        if (!$newRoom->canAccommodate($reservation->adults, $reservation->children, $reservation->infants)) {
+            return response()->json([
+                'message' => 'La habitación seleccionada no tiene capacidad suficiente para los huéspedes de esta reserva'
+            ], 422);
+        }
+
+        // Validar que sea del mismo tipo (opcional, pero recomendado)
+        if ($reservation->room_type_id && $newRoom->room_type_id !== $reservation->room_type_id) {
+            return response()->json([
+                'message' => 'La nueva habitación debe ser del mismo tipo que la reserva original'
+            ], 422);
+        }
+
+        DB::beginTransaction();
+        try {
+            $oldRoomId = $reservation->room_id;
+            $oldRoom = $reservation->room;
+
+            // Actualizar la reserva con la nueva habitación
+            $reservation->update([
+                'room_id' => $newRoom->id,
+            ]);
+
+            // Recalcular precio si es necesario
+            if ($newRoom->room_price != ($oldRoom->room_price ?? 0)) {
+                $priceCalculation = $this->priceCalculator->calculatePrice($reservation->fresh());
+                $reservation->update([
+                    'total_price' => $priceCalculation['calculated_price'],
+                    'calculated_price' => $priceCalculation['calculated_price'],
+                    'price_breakdown' => $priceCalculation['price_breakdown'],
+                ]);
+                
+                // Si es una reserva hija, actualizar el precio total de la reserva principal
+                if ($reservation->parent_reservation_id) {
+                    $parentReservation = Reservation::find($reservation->parent_reservation_id);
+                    if ($parentReservation) {
+                        $parentTotal = $parentReservation->total_price - ($oldRoom->room_price ?? 0) + $newRoom->room_price;
+                        $parentReservation->update(['total_price' => $parentTotal]);
+                    }
+                }
+            }
+
+            // Registrar auditoría
+            $this->auditService->logUpdate(
+                $reservation,
+                ['room_id' => $oldRoomId],
+                ['room_id' => $newRoom->id],
+                $request,
+                "Habitación cambiada de " . ($oldRoom->room_number ?? "Habitación #{$oldRoomId}") . " a {$newRoom->room_number}"
+            );
+
+            // Actualizar Google Calendar si existe evento
+            if ($reservation->google_calendar_event_id) {
+                try {
+                    $this->googleCalendarService->updateEvent($reservation->fresh());
+                } catch (\Exception $e) {
+                    \Log::warning('Error updating Google Calendar event after room change: ' . $e->getMessage());
+                }
+            }
+
+            DB::commit();
+
+            \Log::info('Habitación reasignada exitosamente', [
+                'reservation_id' => $reservation->id,
+                'old_room_id' => $oldRoomId,
+                'new_room_id' => $newRoom->id,
+            ]);
+
+            $reservation->load(['room', 'room.roomType', 'customer']);
+
+            return response()->json([
+                'message' => 'Habitación reasignada exitosamente',
+                'reservation' => $reservation,
+                'old_room' => $oldRoom ? [
+                    'id' => $oldRoom->id,
+                    'room_number' => $oldRoom->room_number,
+                ] : null,
+                'new_room' => [
+                    'id' => $newRoom->id,
+                    'room_number' => $newRoom->room_number,
+                ],
+            ]);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            \Log::error('Error reasignando habitación', [
+                'reservation_id' => $reservation->id,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            return response()->json([
+                'message' => 'Error al reasignar la habitación. Por favor, intente nuevamente.',
+                'error' => config('app.debug') ? $e->getMessage() : null,
+            ], 500);
+        }
     }
 
     public function generateCertificate(Reservation $reservation)
@@ -2248,8 +2620,19 @@ class ReservationController extends Controller
         $remainingMinibarBalance = max(0, $minibarChargesTotal - $minibarPaid);
 
         // REGLA 4: Validar que todas las cuentas abiertas (facturas del kiosko con credit = 1) estén pagadas
-        // Incluir facturas asociadas directamente a la reserva
-        $pendingKioskInvoices = \App\Models\KioskInvoice::where('reservation_id', $reservation->id)
+        // Para reservas múltiples, incluir facturas de todas las reservas del grupo
+        
+        // Obtener todas las reservas del grupo si es una reserva múltiple
+        $groupReservationIds = [];
+        if ($reservation->is_group_reservation || $reservation->parent_reservation_id) {
+            $allGroupReservations = $reservation->allGroupReservations();
+            $groupReservationIds = $allGroupReservations->pluck('id')->toArray();
+        } else {
+            $groupReservationIds = [$reservation->id];
+        }
+        
+        // Incluir facturas asociadas directamente a la reserva o a cualquier reserva del grupo
+        $pendingKioskInvoices = \App\Models\KioskInvoice::whereIn('reservation_id', $groupReservationIds)
             ->whereHas('payment_type', function($query) {
                 $query->where('credit', true);
             })
@@ -2258,7 +2641,7 @@ class ReservationController extends Controller
             ->get();
         
         // También incluir facturas pendientes del cliente que no tienen reservation_id asignado
-        // (facturas que deberían estar asociadas a esta reserva)
+        // (facturas que deberían estar asociadas a esta reserva o grupo)
         $pendingCustomerInvoices = \App\Models\KioskInvoice::where('customer_id', $reservation->customer_id)
             ->whereHas('payment_type', function($query) {
                 $query->where('credit', true);
@@ -2651,6 +3034,154 @@ class ReservationController extends Controller
     }
 
     /**
+     * Reporte de reservas múltiples (grupos)
+     */
+    public function groupReservationsReport(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'date_from' => 'nullable|date',
+            'date_to' => 'nullable|date',
+            'room_type_id' => 'nullable|exists:room_types,id',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json($validator->errors(), 422);
+        }
+
+        $dateFrom = $request->date_from ? Carbon::parse($request->date_from) : Carbon::now()->subMonths(3);
+        $dateTo = $request->date_to ? Carbon::parse($request->date_to) : Carbon::now();
+
+        // Obtener todas las reservas principales que son grupos
+        $query = Reservation::where('is_group_reservation', true)
+            ->whereNull('parent_reservation_id') // Solo reservas principales
+            ->whereBetween('check_in_date', [$dateFrom->format('Y-m-d'), $dateTo->format('Y-m-d')]);
+
+        if ($request->room_type_id) {
+            $query->where('room_type_id', $request->room_type_id);
+        }
+
+        $groupReservations = $query->with(['customer', 'roomType', 'childReservations.room', 'childReservations.roomType'])
+            ->get();
+
+        // Calcular métricas
+        $totalGroups = $groupReservations->count();
+        $totalRooms = $groupReservations->sum(function($reservation) {
+            return 1 + $reservation->childReservations->count();
+        });
+        $averageRoomsPerGroup = $totalGroups > 0 ? round($totalRooms / $totalGroups, 2) : 0;
+        
+        $totalGuests = $groupReservations->sum(function($reservation) {
+            $mainGuests = $reservation->adults + $reservation->children + $reservation->infants;
+            $childGuests = $reservation->childReservations->sum(function($child) {
+                return $child->adults + $child->children + $child->infants;
+            });
+            return $mainGuests + $childGuests;
+        });
+        
+        $totalRevenue = $groupReservations->sum('total_price');
+        $averageRevenuePerGroup = $totalGroups > 0 ? round($totalRevenue / $totalGroups, 2) : 0;
+
+        // Agrupar por tipo de habitación
+        $byRoomType = $groupReservations->groupBy('room_type_id')->map(function($reservations, $roomTypeId) {
+            $roomType = $reservations->first()->roomType;
+            return [
+                'room_type_id' => $roomTypeId,
+                'room_type_name' => $roomType ? $roomType->name : 'Sin tipo',
+                'count' => $reservations->count(),
+                'total_rooms' => $reservations->sum(function($r) {
+                    return 1 + $r->childReservations->count();
+                }),
+                'total_revenue' => $reservations->sum('total_price'),
+                'average_rooms' => round($reservations->sum(function($r) {
+                    return 1 + $r->childReservations->count();
+                }) / $reservations->count(), 2),
+            ];
+        })->values();
+
+        // Distribución por número de habitaciones
+        $distributionByRoomCount = [];
+        foreach ($groupReservations as $reservation) {
+            $roomCount = 1 + $reservation->childReservations->count();
+            if (!isset($distributionByRoomCount[$roomCount])) {
+                $distributionByRoomCount[$roomCount] = 0;
+            }
+            $distributionByRoomCount[$roomCount]++;
+        }
+        ksort($distributionByRoomCount);
+
+        // Estadísticas mensuales
+        $monthlyStats = $groupReservations->groupBy(function($reservation) {
+            return Carbon::parse($reservation->check_in_date)->format('Y-m');
+        })->map(function($reservations, $month) {
+            return [
+                'month' => $month,
+                'count' => $reservations->count(),
+                'total_rooms' => $reservations->sum(function($r) {
+                    return 1 + $r->childReservations->count();
+                }),
+                'total_revenue' => $reservations->sum('total_price'),
+                'total_guests' => $reservations->sum(function($r) {
+                    $main = $r->adults + $r->children + $r->infants;
+                    $child = $r->childReservations->sum(function($c) {
+                        return $c->adults + $c->children + $c->infants;
+                    });
+                    return $main + $child;
+                }),
+            ];
+        })->values();
+
+        // Tasa de éxito (reservas confirmadas vs canceladas)
+        $confirmed = $groupReservations->where('status', '!=', 'cancelled')->count();
+        $cancelled = $groupReservations->where('status', 'cancelled')->count();
+        $successRate = $totalGroups > 0 ? round(($confirmed / $totalGroups) * 100, 2) : 0;
+
+        return response()->json([
+            'period' => [
+                'from' => $dateFrom->format('Y-m-d'),
+                'to' => $dateTo->format('Y-m-d'),
+            ],
+            'summary' => [
+                'total_groups' => $totalGroups,
+                'total_rooms' => $totalRooms,
+                'average_rooms_per_group' => $averageRoomsPerGroup,
+                'total_guests' => $totalGuests,
+                'average_guests_per_group' => $totalGroups > 0 ? round($totalGuests / $totalGroups, 2) : 0,
+                'total_revenue' => $totalRevenue,
+                'average_revenue_per_group' => $averageRevenuePerGroup,
+                'success_rate' => $successRate,
+                'confirmed' => $confirmed,
+                'cancelled' => $cancelled,
+            ],
+            'by_room_type' => $byRoomType,
+            'distribution_by_room_count' => $distributionByRoomCount,
+            'monthly_statistics' => $monthlyStats,
+            'reservations' => $groupReservations->map(function($reservation) {
+                return [
+                    'id' => $reservation->id,
+                    'reservation_number' => $reservation->reservation_number,
+                    'check_in_date' => $reservation->check_in_date,
+                    'check_out_date' => $reservation->check_out_date,
+                    'status' => $reservation->status,
+                    'total_rooms' => 1 + $reservation->childReservations->count(),
+                    'total_guests' => $reservation->adults + $reservation->children + $reservation->infants + 
+                        $reservation->childReservations->sum(function($c) {
+                            return $c->adults + $c->children + $c->infants;
+                        }),
+                    'total_price' => $reservation->total_price,
+                    'customer' => $reservation->customer ? [
+                        'id' => $reservation->customer->id,
+                        'name' => $reservation->customer->name,
+                    ] : null,
+                    'room_type' => $reservation->roomType ? [
+                        'id' => $reservation->roomType->id,
+                        'name' => $reservation->roomType->name,
+                    ] : null,
+                ];
+            }),
+        ]);
+    }
+
+    /**
      * Dashboard del día - Información resumida para un día específico
      */
     public function dailyDashboard(Request $request)
@@ -2837,6 +3368,265 @@ class ReservationController extends Controller
     /**
      * Actualiza limpiezas programadas cuando cambian las fechas de una reserva
      */
+    /**
+     * Distribuye huéspedes de manera inteligente manteniendo familias juntas
+     */
+    private function distributeGuestsIntelligently($availableRooms, $totalGuests, $adults, $children, $infants, $guestsData = [])
+    {
+        $roomsNeeded = [];
+        $remainingGuests = $totalGuests;
+        $remainingAdults = $adults;
+        $remainingChildren = $children;
+        $remainingInfants = $infants;
+
+        // Si hay información detallada de huéspedes, agrupar por familias
+        $familyGroups = [];
+        if (!empty($guestsData) && count($guestsData) > 0) {
+            // Agrupar por apellido (familias)
+            $familiesByLastName = [];
+            foreach ($guestsData as $guest) {
+                $lastName = strtolower(trim($guest['last_name'] ?? ''));
+                if ($lastName) {
+                    if (!isset($familiesByLastName[$lastName])) {
+                        $familiesByLastName[$lastName] = [];
+                    }
+                    $familiesByLastName[$lastName][] = $guest;
+                }
+            }
+
+            // Calcular edad de cada huésped para clasificar
+            $now = now();
+            foreach ($familiesByLastName as $lastName => $familyMembers) {
+                $familyAdults = 0;
+                $familyChildren = 0;
+                $familyInfants = 0;
+                $familyMembersWithAge = [];
+
+                foreach ($familyMembers as $member) {
+                    $age = null;
+                    if (isset($member['birth_date']) && $member['birth_date']) {
+                        try {
+                            $birthDate = \Carbon\Carbon::parse($member['birth_date']);
+                            $age = $now->diffInYears($birthDate);
+                        } catch (\Exception $e) {
+                            // Si no se puede calcular la edad, asumir adulto
+                            $age = 18;
+                        }
+                    }
+
+                    // Clasificar: bebé (0-2), niño (3-12), adulto (13+)
+                    if ($age === null || $age >= 13) {
+                        $familyAdults++;
+                        $member['calculated_age'] = $age ?? 18;
+                        $member['guest_type'] = 'adult';
+                    } elseif ($age >= 3) {
+                        $familyChildren++;
+                        $member['calculated_age'] = $age;
+                        $member['guest_type'] = 'child';
+                    } else {
+                        $familyInfants++;
+                        $member['calculated_age'] = $age;
+                        $member['guest_type'] = 'infant';
+                    }
+
+                    $familyMembersWithAge[] = $member;
+                }
+
+                if ($familyAdults > 0 || $familyChildren > 0 || $familyInfants > 0) {
+                    $familyGroups[] = [
+                        'last_name' => $lastName,
+                        'adults' => $familyAdults,
+                        'children' => $familyChildren,
+                        'infants' => $familyInfants,
+                        'total' => $familyAdults + $familyChildren + $familyInfants,
+                        'members' => $familyMembersWithAge,
+                    ];
+                }
+            }
+
+            // Ordenar familias por tamaño (más grandes primero) para asignarlas primero
+            usort($familyGroups, function($a, $b) {
+                return $b['total'] <=> $a['total'];
+            });
+        }
+
+        // Si no hay información de huéspedes o no se pudieron agrupar familias,
+        // usar distribución simple pero mejorada
+        if (empty($familyGroups)) {
+            \Log::info('No hay información de huéspedes para agrupar familias, usando distribución simple mejorada');
+            
+            foreach ($availableRooms as $room) {
+                if ($remainingGuests <= 0) {
+                    break;
+                }
+
+                $roomCapacity = $room->capacity;
+                $guestsForThisRoom = min($remainingGuests, $roomCapacity);
+
+                // Intentar mantener proporción de adultos/niños/bebés
+                $adultsForRoom = min($remainingAdults, $guestsForThisRoom);
+                $remainingAdults -= $adultsForRoom;
+                $guestsForThisRoom -= $adultsForRoom;
+
+                $childrenForRoom = min($remainingChildren, $guestsForThisRoom);
+                $remainingChildren -= $childrenForRoom;
+                $guestsForThisRoom -= $childrenForRoom;
+
+                $infantsForRoom = min($remainingInfants, $guestsForThisRoom);
+                $remainingInfants -= $infantsForRoom;
+
+                $roomsNeeded[] = [
+                    'room' => $room,
+                    'guests_count' => $adultsForRoom + $childrenForRoom + $infantsForRoom,
+                    'adults' => $adultsForRoom,
+                    'children' => $childrenForRoom,
+                    'infants' => $infantsForRoom,
+                ];
+
+                $remainingGuests -= ($adultsForRoom + $childrenForRoom + $infantsForRoom);
+            }
+        } else {
+            // Distribución inteligente manteniendo familias juntas
+            \Log::info('Distribuyendo huéspedes por familias', [
+                'families_count' => count($familyGroups),
+                'families' => array_map(function($f) {
+                    return ['last_name' => $f['last_name'], 'total' => $f['total']];
+                }, $familyGroups),
+            ]);
+
+            $roomIndex = 0;
+            foreach ($familyGroups as $family) {
+                // Buscar habitación que pueda alojar a toda la familia
+                $familyPlaced = false;
+                
+                // Primero intentar colocar la familia completa en una habitación
+                for ($i = $roomIndex; $i < $availableRooms->count(); $i++) {
+                    $room = $availableRooms->values()[$i];
+                    if ($room->capacity >= $family['total']) {
+                        // Esta habitación puede alojar a toda la familia
+                        $roomsNeeded[] = [
+                            'room' => $room,
+                            'guests_count' => $family['total'],
+                            'adults' => $family['adults'],
+                            'children' => $family['children'],
+                            'infants' => $family['infants'],
+                            'family_last_name' => $family['last_name'],
+                        ];
+                        $remainingGuests -= $family['total'];
+                        $remainingAdults -= $family['adults'];
+                        $remainingChildren -= $family['children'];
+                        $remainingInfants -= $family['infants'];
+                        $roomIndex = $i + 1;
+                        $familyPlaced = true;
+                        break;
+                    }
+                }
+
+                // Si no se pudo colocar la familia completa, dividirla
+                if (!$familyPlaced) {
+                    // Dividir la familia en múltiples habitaciones
+                    $familyAdultsRemaining = $family['adults'];
+                    $familyChildrenRemaining = $family['children'];
+                    $familyInfantsRemaining = $family['infants'];
+
+                    for ($i = $roomIndex; $i < $availableRooms->count() && ($familyAdultsRemaining > 0 || $familyChildrenRemaining > 0 || $familyInfantsRemaining > 0); $i++) {
+                        $room = $availableRooms->values()[$i];
+                        $roomCapacity = $room->capacity;
+                        $roomGuests = 0;
+                        $roomAdults = 0;
+                        $roomChildren = 0;
+                        $roomInfants = 0;
+
+                        // Priorizar: adultos con niños, luego bebés
+                        $roomAdults = min($familyAdultsRemaining, $roomCapacity);
+                        $familyAdultsRemaining -= $roomAdults;
+                        $roomGuests += $roomAdults;
+                        $roomCapacity -= $roomAdults;
+
+                        $roomChildren = min($familyChildrenRemaining, $roomCapacity);
+                        $familyChildrenRemaining -= $roomChildren;
+                        $roomGuests += $roomChildren;
+                        $roomCapacity -= $roomChildren;
+
+                        $roomInfants = min($familyInfantsRemaining, $roomCapacity);
+                        $familyInfantsRemaining -= $roomInfants;
+                        $roomGuests += $roomInfants;
+
+                        if ($roomGuests > 0) {
+                            $roomsNeeded[] = [
+                                'room' => $room,
+                                'guests_count' => $roomGuests,
+                                'adults' => $roomAdults,
+                                'children' => $roomChildren,
+                                'infants' => $roomInfants,
+                                'family_last_name' => $family['last_name'],
+                            ];
+                            $remainingGuests -= $roomGuests;
+                            $remainingAdults -= $roomAdults;
+                            $remainingChildren -= $roomChildren;
+                            $remainingInfants -= $roomInfants;
+                        }
+                    }
+
+                    $roomIndex = $i;
+                }
+            }
+
+            // Si quedan huéspedes sin asignar (por ejemplo, si no había información de huéspedes completa),
+            // usar distribución simple para los restantes
+            if ($remainingGuests > 0) {
+                \Log::info('Quedan huéspedes sin asignar después de distribución por familias, usando distribución simple', [
+                    'remaining_guests' => $remainingGuests,
+                ]);
+
+                for ($i = $roomIndex; $i < $availableRooms->count() && $remainingGuests > 0; $i++) {
+                    $room = $availableRooms->values()[$i];
+                    $roomCapacity = $room->capacity;
+                    $guestsForThisRoom = min($remainingGuests, $roomCapacity);
+
+                    $adultsForRoom = min($remainingAdults, $guestsForThisRoom);
+                    $remainingAdults -= $adultsForRoom;
+                    $guestsForThisRoom -= $adultsForRoom;
+
+                    $childrenForRoom = min($remainingChildren, $guestsForThisRoom);
+                    $remainingChildren -= $childrenForRoom;
+                    $guestsForThisRoom -= $childrenForRoom;
+
+                    $infantsForRoom = min($remainingInfants, $guestsForThisRoom);
+                    $remainingInfants -= $infantsForRoom;
+
+                    $roomsNeeded[] = [
+                        'room' => $room,
+                        'guests_count' => $adultsForRoom + $childrenForRoom + $infantsForRoom,
+                        'adults' => $adultsForRoom,
+                        'children' => $childrenForRoom,
+                        'infants' => $infantsForRoom,
+                    ];
+
+                    $remainingGuests -= ($adultsForRoom + $childrenForRoom + $infantsForRoom);
+                }
+            }
+        }
+
+        // Validar que todos los huéspedes fueron asignados
+        if ($remainingGuests > 0) {
+            \Log::warning('No se pudieron asignar todos los huéspedes después de distribución inteligente', [
+                'remaining_guests' => $remainingGuests,
+                'remaining_adults' => $remainingAdults,
+                'remaining_children' => $remainingChildren,
+                'remaining_infants' => $remainingInfants,
+            ]);
+        }
+
+        \Log::info('Distribución inteligente completada', [
+            'rooms_assigned' => count($roomsNeeded),
+            'total_guests_distributed' => $totalGuests - $remainingGuests,
+            'families_kept_together' => !empty($familyGroups) ? count($familyGroups) : 0,
+        ]);
+
+        return $roomsNeeded;
+    }
+
     private function updateCleaningForReservation(Reservation $reservation)
     {
         // Obtener limpiezas pendientes relacionadas con esta reserva

@@ -293,15 +293,18 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::controller(\App\Http\Controllers\ReservationController::class)->group(function () {
         Route::get('/reservations', 'index')->middleware('permission:reservation.list,reservas');
         Route::get('/reservations/availability', 'checkAvailability')->middleware('permission:reservation.list,reservas');
+        Route::get('/reservations/available-rooms', 'getAvailableRoomsForSelection')->middleware('permission:reservation.create,reservas');
         Route::get('/reservations/daily-dashboard', 'dailyDashboard')->middleware('permission:reservation.list,reservas');
         Route::get('/reservations/marketing/report', 'marketingReport')->middleware('permission:reservation.report,reservas');
         Route::get('/reservations/occupancy/report', 'occupancyReport')->middleware('permission:reservation.report,reservas');
         Route::get('/reservations/revenue/report', 'revenueReport')->middleware('permission:reservation.report,reservas');
         Route::get('/reservations/cancellations/report', 'cancellationsReport')->middleware('permission:reservation.report,reservas');
+        Route::get('/reservations/group-reservations/report', 'groupReservationsReport')->middleware('permission:reservation.report,reservas');
         Route::post('/reservations', 'store')->middleware('permission:reservation.create,reservas');
         Route::get('/reservations/{reservation}', 'show')->middleware('permission:reservation.view,reservas');
         Route::put('/reservations/{reservation}', 'update')->middleware('permission:reservation.edit,reservas');
         Route::delete('/reservations/{reservation}', 'destroy')->middleware('permission:reservation.delete,reservas');
+        Route::post('/reservations/{reservation}/change-room', 'changeRoom')->middleware('permission:reservation.edit,reservas');
         Route::post('/reservations/{reservation}/certificate', 'generateCertificate')->middleware('permission:reservation.view,reservas');
         Route::get('/reservations/{reservation}/certificate/download', 'downloadCertificate')->middleware('permission:reservation.view,reservas');
         Route::post('/reservations/{reservation}/resend-email', 'resendEmail')->middleware('permission:reservation.edit,reservas');

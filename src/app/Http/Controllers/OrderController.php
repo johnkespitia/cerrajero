@@ -100,31 +100,38 @@ class OrderController extends Controller
 
         DB::beginTransaction();
         try {
-            // Validar reserva activa si se proporciona reservation_id
-            if ($request->reservation_id) {
-                $reservation = Reservation::findOrFail($request->reservation_id);
-                
-                if (!$this->reservationValidationService->isReservationActive($reservation)) {
-                    return response()->json([
-                        'message' => 'La reserva no está activa',
-                        'reservation_status' => $reservation->status
-                    ], 422);
-                }
-
-                // Validar que el customer_id coincida con la reserva
-                if ($reservation->customer_id != $request->customer_id) {
-                    return response()->json([
-                        'message' => 'El cliente no coincide con la reserva'
-                    ], 422);
-                }
-            }
-
+            $reservation = null;
+            
             // Validar carga a habitación
             if ($request->charge_to_room) {
-                if (!$request->reservation_id) {
-                    return response()->json([
-                        'message' => 'No se puede cargar a habitación sin una reserva activa'
-                    ], 422);
+                // Si se proporciona reservation_id, validar que exista y esté activa
+                if ($request->reservation_id) {
+                    $reservation = Reservation::findOrFail($request->reservation_id);
+                    
+                    if (!$this->reservationValidationService->isReservationActive($reservation)) {
+                        return response()->json([
+                            'message' => 'La reserva especificada no está activa',
+                            'reservation_status' => $reservation->status
+                        ], 422);
+                    }
+                    
+                    // Validar que el customer_id coincida con la reserva
+                    if ($reservation->customer_id != $request->customer_id) {
+                        return response()->json([
+                            'message' => 'El cliente no coincide con la reserva'
+                        ], 422);
+                    }
+                } else {
+                    // Si no se proporciona reservation_id, buscar automáticamente la reserva activa
+                    $reservation = $this->reservationValidationService->getActiveReservationForCustomer(
+                        $request->customer_id
+                    );
+                    
+                    if (!$reservation) {
+                        return response()->json([
+                            'message' => 'No se puede cargar a habitación. El cliente no tiene una reserva activa'
+                        ], 422);
+                    }
                 }
             } else {
                 // Si NO carga a habitación, validar método de pago (sin crédito)
@@ -154,11 +161,14 @@ class OrderController extends Controller
                 }
             }
 
+            // Determinar reservation_id: usar la encontrada automáticamente o la proporcionada
+            $reservationId = $reservation ? $reservation->id : $request->reservation_id;
+            
             // Crear orden
             $order = Order::create([
                 'user_id' => $request->user_id,
                 'customer_id' => $request->customer_id,
-                'reservation_id' => $request->reservation_id,
+                'reservation_id' => $reservationId,
                 'meal_type' => $request->meal_type,
                 'charge_to_room' => $request->charge_to_room ?? false,
                 'payment_type_id' => $request->charge_to_room ? null : $request->payment_type_id,
@@ -169,8 +179,7 @@ class OrderController extends Controller
             ]);
 
             // Si carga a habitación, crear pago en reserva
-            if ($request->charge_to_room && $request->reservation_id) {
-                $reservation = Reservation::findOrFail($request->reservation_id);
+            if ($request->charge_to_room && $reservation) {
                 $this->orderPaymentService->chargeToRoom($order, $reservation);
             }
 
@@ -181,15 +190,18 @@ class OrderController extends Controller
             }
 
             // Registrar consumo de alimentación si hay reserva
-            if ($request->reservation_id) {
-                $reservation = Reservation::findOrFail($request->reservation_id);
-                $canConsumeIncluded = $reservation->canConsumeIncludedMeal($request->meal_type);
-                $this->mealConsumptionService->registerConsumption(
-                    $reservation,
-                    $order,
-                    $request->meal_type,
-                    $canConsumeIncluded
-                );
+            // Usar la reserva encontrada o la proporcionada
+            if ($reservationId) {
+                $reservationForMeal = $reservation ?? Reservation::find($reservationId);
+                if ($reservationForMeal) {
+                    $canConsumeIncluded = $reservationForMeal->canConsumeIncludedMeal($request->meal_type);
+                    $this->mealConsumptionService->registerConsumption(
+                        $reservationForMeal,
+                        $order,
+                        $request->meal_type,
+                        $canConsumeIncluded
+                    );
+                }
             }
 
             DB::commit();
