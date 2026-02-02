@@ -408,23 +408,22 @@ class ReservationController extends Controller
             : null;
 
         if ($selectedRoomIds && count($selectedRoomIds) > 0) {
-            // Usar habitaciones seleccionadas manualmente
+            // Usar habitaciones seleccionadas manualmente (pueden ser de uno o varios tipos si vienen de "Cualquiera")
             \Log::info('Usando habitaciones seleccionadas manualmente', [
                 'selected_room_ids' => $selectedRoomIds,
             ]);
 
-            // Validar que todas las habitaciones seleccionadas existan y sean del tipo correcto
-            $selectedRooms = Room::whereIn('id', $selectedRoomIds)
-                ->where('room_type_id', $roomTypeId)
-                ->where('active', true)
-                ->get();
+            $selectedRooms = Room::whereIn('id', $selectedRoomIds)->where('active', true)->get();
 
             if ($selectedRooms->count() !== count($selectedRoomIds)) {
                 DB::rollBack();
                 return response()->json([
-                    'message' => 'Algunas habitaciones seleccionadas no existen o no son del tipo correcto'
+                    'message' => 'Algunas habitaciones seleccionadas no existen o no están activas'
                 ], 422);
             }
+
+            // Permitir mezcla de tipos cuando se pasan IDs (ej. desde "Cualquiera"); el tipo del grupo es el de la primera
+            $roomTypeId = $roomTypeId ?: $selectedRooms->first()->room_type_id;
 
             // Validar disponibilidad de cada habitación seleccionada
             $unavailableRooms = [];
@@ -444,8 +443,8 @@ class ReservationController extends Controller
                 ], 409);
             }
 
-            // Validar que la capacidad total sea suficiente
-            $totalCapacity = $selectedRooms->sum('capacity');
+            // Validar que la capacidad total sea suficiente (usar max_capacity si existe)
+            $totalCapacity = $selectedRooms->sum(fn ($r) => (int) ($r->max_capacity ?? $r->capacity));
             if ($totalCapacity < $totalGuests) {
                 DB::rollBack();
                 return response()->json([
@@ -453,7 +452,7 @@ class ReservationController extends Controller
                 ], 422);
             }
 
-            $availableRooms = $selectedRooms->sortByDesc('capacity');
+            $availableRooms = $selectedRooms->sortByDesc(fn ($r) => (int) ($r->max_capacity ?? $r->capacity));
         } else {
             // Buscar habitaciones disponibles automáticamente
             $availableRooms = Room::where('room_type_id', $roomTypeId)
@@ -670,13 +669,36 @@ class ReservationController extends Controller
                 $childReservations[] = $childReservation;
             }
 
-            // Actualizar precio total de la reserva principal
+            // Actualizar precio total de la reserva principal (solo alojamiento por ahora)
             if ($request->has('total_price')) {
                 $mainReservation->total_price = $request->total_price;
             } else {
                 $mainReservation->total_price = $totalPrice;
             }
             $mainReservation->save();
+
+            // Aplicar servicios adicionales y paquete a la reserva principal con TODOS los huéspedes del grupo
+            $chargeableGuests = $totalGuests;
+            if ($request->service_package_id) {
+                $package = ServicePackage::find($request->service_package_id);
+                if ($package && $package->status === 'active') {
+                    $this->additionalServiceCalculator->applyPackageToReservation(
+                        $mainReservation,
+                        $package,
+                        $chargeableGuests
+                    );
+                }
+            }
+            if ($request->has('additional_service_ids') && is_array($request->additional_service_ids)) {
+                foreach ($request->additional_service_ids as $sid) {
+                    $svc = AdditionalService::find($sid);
+                    if ($svc && $svc->status === 'active' && $this->additionalServiceCalculator->serviceAppliesToReservationType($svc, $request->reservation_type ?? 'room')) {
+                        $this->additionalServiceCalculator->addServiceToReservation($mainReservation, $svc, $chargeableGuests);
+                    }
+                }
+            }
+            $mainReservation->recomputeFinalPrice();
+            $totalPrice = (float) ($mainReservation->final_price ?? $mainReservation->total_price);
 
             // Confirmar transacción
             DB::commit();
@@ -713,6 +735,7 @@ class ReservationController extends Controller
                 'guests',
                 'childReservations.room',
                 'childReservations.room.roomType',
+                'additionalServices.additionalService',
             ]);
 
             // Preparar información detallada de habitaciones asignadas
@@ -862,6 +885,21 @@ class ReservationController extends Controller
                     ], 409);
                 }
             } elseif ($request->reservation_type === 'room') {
+                $totalGuests = (int) $request->adults + (int) ($request->children ?? 0);
+                $hasSelectedRooms = $request->has('selected_room_ids')
+                    && is_array($request->selected_room_ids)
+                    && count($request->selected_room_ids) > 0;
+
+                // Si el usuario eligió habitaciones manualmente, ir directo a reserva múltiple
+                if ($hasSelectedRooms) {
+                    DB::rollBack(); // Cerrar transacción actual (vacía); createMultiRoomReservation usa la suya
+                    return $this->createMultiRoomReservation(
+                        $request,
+                        $request->room_type_id ? (int) $request->room_type_id : null,
+                        $totalGuests
+                    );
+                }
+
                 // Asignación automática por room_type_id
                 if ($request->room_type_id && !$request->room_id) {
                     $availableRooms = Room::where('room_type_id', $request->room_type_id)
@@ -1499,6 +1537,13 @@ class ReservationController extends Controller
 
     public function checkAvailability(Request $request)
     {
+        // Normalizar room_type_id vacío para no fallar validación "exists"
+        $input = $request->all();
+        if (isset($input['room_type_id']) && (string) $input['room_type_id'] === '') {
+            $input['room_type_id'] = null;
+        }
+        $request->replace($input);
+
         $validator = Validator::make($request->all(), [
             'check_in_date' => 'required|date',
             'check_out_date' => 'nullable|date|after:check_in_date',
@@ -1551,30 +1596,83 @@ class ReservationController extends Controller
             ]);
         }
 
-        // Lógica para habitaciones (código existente)
-        $query = Room::where('status', 'available')
-            ->where('active', true)
-            ->where('capacity', '>=', $totalGuests);
+        // Capacidad efectiva: max_capacity si existe, sino capacity (para respetar "capacidad máxima" de cada habitación)
+        $getEffectiveCapacity = function ($room) {
+            return (int) ($room->max_capacity ?? $room->capacity);
+        };
 
+        // 1) Todas las habitaciones activas (disponibilidad real la decide isAvailable por fechas)
+        $querySingle = Room::where('active', true);
         if ($request->room_type_id) {
-            $query->where('room_type_id', $request->room_type_id);
+            $querySingle->where('room_type_id', $request->room_type_id);
         }
-
-        $availableRooms = $query->with('roomType')->get()->filter(function ($room) use ($checkIn, $checkOut, $totalGuests) {
-            return $room->isAvailable($checkIn, $checkOut) && $room->canAccommodate($totalGuests, 0, 0);
+        $allAvailable = $querySingle->with('roomType')->get()->filter(function ($room) use ($checkIn, $checkOut) {
+            return $room->isAvailable($checkIn, $checkOut);
         });
 
-        $roomsByType = $availableRooms->groupBy('room_type_id')->map(function ($rooms) {
+        $availableRooms = $allAvailable->filter(function ($room) use ($totalGuests, $getEffectiveCapacity) {
+            return $getEffectiveCapacity($room) >= $totalGuests;
+        });
+
+        $multiRoomRequired = false;
+        $multiRoomRooms = collect();
+
+        // 2) Si no hay ninguna habitación sola que alcance, buscar combinación de varias
+        $pickFrom = function ($rooms) use ($totalGuests, $getEffectiveCapacity) {
+            $coll = $rooms instanceof \Illuminate\Support\Collection ? $rooms : collect($rooms);
+            $sorted = $coll->sortByDesc(function ($room) use ($getEffectiveCapacity) {
+                return $getEffectiveCapacity($room);
+            });
+            $chosen = collect();
+            $sum = 0;
+            foreach ($sorted as $room) {
+                $chosen->push($room);
+                $sum += $getEffectiveCapacity($room);
+                if ($sum >= $totalGuests) {
+                    return $chosen;
+                }
+            }
+            return collect();
+        };
+
+        if ($availableRooms->isEmpty()) {
+            if ($request->room_type_id) {
+                $multiRoomRooms = $pickFrom($allAvailable->where('room_type_id', (int) $request->room_type_id));
+                $multiRoomRequired = $multiRoomRooms->isNotEmpty();
+            } else {
+                // Primero intentar por tipo (misma familia de habitaciones)
+                $byType = $allAvailable->groupBy('room_type_id');
+                foreach ($byType as $roomTypeId => $rooms) {
+                    $multiRoomRooms = $pickFrom($rooms);
+                    if ($multiRoomRooms->isNotEmpty()) {
+                        $multiRoomRequired = true;
+                        break;
+                    }
+                }
+                // Si con un solo tipo no alcanza, combinar todas las habitaciones disponibles (varios tipos)
+                if (!$multiRoomRequired && $allAvailable->isNotEmpty()) {
+                    $multiRoomRooms = $pickFrom($allAvailable);
+                    $multiRoomRequired = $multiRoomRooms->isNotEmpty();
+                }
+            }
+            if ($multiRoomRequired) {
+                $availableRooms = $multiRoomRooms;
+            }
+        }
+
+        $roomsByType = $availableRooms->groupBy('room_type_id')->map(function ($rooms) use ($getEffectiveCapacity) {
             $roomType = $rooms->first()->roomType;
             return [
                 'room_type' => $roomType,
-                'rooms' => $rooms->map(function ($room) {
+                'rooms' => $rooms->map(function ($room) use ($getEffectiveCapacity) {
                     return [
                         'id' => $room->id,
                         'number' => $room->number,
                         'name' => $room->name,
                         'display_name' => $room->display_name,
                         'capacity' => $room->capacity,
+                        'max_capacity' => $room->max_capacity,
+                        'effective_capacity' => $getEffectiveCapacity($room),
                         'room_price' => $room->room_price,
                         'description' => $room->description,
                     ];
@@ -1585,14 +1683,22 @@ class ReservationController extends Controller
             ];
         });
 
+        $roomsList = $availableRooms->isEmpty()
+            ? []
+            : \Illuminate\Database\Eloquent\Collection::make($availableRooms->all())->load('roomType')->values()->toArray();
+
         return response()->json([
             'reservation_type' => 'room',
-            'available_rooms' => $availableRooms->load('roomType')->values()->toArray(),
+            'available_rooms' => $roomsList,
             'rooms_by_type' => $roomsByType,
             'count' => $availableRooms->count(),
             'total_guests' => $totalGuests,
             'check_in' => $checkIn->format('Y-m-d'),
             'check_out' => $checkOut->format('Y-m-d'),
+            'multi_room_required' => $multiRoomRequired,
+            'suggested_room_type_id' => $multiRoomRequired && $availableRooms->isNotEmpty()
+                ? $availableRooms->first()->room_type_id
+                : null,
         ]);
     }
 
@@ -1601,52 +1707,60 @@ class ReservationController extends Controller
      */
     public function getAvailableRoomsForSelection(Request $request)
     {
+        $input = $request->all();
+        if (isset($input['room_type_id']) && (string) $input['room_type_id'] === '') {
+            $input['room_type_id'] = null;
+        }
+        $request->replace($input);
+
         $request->validate([
-            'room_type_id' => 'required|exists:room_types,id',
+            'room_type_id' => 'nullable|exists:room_types,id',
             'check_in_date' => 'required|date',
             'check_out_date' => 'required|date|after:check_in_date',
-            'exclude_reservation_id' => 'nullable|exists:reservations,id', // Para excluir habitaciones de una reserva existente
+            'exclude_reservation_id' => 'nullable|exists:reservations,id',
         ]);
 
         $checkIn = Carbon::parse($request->check_in_date);
         $checkOut = Carbon::parse($request->check_out_date);
 
-        // Buscar habitaciones disponibles del tipo especificado
-        $query = Room::where('room_type_id', $request->room_type_id)
-            ->where('active', true)
-            ->where(function($q) {
-                $q->where('status', 'available')
-                  ->orWhere('status', 'occupied'); // Incluir ocupadas que pueden estar disponibles en las fechas
-            });
+        // Todas las habitaciones activas (del tipo indicado o de cualquier tipo si no se indica)
+        $query = Room::where('active', true);
+        if ($request->filled('room_type_id')) {
+            $query->where('room_type_id', $request->room_type_id);
+        }
 
         // Si se excluye una reserva, no incluir sus habitaciones actuales
         if ($request->exclude_reservation_id) {
             $excludeReservation = Reservation::findOrFail($request->exclude_reservation_id);
             $excludeRoomIds = [$excludeReservation->room_id];
-            
             if ($excludeReservation->childReservations) {
                 $excludeRoomIds = array_merge(
                     $excludeRoomIds,
                     $excludeReservation->childReservations->pluck('room_id')->toArray()
                 );
             }
-            
-            $query->whereNotIn('id', array_filter($excludeRoomIds));
+            $excludeRoomIds = array_filter($excludeRoomIds);
+            if (!empty($excludeRoomIds)) {
+                $query->whereNotIn('id', $excludeRoomIds);
+            }
         }
 
-        $rooms = $query->with('roomType')->get()->filter(function ($room) use ($checkIn, $checkOut, $request) {
+        $rooms = $query->with('roomType')->get()->filter(function ($room) use ($checkIn, $checkOut) {
             return $room->isAvailable($checkIn, $checkOut);
         });
 
+        $getEffectiveCapacity = fn ($r) => (int) ($r->max_capacity ?? $r->capacity);
+
         return response()->json([
-            'rooms' => $rooms->map(function ($room) {
+            'rooms' => $rooms->map(function ($room) use ($getEffectiveCapacity) {
                 return [
                     'id' => $room->id,
-                    'room_number' => $room->room_number,
+                    'room_number' => $room->number ?? $room->name ?? (string) $room->id,
                     'name' => $room->name,
-                    'display_name' => $room->display_name ?? $room->name ?? $room->room_number,
+                    'display_name' => $room->display_name ?? $room->name ?? $room->number ?? 'Habitación #' . $room->id,
                     'capacity' => $room->capacity,
                     'max_capacity' => $room->max_capacity,
+                    'effective_capacity' => $getEffectiveCapacity($room),
                     'room_price' => $room->room_price,
                     'room_type' => $room->roomType ? [
                         'id' => $room->roomType->id,
@@ -1655,7 +1769,7 @@ class ReservationController extends Controller
                     'status' => $room->status,
                 ];
             })->values(),
-            'total_capacity' => $rooms->sum('capacity'),
+            'total_capacity' => $rooms->sum($getEffectiveCapacity),
             'count' => $rooms->count(),
         ]);
     }
@@ -2311,7 +2425,16 @@ class ReservationController extends Controller
             return response()->json(['message' => 'Este servicio ya está agregado a la reserva.'], 422);
         }
 
-        $ras = $this->additionalServiceCalculator->addServiceToReservation($reservation, $svc);
+        // Para reservas con varias habitaciones, usar el total de huéspedes del grupo
+        $chargeableGuests = null;
+        if ($reservation->is_group_reservation && !$reservation->parent_reservation_id) {
+            $reservation->loadMissing(['childReservations']);
+            $chargeableGuests = $reservation->adults + $reservation->children
+                + $reservation->childReservations->sum(fn ($r) => $r->adults + $r->children);
+            $chargeableGuests = max(1, (int) $chargeableGuests);
+        }
+
+        $ras = $this->additionalServiceCalculator->addServiceToReservation($reservation, $svc, $chargeableGuests);
         $reservation->recomputeFinalPrice();
         $reservation->load(['additionalServices.additionalService']);
 
@@ -2461,16 +2584,24 @@ class ReservationController extends Controller
                 }
             }
 
-            // Actualizar estado y tiempo de check-in
+            // Actualizar estado y tiempo de check-in (si es reserva múltiple, hacer check-in de todo el grupo)
             $checkInTime = Carbon::now();
-            $reservation->update([
-                'status' => 'checked_in',
-                'check_in_time' => $checkInTime,
-            ]);
-
-            // Si tiene habitación asignada, cambiar su estado a occupied
-            if ($reservation->room_id) {
-                $reservation->room->update(['status' => 'occupied']);
+            $reservationsToCheckIn = collect([$reservation]);
+            if ($reservation->is_group_reservation && !$reservation->parent_reservation_id) {
+                $reservation->load('childReservations');
+                $reservationsToCheckIn = $reservationsToCheckIn->merge($reservation->childReservations);
+            }
+            foreach ($reservationsToCheckIn as $res) {
+                $res->update([
+                    'status' => 'checked_in',
+                    'check_in_time' => $checkInTime,
+                ]);
+                if ($res->room_id) {
+                    $room = $res->relationLoaded('room') ? $res->room : Room::find($res->room_id);
+                    if ($room) {
+                        $room->update(['status' => 'occupied']);
+                    }
+                }
             }
 
             // Registrar inventario inicial del minibar si se proporciona
@@ -2723,27 +2854,27 @@ class ReservationController extends Controller
 
         DB::beginTransaction();
         try {
-            // Actualizar estado y tiempo de check-out
-            $reservation->update([
-                'status' => 'checked_out',
-                'check_out_time' => Carbon::now(),
-            ]);
-
-            // Si tiene habitación asignada, cambiar su estado a available
-            if ($reservation->room_id) {
-                // Cargar la relación si no está cargada
-                if (!$reservation->relationLoaded('room')) {
-                    $reservation->load('room');
-                }
-                
-                // Actualizar el estado de la habitación
-                $room = Room::find($reservation->room_id);
-                if ($room) {
-                    $room->update(['status' => 'available']);
+            // Actualizar estado y tiempo de check-out (si es reserva múltiple, hacer check-out de todo el grupo)
+            $checkOutTime = Carbon::now();
+            $reservationsToCheckOut = collect([$reservation]);
+            if ($reservation->is_group_reservation && !$reservation->parent_reservation_id) {
+                $reservation->load('childReservations');
+                $reservationsToCheckOut = $reservationsToCheckOut->merge($reservation->childReservations);
+            }
+            foreach ($reservationsToCheckOut as $res) {
+                $res->update([
+                    'status' => 'checked_out',
+                    'check_out_time' => $checkOutTime,
+                ]);
+                if ($res->room_id) {
+                    $room = $res->relationLoaded('room') ? $res->room : Room::find($res->room_id);
+                    if ($room) {
+                        $room->update(['status' => 'available']);
+                    }
                 }
             }
 
-            // Registrar inventario final del minibar si se proporciona
+            // Registrar inventario final del minibar si se proporciona (solo reserva principal)
             if ($reservation->room_id && $request->has('minibar_products')) {
                 try {
                     $minibarService = app(\App\Services\MinibarInventoryService::class);
@@ -3452,6 +3583,8 @@ class ReservationController extends Controller
 
         // Si no hay información de huéspedes o no se pudieron agrupar familias,
         // usar distribución simple pero mejorada
+        $getRoomCapacity = fn ($room) => (int) ($room->max_capacity ?? $room->capacity);
+
         if (empty($familyGroups)) {
             \Log::info('No hay información de huéspedes para agrupar familias, usando distribución simple mejorada');
             
@@ -3460,7 +3593,7 @@ class ReservationController extends Controller
                     break;
                 }
 
-                $roomCapacity = $room->capacity;
+                $roomCapacity = $getRoomCapacity($room);
                 $guestsForThisRoom = min($remainingGuests, $roomCapacity);
 
                 // Intentar mantener proporción de adultos/niños/bebés
@@ -3502,7 +3635,7 @@ class ReservationController extends Controller
                 // Primero intentar colocar la familia completa en una habitación
                 for ($i = $roomIndex; $i < $availableRooms->count(); $i++) {
                     $room = $availableRooms->values()[$i];
-                    if ($room->capacity >= $family['total']) {
+                    if ($getRoomCapacity($room) >= $family['total']) {
                         // Esta habitación puede alojar a toda la familia
                         $roomsNeeded[] = [
                             'room' => $room,
@@ -3531,7 +3664,7 @@ class ReservationController extends Controller
 
                     for ($i = $roomIndex; $i < $availableRooms->count() && ($familyAdultsRemaining > 0 || $familyChildrenRemaining > 0 || $familyInfantsRemaining > 0); $i++) {
                         $room = $availableRooms->values()[$i];
-                        $roomCapacity = $room->capacity;
+                        $roomCapacity = $getRoomCapacity($room);
                         $roomGuests = 0;
                         $roomAdults = 0;
                         $roomChildren = 0;
@@ -3581,7 +3714,7 @@ class ReservationController extends Controller
 
                 for ($i = $roomIndex; $i < $availableRooms->count() && $remainingGuests > 0; $i++) {
                     $room = $availableRooms->values()[$i];
-                    $roomCapacity = $room->capacity;
+                    $roomCapacity = $getRoomCapacity($room);
                     $guestsForThisRoom = min($remainingGuests, $roomCapacity);
 
                     $adultsForRoom = min($remainingAdults, $guestsForThisRoom);

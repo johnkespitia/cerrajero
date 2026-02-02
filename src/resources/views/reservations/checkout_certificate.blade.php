@@ -309,16 +309,18 @@
                     <div class="info-block">
                         <div class="info-grid">
                             @if($reservation->reservation_type === 'room')
-                                @if($roomType)
+                                @if($roomType && !($isMultiRoom ?? false))
                                     <div class="info-row">
                                         <div class="info-label">Tipo de Habitación:</div>
                                         <div class="info-value">{{ $roomType->name }}</div>
                                     </div>
                                 @endif
                                 <div class="info-row">
-                                    <div class="info-label">Habitación:</div>
+                                    <div class="info-label">{{ ($isMultiRoom ?? false) && isset($allRooms) && $allRooms->count() > 1 ? 'Habitaciones:' : 'Habitación:' }}</div>
                                     <div class="info-value">
-                                        @if($room)
+                                        @if(($isMultiRoom ?? false) && isset($allRooms) && $allRooms->count() > 0)
+                                            {{ $allRooms->map(fn($r) => $r->display_name ?? $r->number ?? $r->name ?? 'N/A')->join(', ') }}
+                                        @elseif($room)
                                             {{ $room->display_name }}
                                         @else
                                             No asignada
@@ -365,9 +367,15 @@
                             <div class="info-row">
                                 <div class="info-label">Huéspedes:</div>
                                 <div class="info-value">
-                                    {{ $reservation->adults }} adultos,
-                                    {{ $reservation->children }} niños,
-                                    {{ $reservation->infants }} bebés
+                                    @if(isset($totalAdults) || isset($totalChildren) || isset($totalInfants))
+                                        {{ $totalAdults ?? $reservation->adults }} adultos,
+                                        {{ $totalChildren ?? $reservation->children }} niños,
+                                        {{ $totalInfants ?? $reservation->infants }} bebés
+                                    @else
+                                        {{ $reservation->adults }} adultos,
+                                        {{ $reservation->children }} niños,
+                                        {{ $reservation->infants }} bebés
+                                    @endif
                                 </div>
                             </div>
                         </div>

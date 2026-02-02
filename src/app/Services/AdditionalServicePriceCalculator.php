@@ -119,10 +119,16 @@ class AdditionalServicePriceCalculator
 
     /**
      * Recalcula los totales de los servicios adicionales de una reserva (p. ej. al cambiar fechas o huéspedes).
+     * Para reservas con varias habitaciones (grupo), usa el total de huéspedes de todas las habitaciones.
      */
     public function recalculateReservationAdditionalServices(Reservation $reservation): void
     {
-        $guests = max(1, $reservation->adults + $reservation->children);
+        $guests = $reservation->adults + $reservation->children;
+        if ($reservation->is_group_reservation && !$reservation->parent_reservation_id) {
+            $reservation->loadMissing(['childReservations']);
+            $guests = $guests + $reservation->childReservations->sum(fn ($r) => $r->adults + $r->children);
+        }
+        $guests = max(1, (int) $guests);
 
         foreach ($reservation->additionalServices as $ras) {
             $service = $ras->additionalService;

@@ -354,8 +354,10 @@ Route::middleware(['auth:sanctum'])->group(function () {
     });
 
     Route::controller(\App\Http\Controllers\RoomController::class)->group(function () {
-        // Ruta básica para obtener habitaciones (sin permisos específicos, solo autenticación)
-        Route::get('/rooms', 'listBasic'); // Para selectores en formularios (sin permisos específicos)
+        // Listado completo (tipo, capacidad, precio, estado) para la página de Habitaciones
+        Route::get('/rooms', 'index');
+        // Listado reducido para selectores en formularios (sin permisos específicos)
+        Route::get('/rooms/basic', 'listBasic');
         Route::get('/rooms/{room}', 'show')->middleware('permission:room.view,reservas');
         Route::post('/rooms', 'store')->middleware('permission:room.create,reservas');
         Route::put('/rooms/{room}', 'update')->middleware('permission:room.edit,reservas');
@@ -507,6 +509,14 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::get('/minibar/restocking', 'index')->middleware('permission:minibar.inventory.view,reservas');
         Route::get('/minibar/restocking/room/{room}', 'getByRoom')->middleware('permission:minibar.inventory.view,reservas');
         Route::get('/minibar/restocking/product/{product}', 'getByProduct')->middleware('permission:minibar.inventory.view,reservas');
+    });
+
+    // Inventario de bodega (minibar)
+    Route::controller(\App\Http\Controllers\MinibarWarehouseController::class)->group(function () {
+        Route::get('/minibar/warehouse', 'index')->middleware('permission:minibar.inventory.view,reservas');
+        Route::get('/minibar/warehouse/expired-log', 'expiredLog')->middleware('permission:minibar.inventory.view,reservas');
+        Route::post('/minibar/warehouse/add', 'addUnits')->middleware('permission:minibar.inventory.record,reservas');
+        Route::post('/minibar/warehouse/register-expired', 'registerExpired')->middleware('permission:minibar.inventory.record,reservas');
     });
 
     // ============================================

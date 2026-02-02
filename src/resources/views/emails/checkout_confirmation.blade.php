@@ -29,7 +29,9 @@
                 <div class="info-label">NÚMERO DE RESERVA:</div>
                 <div class="info-label">FECHA DE CHECK-IN:</div>
                 <div class="info-label">FECHA DE CHECK-OUT:</div>
-                @if($reservation->room)
+                @if(($isMultiRoom ?? false) && isset($allRooms) && $allRooms->count() > 0)
+                    <div class="info-label">{{ $allRooms->count() > 1 ? 'HABITACIONES:' : 'HABITACIÓN:' }}</div>
+                @elseif($reservation->room)
                     <div class="info-label">HABITACIÓN:</div>
                 @endif
             </div>
@@ -37,7 +39,9 @@
                 <div class="info-value">{{ $reservation->reservation_number }}</div>
                 <div class="info-value">{{ $reservation->check_in_date->format('d/m/Y') }}</div>
                 <div class="info-value">{{ $reservation->check_out_date ? $reservation->check_out_date->format('d/m/Y') : 'N/A' }}</div>
-                @if($reservation->room)
+                @if(($isMultiRoom ?? false) && isset($allRooms) && $allRooms->count() > 0)
+                    <div class="info-value">{{ $allRooms->map(fn($r) => $r->display_name ?? $r->number ?? $r->name ?? 'N/A')->join(', ') }}</div>
+                @elseif($reservation->room)
                     <div class="info-value">{{ $reservation->room->display_name }}</div>
                 @endif
             </div>

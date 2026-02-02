@@ -9,6 +9,7 @@ use App\Models\RoomMinibarInventory;
 use App\Models\RoomMinibarStock;
 use App\Models\ReservationMinibarCharge;
 use App\Models\MinibarRestockingLog;
+use App\Models\MinibarWarehouseStock;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -27,7 +28,7 @@ class MinibarInventoryService
     }
 
     /**
-     * Registrar reposición de productos
+     * Registrar reposición de productos (descuenta de bodega; no se puede reponer más de lo disponible)
      */
     public function restockProducts(
         Room $room,
@@ -40,6 +41,15 @@ class MinibarInventoryService
         DB::beginTransaction();
         try {
             foreach ($products as $productId => $quantityAdded) {
+                $warehouseQty = $this->getWarehouseQuantity($productId);
+                if ($quantityAdded > $warehouseQty) {
+                    $product = MinibarProduct::find($productId);
+                    $name = $product ? $product->name : "Producto #{$productId}";
+                    throw new \InvalidArgumentException(
+                        "No hay suficiente inventario en bodega para reponer {$name}. Disponible en bodega: {$warehouseQty}, solicitado: {$quantityAdded}."
+                    );
+                }
+
                 $stock = RoomMinibarStock::firstOrCreate(
                     [
                         'room_id' => $room->id,
@@ -57,6 +67,8 @@ class MinibarInventoryService
                 $stock->last_restocked_at = now();
                 $stock->last_restocked_by = $userId ?? auth()->id();
                 $stock->save();
+
+                $this->deductFromWarehouse($productId, $quantityAdded);
 
                 $log = MinibarRestockingLog::create([
                     'room_id' => $room->id,
@@ -114,6 +126,25 @@ class MinibarInventoryService
 
             foreach ($products as $productId => $quantity) {
                 $product = MinibarProduct::findOrFail($productId);
+
+                // Validar que la suma en habitaciones no supere bodega y ajustar bodega
+                $stock = RoomMinibarStock::where('room_id', $reservation->room_id)
+                    ->where('product_id', $productId)
+                    ->first();
+                $currentInThisRoom = $stock ? (int) $stock->current_quantity : 0;
+                $totalInOtherRooms = $this->getTotalInRoomsForProduct($productId) - $currentInThisRoom;
+                $this->ensureWarehouseAvailableForAssignment(
+                    $productId,
+                    $currentInThisRoom,
+                    $quantity,
+                    $totalInOtherRooms
+                );
+                $delta = $quantity - $currentInThisRoom;
+                if ($delta > 0) {
+                    $this->deductFromWarehouse($productId, $delta);
+                } elseif ($delta < 0) {
+                    $this->addToWarehouse($productId, -$delta);
+                }
 
                 $record = RoomMinibarInventory::create([
                     'reservation_id' => $reservation->id,
@@ -261,6 +292,11 @@ class MinibarInventoryService
                     }
                 }
 
+                // Descontar consumo del inventario de bodega (si hay consumo)
+                if ($consumed > 0) {
+                    $this->deductFromWarehouse($productId, $consumed);
+                }
+
                 // Si es checkout, actualizar stock de la habitación
                 if ($recordType === 'check_out') {
                     $stock = RoomMinibarStock::firstOrCreate(
@@ -335,5 +371,71 @@ class MinibarInventoryService
             ->with('product')
             ->get()
             ->toArray();
+    }
+
+    /**
+     * Descontar cantidad del inventario de bodega (por consumo en habitaciones o por vencidas)
+     */
+    public function deductFromWarehouse(int $productId, int $quantity): void
+    {
+        $stock = MinibarWarehouseStock::where('product_id', $productId)->first();
+        if (!$stock) {
+            return;
+        }
+        $stock->current_quantity = max(0, $stock->current_quantity - $quantity);
+        $stock->save();
+    }
+
+    /**
+     * Sumar cantidad al inventario de bodega (ej. al bajar stock asignado en una habitación)
+     */
+    public function addToWarehouse(int $productId, int $quantity): void
+    {
+        $stock = MinibarWarehouseStock::firstOrCreate(
+            ['product_id' => $productId],
+            ['current_quantity' => 0]
+        );
+        $stock->current_quantity += $quantity;
+        $stock->save();
+    }
+
+    /**
+     * Total de un producto actualmente en todas las habitaciones
+     */
+    public function getTotalInRoomsForProduct(int $productId): int
+    {
+        return (int) RoomMinibarStock::where('product_id', $productId)
+            ->where('active', true)
+            ->sum('current_quantity');
+    }
+
+    /**
+     * Cantidad disponible en bodega para un producto (0 si no hay registro)
+     */
+    public function getWarehouseQuantity(int $productId): int
+    {
+        $stock = MinibarWarehouseStock::where('product_id', $productId)->first();
+        return $stock ? (int) $stock->current_quantity : 0;
+    }
+
+    /**
+     * Validar que se puede asignar cantidad a habitaciones sin superar bodega.
+     * Lanza \InvalidArgumentException si no hay disponibilidad.
+     */
+    public function ensureWarehouseAvailableForAssignment(
+        int $productId,
+        int $currentInThisRoom,
+        int $newQuantityInThisRoom,
+        int $totalInOtherRooms
+    ): void {
+        $warehouseQty = $this->getWarehouseQuantity($productId);
+        $totalInRoomsAfter = $totalInOtherRooms + $newQuantityInThisRoom;
+        if ($totalInRoomsAfter > $warehouseQty) {
+            $product = MinibarProduct::find($productId);
+            $name = $product ? $product->name : "Producto #{$productId}";
+            throw new \InvalidArgumentException(
+                "No hay suficiente inventario en bodega para {$name}. En bodega: {$warehouseQty}, total que quedaría en habitaciones: {$totalInRoomsAfter}. La suma en habitaciones no puede superar lo disponible en bodega."
+            );
+        }
     }
 }

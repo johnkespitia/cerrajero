@@ -55,7 +55,7 @@ class ReservationEmailService
 
     public function sendReservationConfirmation(Reservation $reservation)
     {
-        $reservation->loadMissing(['customer', 'guests']);
+        $reservation->loadMissing(['customer', 'guests', 'childReservations.room', 'childReservations.guests']);
 
         $certificate = $this->certificateService->generateCertificate($reservation);
 
@@ -117,12 +117,25 @@ class ReservationEmailService
             // Obtener URL del logo para el email (URL directa, no base64)
             $logoUrl = $this->getLogoUrl();
             
+            $isMultiRoom = $reservation->is_group_reservation && !$reservation->parent_reservation_id && $reservation->childReservations->count() > 0;
+            $allRooms = $isMultiRoom ? collect([$reservation->room])->merge($reservation->childReservations->pluck('room'))->filter() : collect();
+            $totalAdults = $isMultiRoom ? $reservation->adults + $reservation->childReservations->sum('adults') : $reservation->adults;
+            $totalChildren = $isMultiRoom ? $reservation->children + $reservation->childReservations->sum('children') : $reservation->children;
+            $totalInfants = $isMultiRoom ? $reservation->infants + $reservation->childReservations->sum('infants') : $reservation->infants;
+            $totalPrice = (float) ($reservation->final_price ?? $reservation->total_price);
+
             Mail::send(
                 'emails.reservation_confirmation',
                 [
                     'reservation' => $reservation,
                     'customer' => $reservation->customer,
                     'logoUrl' => $logoUrl,
+                    'isMultiRoom' => $isMultiRoom,
+                    'allRooms' => $allRooms,
+                    'totalAdults' => $totalAdults,
+                    'totalChildren' => $totalChildren,
+                    'totalInfants' => $totalInfants,
+                    'totalPrice' => $totalPrice,
                 ],
                 function ($message) use ($reservation, $certificate, $recipients) {
                     $subject = "Confirmación de Reserva #{$reservation->reservation_number}";
@@ -175,7 +188,7 @@ class ReservationEmailService
      */
     public function sendCheckoutConfirmation(Reservation $reservation, array $certificate, array $invoice = null)
     {
-        $reservation->loadMissing(['customer', 'guests']);
+        $reservation->loadMissing(['customer', 'guests', 'childReservations.room', 'childReservations.guests']);
 
         $recipients = [];
 
@@ -232,15 +245,18 @@ class ReservationEmailService
                 'recipients_count' => count($recipients)
             ]);
 
-            // Obtener URL del logo para el email (URL directa, no base64)
             $logoUrl = $this->getLogoUrl();
-            
+            $isMultiRoom = $reservation->is_group_reservation && !$reservation->parent_reservation_id && $reservation->childReservations->count() > 0;
+            $allRooms = $isMultiRoom ? collect([$reservation->room])->merge($reservation->childReservations->pluck('room'))->filter() : collect();
+
             Mail::send(
                 'emails.checkout_confirmation',
                 [
                     'reservation' => $reservation,
                     'customer' => $reservation->customer,
                     'logoUrl' => $logoUrl,
+                    'isMultiRoom' => $isMultiRoom,
+                    'allRooms' => $allRooms,
                 ],
                 function ($message) use ($reservation, $certificate, $invoice, $recipients) {
                     $subject = "Check-out Completado - Reserva #{$reservation->reservation_number}";

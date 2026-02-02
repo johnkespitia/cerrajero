@@ -313,13 +313,18 @@
                                 <div class="info-label">Número de Reserva:</div>
                                 <div class="info-value">{{ $reservation->reservation_number }}</div>
                             </div>
-                            @if($room)
+                            @if(($isMultiRoom ?? false) && isset($allRooms) && $allRooms->count() > 0)
+                                <div class="info-row">
+                                    <div class="info-label">{{ $allRooms->count() > 1 ? 'Habitaciones:' : 'Habitación:' }}</div>
+                                    <div class="info-value">{{ $allRooms->map(fn($r) => $r->display_name ?? $r->number ?? $r->name ?? 'N/A')->join(', ') }}</div>
+                                </div>
+                            @elseif($room)
                                 <div class="info-row">
                                     <div class="info-label">Habitación:</div>
                                     <div class="info-value">{{ $room->number ?? 'N/A' }}</div>
                                 </div>
                             @endif
-                            @if($roomType)
+                            @if($roomType && !($isMultiRoom ?? false))
                                 <div class="info-row">
                                     <div class="info-label">Tipo de Habitación:</div>
                                     <div class="info-value">{{ $roomType->name }}</div>
@@ -358,8 +363,8 @@
                 </thead>
                 <tbody>
                     <tr>
-                        <td>Alojamiento {{ $reservation->reservation_type === 'day_pass' ? 'Pasadía' : ($roomType->name ?? 'Habitación') }} - {{ $reservation->check_in_date->format('d/m/Y') }} a {{ $reservation->check_out_date ? $reservation->check_out_date->format('d/m/Y') : $reservation->check_in_date->format('d/m/Y') }}</td>
-                        <td class="text-right">{{ $reservation->adults + $reservation->children + $reservation->infants }} huésped(es)</td>
+                        <td>Alojamiento {{ $reservation->reservation_type === 'day_pass' ? 'Pasadía' : (($isMultiRoom ?? false) ? (isset($allRooms) && $allRooms->count() > 1 ? $allRooms->count() . ' habitaciones' : ($roomType->name ?? 'Habitación')) : ($roomType->name ?? 'Habitación')) }} - {{ $reservation->check_in_date->format('d/m/Y') }} a {{ $reservation->check_out_date ? $reservation->check_out_date->format('d/m/Y') : $reservation->check_in_date->format('d/m/Y') }}</td>
+                        <td class="text-right">{{ isset($totalAdults) || isset($totalChildren) || isset($totalInfants) ? (($totalAdults ?? 0) + ($totalChildren ?? 0) + ($totalInfants ?? 0)) : ($reservation->adults + $reservation->children + $reservation->infants) }} huésped(es)</td>
                         <td class="text-right">${{ number_format($baseAlojamiento / $nights, 0, ',', '.') }}</td>
                         <td class="text-right">${{ number_format($baseAlojamiento, 0, ',', '.') }}</td>
                     </tr>

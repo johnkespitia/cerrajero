@@ -65,11 +65,17 @@ class RoomMinibarInventoryController extends Controller
         }
 
         $products = $request->products ?? [];
-        $records = $this->minibarService->recordCheckInInventory(
-            $reservation,
-            $products,
-            auth()->id()
-        );
+        try {
+            $records = $this->minibarService->recordCheckInInventory(
+                $reservation,
+                $products,
+                auth()->id()
+            );
+        } catch (\InvalidArgumentException $e) {
+            return response()->json([
+                'message' => $e->getMessage(),
+            ], Response::HTTP_UNPROCESSABLE_ENTITY);
+        }
 
         return response([
             'message' => 'Inventario inicial registrado exitosamente',
@@ -98,6 +104,18 @@ class RoomMinibarInventoryController extends Controller
         if ($reservation->status !== 'checked_in') {
             return response()->json([
                 'message' => 'Solo se puede registrar consumo durante limpieza para reservas con check-in realizado'
+            ], Response::HTTP_UNPROCESSABLE_ENTITY);
+        }
+
+        // No permitir más de una limpieza de minibar el mismo día por reserva/habitación
+        $today = now()->toDateString();
+        $alreadyCleanedToday = RoomMinibarInventory::where('reservation_id', $reservation->id)
+            ->where('record_type', 'cleaning')
+            ->whereDate('recorded_at', $today)
+            ->exists();
+        if ($alreadyCleanedToday) {
+            return response()->json([
+                'message' => 'Ya se registró una limpieza de minibar hoy para esta habitación. No se puede registrar otra el mismo día.'
             ], Response::HTTP_UNPROCESSABLE_ENTITY);
         }
 

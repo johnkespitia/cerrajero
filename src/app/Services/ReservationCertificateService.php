@@ -49,11 +49,46 @@ class ReservationCertificateService
         return null;
     }
 
+    /**
+     * Para reservas con múltiples habitaciones (grupo): devuelve [reservations], [rooms], [guests], totalAdults, totalChildren, totalInfants.
+     * Para reserva simple: devuelve null en las listas y las totals = de la misma reserva.
+     */
+    private function multiRoomData(Reservation $reservation): array
+    {
+        $isGroup = $reservation->is_group_reservation && !$reservation->parent_reservation_id;
+        if (!$isGroup || !$reservation->relationLoaded('childReservations')) {
+            return [
+                'reservations' => collect([$reservation]),
+                'rooms' => $reservation->room ? collect([$reservation->room]) : collect(),
+                'guests' => $reservation->guests ?? collect(),
+                'totalAdults' => (int) $reservation->adults,
+                'totalChildren' => (int) $reservation->children,
+                'totalInfants' => (int) $reservation->infants,
+                'isMultiRoom' => false,
+            ];
+        }
+        $reservations = collect([$reservation])->merge($reservation->childReservations);
+        $rooms = $reservations->map(fn ($r) => $r->room)->filter()->values();
+        $guests = $reservations->flatMap(fn ($r) => $r->guests ?? []);
+        return [
+            'reservations' => $reservations,
+            'rooms' => $rooms,
+            'guests' => $guests,
+            'totalAdults' => $reservations->sum('adults'),
+            'totalChildren' => $reservations->sum('children'),
+            'totalInfants' => $reservations->sum('infants'),
+            'isMultiRoom' => true,
+        ];
+    }
+
     public function generateCertificate(Reservation $reservation)
     {
-        $reservation->loadMissing(['customer', 'room', 'roomType', 'guests', 'additionalServices.additionalService']);
+        $reservation->loadMissing([
+            'customer', 'room', 'roomType', 'guests', 'additionalServices.additionalService',
+            'childReservations.room', 'childReservations.guests',
+        ]);
 
-        // Obtener logo en formato base64 (usa ruta constante: storage/app/public/logocv.png)
+        $multi = $this->multiRoomData($reservation);
         $logoBase64 = $this->getLogoBase64();
 
         $data = [
@@ -63,6 +98,12 @@ class ReservationCertificateService
             'date' => now()->format('d/m/Y'),
             'time' => now()->format('H:i:s'),
             'logo_base64' => $logoBase64,
+            'allRooms' => $multi['rooms'],
+            'allGuests' => $multi['guests'],
+            'totalAdults' => $multi['totalAdults'],
+            'totalChildren' => $multi['totalChildren'],
+            'totalInfants' => $multi['totalInfants'],
+            'isMultiRoom' => $multi['isMultiRoom'],
         ];
 
         $pdf = Pdf::loadView('reservations.certificate', $data);
@@ -90,7 +131,12 @@ class ReservationCertificateService
      */
     public function generateCheckoutCertificate(Reservation $reservation)
     {
-        $reservation->loadMissing(['customer', 'room', 'roomType', 'guests', 'payments.paymentType', 'additionalServices.additionalService', 'minibarCharges.product']);
+        $reservation->loadMissing([
+            'customer', 'room', 'roomType', 'guests', 'payments.paymentType', 'additionalServices.additionalService', 'minibarCharges.product',
+            'childReservations.room', 'childReservations.guests',
+        ]);
+
+        $multi = $this->multiRoomData($reservation);
 
         // Separar pagos normales de pagos a crédito (cargo a habitación)
         $allPayments = $reservation->payments;
@@ -104,7 +150,6 @@ class ReservationCertificateService
         // Obtener cargos de minibar
         $minibarCharges = $reservation->minibarCharges;
 
-        // Obtener logo en formato base64 (usa ruta constante: storage/app/public/logocv.png)
         $logoBase64 = $this->getLogoBase64();
 
         $data = [
@@ -112,14 +157,20 @@ class ReservationCertificateService
             'customer' => $reservation->customer,
             'room' => $reservation->room,
             'roomType' => $reservation->roomType,
-            'guests' => $reservation->guests,
+            'guests' => $multi['guests'],
             'payments' => $normalPayments,
             'creditPayments' => $creditPayments,
             'minibarCharges' => $minibarCharges,
             'date' => now()->format('d/m/Y'),
             'time' => now()->format('H:i:s'),
             'logo_base64' => $logoBase64,
-            'type' => 'checkout', // Indicar que es un certificado de checkout
+            'type' => 'checkout',
+            'allRooms' => $multi['rooms'],
+            'allGuests' => $multi['guests'],
+            'totalAdults' => $multi['totalAdults'],
+            'totalChildren' => $multi['totalChildren'],
+            'totalInfants' => $multi['totalInfants'],
+            'isMultiRoom' => $multi['isMultiRoom'],
         ];
 
         $pdf = Pdf::loadView('reservations.checkout_certificate', $data);
@@ -148,29 +199,24 @@ class ReservationCertificateService
     public function generateCheckoutInvoice(Reservation $reservation)
     {
         $reservation->loadMissing([
-            'customer', 
-            'room', 
-            'roomType', 
-            'guests', 
-            'payments.paymentType',
+            'customer', 'room', 'roomType', 'guests', 'payments.paymentType',
             'additionalServices.additionalService',
             'kioskInvoices.paymentType',
-            'kioskInvoices.details.kiosk_unit.product'
+            'kioskInvoices.details.kiosk_unit.product',
+            'childReservations.room', 'childReservations.guests',
         ]);
 
-        // Obtener logo en formato base64 (usa ruta constante: storage/app/public/logocv.png)
+        $multi = $this->multiRoomData($reservation);
         $logoBase64 = $this->getLogoBase64();
 
-        // Calcular totales
-        $reservationTotal = $reservation->final_price ?? $reservation->total_price;
-        
-        // Total de facturas del kiosko (todas, no solo pendientes)
+        // Para grupo, el total está en la reserva principal (final_price)
+        $reservationTotal = (float) ($reservation->final_price ?? $reservation->total_price);
+
         $kioskInvoices = $reservation->kioskInvoices;
         $kioskTotal = $kioskInvoices->sum(function($invoice) {
             return $invoice->details->sum('price');
         });
-        
-        // Separar pagos normales de pagos a crédito (cargo a habitación)
+
         $allPayments = $reservation->payments;
         $normalPayments = $allPayments->filter(function($payment) {
             return !$payment->concept || !str_contains($payment->concept, 'Compra en kiosko (a crédito)');
@@ -178,14 +224,9 @@ class ReservationCertificateService
         $creditPayments = $allPayments->filter(function($payment) {
             return $payment->concept && str_contains($payment->concept, 'Compra en kiosko (a crédito)');
         });
-        
-        // Total pagado en la reserva (solo pagos normales, excluyendo créditos)
+
         $totalPaid = $normalPayments->sum('amount');
-        
-        // Saldo pendiente
         $totalPending = max(0, ($reservationTotal + $kioskTotal) - $totalPaid);
-        
-        // Generar número de factura único
         $invoiceNumber = 'FV-' . str_pad($reservation->id, 6, '0', STR_PAD_LEFT) . '-' . date('Ymd');
 
         $data = [
@@ -193,7 +234,7 @@ class ReservationCertificateService
             'customer' => $reservation->customer,
             'room' => $reservation->room,
             'roomType' => $reservation->roomType,
-            'guests' => $reservation->guests,
+            'guests' => $multi['guests'],
             'payments' => $normalPayments,
             'creditPayments' => $creditPayments,
             'kioskInvoices' => $kioskInvoices,
@@ -208,6 +249,11 @@ class ReservationCertificateService
             'date' => now()->format('d/m/Y'),
             'time' => now()->format('H:i:s'),
             'logo_base64' => $logoBase64,
+            'allRooms' => $multi['rooms'],
+            'totalAdults' => $multi['totalAdults'],
+            'totalChildren' => $multi['totalChildren'],
+            'totalInfants' => $multi['totalInfants'],
+            'isMultiRoom' => $multi['isMultiRoom'],
         ];
 
         $pdf = Pdf::loadView('reservations.checkout_invoice', $data);

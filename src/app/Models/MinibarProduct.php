@@ -15,6 +15,7 @@ class MinibarProduct extends Model
         'category_id',
         'is_sellable',
         'sale_price',
+        'purchase_price',
         'unit',
         'barcode',
         'image_url',
@@ -25,6 +26,7 @@ class MinibarProduct extends Model
     protected $casts = [
         'is_sellable' => 'boolean',
         'sale_price' => 'decimal:2',
+        'purchase_price' => 'decimal:2',
         'active' => 'boolean'
     ];
 
@@ -51,6 +53,11 @@ class MinibarProduct extends Model
     public function restockingLogs()
     {
         return $this->hasMany(MinibarRestockingLog::class, 'product_id');
+    }
+
+    public function warehouseStock()
+    {
+        return $this->hasOne(MinibarWarehouseStock::class, 'product_id');
     }
 
     /**

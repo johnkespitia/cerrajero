@@ -24,6 +24,9 @@
                 @if($reservation->check_out_date)
                     <div class="info-label">FECHA DE CHECK-OUT:</div>
                 @endif
+                @if($isMultiRoom ?? false)
+                    <div class="info-label">HABITACIONES:</div>
+                @endif
                 <div class="info-label">HUÉSPEDES:</div>
                 <div class="info-label">TOTAL:</div>
             </div>
@@ -32,8 +35,11 @@
                 @if($reservation->check_out_date)
                     <div class="info-value">{{ $reservation->check_out_date->format('d/m/Y') }}</div>
                 @endif
-                <div class="info-value">{{ $reservation->adults }} adultos, {{ $reservation->children }} niños, {{ $reservation->infants }} bebés</div>
-                <div class="info-value">${{ number_format($reservation->total_price, 2) }}</div>
+                @if($isMultiRoom ?? false)
+                    <div class="info-value">{{ isset($allRooms) ? $allRooms->map(fn($r) => $r->display_name ?? $r->number ?? $r->name ?? 'N/A')->join(', ') : '—' }}</div>
+                @endif
+                <div class="info-value">{{ $totalAdults ?? $reservation->adults }} adultos, {{ $totalChildren ?? $reservation->children }} niños, {{ $totalInfants ?? $reservation->infants }} bebés</div>
+                <div class="info-value">${{ number_format($totalPrice ?? $reservation->total_price ?? 0, 2) }}</div>
             </div>
         </div>
     </div>

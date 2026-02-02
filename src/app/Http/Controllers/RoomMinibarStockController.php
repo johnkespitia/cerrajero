@@ -32,7 +32,8 @@ class RoomMinibarStockController extends Controller
     }
 
     /**
-     * Crear o actualizar stock de producto en habitación
+     * Crear o actualizar stock de producto en habitación.
+     * Valida que la suma en habitaciones no supere bodega; al asignar más se descuenta de bodega.
      */
     public function store(Request $request, Room $room)
     {
@@ -50,14 +51,43 @@ class RoomMinibarStockController extends Controller
             ], Response::HTTP_UNPROCESSABLE_ENTITY);
         }
 
+        $productId = (int) $request->product_id;
+        $newQty = (int) $request->current_quantity;
+
+        $existing = RoomMinibarStock::where('room_id', $room->id)
+            ->where('product_id', $productId)
+            ->first();
+        $currentInThisRoom = $existing ? (int) $existing->current_quantity : 0;
+        $totalInOtherRooms = $this->minibarService->getTotalInRoomsForProduct($productId) - $currentInThisRoom;
+
+        try {
+            $this->minibarService->ensureWarehouseAvailableForAssignment(
+                $productId,
+                $currentInThisRoom,
+                $newQty,
+                $totalInOtherRooms
+            );
+        } catch (\InvalidArgumentException $e) {
+            return response()->json([
+                'message' => $e->getMessage(),
+            ], Response::HTTP_UNPROCESSABLE_ENTITY);
+        }
+
+        $delta = $newQty - $currentInThisRoom;
+        if ($delta > 0) {
+            $this->minibarService->deductFromWarehouse($productId, $delta);
+        } elseif ($delta < 0) {
+            $this->minibarService->addToWarehouse($productId, -$delta);
+        }
+
         $stock = RoomMinibarStock::updateOrCreate(
             [
                 'room_id' => $room->id,
-                'product_id' => $request->product_id,
+                'product_id' => $productId,
             ],
             [
                 'standard_quantity' => $request->standard_quantity,
-                'current_quantity' => $request->current_quantity,
+                'current_quantity' => $newQty,
                 'notes' => $request->notes,
                 'active' => true,
             ]
@@ -69,7 +99,7 @@ class RoomMinibarStockController extends Controller
     }
 
     /**
-     * Actualizar stock
+     * Actualizar stock. Valida que la suma en habitaciones no supere bodega; ajusta bodega al cambiar cantidad.
      */
     public function update(Request $request, Room $room, RoomMinibarStock $stock)
     {
@@ -87,6 +117,31 @@ class RoomMinibarStockController extends Controller
             ], Response::HTTP_UNPROCESSABLE_ENTITY);
         }
 
+        $productId = (int) $stock->product_id;
+        $newQty = $request->has('current_quantity') ? (int) $request->current_quantity : (int) $stock->current_quantity;
+        $currentInThisRoom = (int) $stock->current_quantity;
+        $totalInOtherRooms = $this->minibarService->getTotalInRoomsForProduct($productId) - $currentInThisRoom;
+
+        try {
+            $this->minibarService->ensureWarehouseAvailableForAssignment(
+                $productId,
+                $currentInThisRoom,
+                $newQty,
+                $totalInOtherRooms
+            );
+        } catch (\InvalidArgumentException $e) {
+            return response()->json([
+                'message' => $e->getMessage(),
+            ], Response::HTTP_UNPROCESSABLE_ENTITY);
+        }
+
+        $delta = $newQty - $currentInThisRoom;
+        if ($delta > 0) {
+            $this->minibarService->deductFromWarehouse($productId, $delta);
+        } elseif ($delta < 0) {
+            $this->minibarService->addToWarehouse($productId, -$delta);
+        }
+
         $stock->update($request->all());
         $stock->load('product.category');
 
@@ -94,7 +149,7 @@ class RoomMinibarStockController extends Controller
     }
 
     /**
-     * Reponer productos
+     * Reponer productos (descuenta de bodega; no se puede reponer más de lo disponible)
      */
     public function restock(Request $request, Room $room)
     {
@@ -111,12 +166,18 @@ class RoomMinibarStockController extends Controller
             ], Response::HTTP_UNPROCESSABLE_ENTITY);
         }
 
-        $logs = $this->minibarService->restockProducts(
-            $room,
-            $request->products,
-            $request->reason ?? 'manual',
-            auth()->id()
-        );
+        try {
+            $logs = $this->minibarService->restockProducts(
+                $room,
+                $request->products,
+                $request->reason ?? 'manual',
+                auth()->id()
+            );
+        } catch (\InvalidArgumentException $e) {
+            return response()->json([
+                'message' => $e->getMessage(),
+            ], Response::HTTP_UNPROCESSABLE_ENTITY);
+        }
 
         return response([
             'message' => 'Productos repuestos exitosamente',
