@@ -14,7 +14,12 @@ class OrderItem extends Model
         'recipe_id',
         'quantity',
         'measure_id',
-        'status'
+        'unit_price',
+        'status',
+    ];
+
+    protected $casts = [
+        'unit_price' => 'decimal:2',
     ];
 
     public function order()

@@ -465,7 +465,46 @@
             </div>
         @endif
 
-        @if($minibarCharges && $minibarCharges->count() > 0)
+        @if(isset($minibarChargesByReservation) && $minibarChargesByReservation->count() > 0)
+            @foreach($minibarChargesByReservation as $minibarBlock)
+                @if(($minibarBlock['charges'] ?? collect())->count() > 0)
+                    <div class="section">
+                        <div class="section-title">
+                            Consumo de Minibar
+                            @if(($isMultiRoom ?? false) && isset($minibarBlock['room']) && $minibarBlock['room'])
+                                — Habitación {{ $minibarBlock['room']->display_name ?? $minibarBlock['room']->room_number ?? $minibarBlock['room']->name ?? 'N/A' }}
+                            @endif
+                        </div>
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Producto</th>
+                                    <th class="text-center">Cantidad</th>
+                                    <th class="text-right">Precio Unitario</th>
+                                    <th class="text-right">Total</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach($minibarBlock['charges'] as $charge)
+                                    <tr>
+                                        <td>{{ optional($charge->product)->name ?? 'N/A' }}</td>
+                                        <td class="text-center">{{ $charge->quantity }}</td>
+                                        <td class="text-right">${{ number_format($charge->unit_price ?? 0, 0, ',', '.') }}</td>
+                                        <td class="text-right">${{ number_format($charge->total ?? 0, 0, ',', '.') }}</td>
+                                    </tr>
+                                @endforeach
+                            </tbody>
+                            <tfoot>
+                                <tr class="total-row">
+                                    <td colspan="3" class="text-right"><strong>Subtotal Minibar{{ ($isMultiRoom ?? false) && isset($minibarBlock['room']) && $minibarBlock['room'] ? ' (esta habitación)' : '' }}:</strong></td>
+                                    <td class="text-right"><strong>${{ number_format($minibarBlock['charges']->sum('total'), 0, ',', '.') }}</strong></td>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                @endif
+            @endforeach
+        @elseif($minibarCharges && $minibarCharges->count() > 0)
             <div class="section">
                 <div class="section-title">Consumo de Minibar</div>
                 <table>
@@ -482,8 +521,8 @@
                             <tr>
                                 <td>{{ optional($charge->product)->name ?? 'N/A' }}</td>
                                 <td class="text-center">{{ $charge->quantity }}</td>
-                                <td class="text-right">${{ number_format($charge->unit_price, 0, ',', '.') }}</td>
-                                <td class="text-right">${{ number_format($charge->total, 0, ',', '.') }}</td>
+                                <td class="text-right">${{ number_format($charge->unit_price ?? 0, 0, ',', '.') }}</td>
+                                <td class="text-right">${{ number_format($charge->total ?? 0, 0, ',', '.') }}</td>
                             </tr>
                         @endforeach
                     </tbody>
@@ -497,10 +536,62 @@
             </div>
         @endif
 
+        @if(isset($kioskInvoicesByReservation) && $kioskInvoicesByReservation->count() > 0)
+            @foreach($kioskInvoicesByReservation as $kioskBlock)
+                @if(($kioskBlock['invoices'] ?? collect())->count() > 0)
+                    <div class="section">
+                        <div class="section-title">
+                            Consumo de Kiosko
+                            @if(($isMultiRoom ?? false) && isset($kioskBlock['room']) && $kioskBlock['room'])
+                                — Habitación {{ $kioskBlock['room']->display_name ?? $kioskBlock['room']->room_number ?? $kioskBlock['room']->name ?? 'N/A' }}
+                            @endif
+                        </div>
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Factura</th>
+                                    <th>Fecha</th>
+                                    <th>Producto</th>
+                                    <th class="text-center">Cant.</th>
+                                    <th class="text-right">P. Unit.</th>
+                                    <th class="text-right">Total</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach($kioskBlock['invoices'] as $invoice)
+                                    @foreach($invoice->details ?? [] as $detail)
+                                        <tr>
+                                            <td>#{{ $invoice->payment_code ?? $invoice->id }}</td>
+                                            <td>{{ $invoice->created_at ? \Carbon\Carbon::parse($invoice->created_at)->format('d/m/Y H:i') : '-' }}</td>
+                                            <td>{{ optional(optional($detail->kiosk_unit)->product)->name ?? 'N/A' }}</td>
+                                            <td class="text-center">1</td>
+                                            <td class="text-right">${{ number_format($detail->price ?? 0, 0, ',', '.') }}</td>
+                                            <td class="text-right">${{ number_format($detail->price ?? 0, 0, ',', '.') }}</td>
+                                        </tr>
+                                    @endforeach
+                                @endforeach
+                            </tbody>
+                            <tfoot>
+                                @php
+                                    $blockTotal = collect($kioskBlock['invoices'])->sum(function ($inv) {
+                                        return collect($inv->details ?? [])->sum('price');
+                                    });
+                                @endphp
+                                <tr class="total-row">
+                                    <td colspan="5" class="text-right"><strong>Subtotal Kiosko{{ ($isMultiRoom ?? false) && isset($kioskBlock['room']) && $kioskBlock['room'] ? ' (esta habitación)' : '' }}:</strong></td>
+                                    <td class="text-right"><strong>${{ number_format($blockTotal, 0, ',', '.') }}</strong></td>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                @endif
+            @endforeach
+        @endif
+
         <div class="section">
             <div class="section-title">Resumen de Pagos</div>
             @php
-                $totalPrice = $reservation->final_price ?? $reservation->total_price;
+                $totalPrice = isset($totalPriceGroup) && ($isMultiRoom ?? false) ? $totalPriceGroup : ($reservation->final_price ?? $reservation->total_price);
                 $totalPaid = $payments ? $payments->sum('amount') : 0;
                 $remainingBalance = max(0, $totalPrice - $totalPaid);
             @endphp

@@ -99,6 +99,11 @@ class Reservation extends Model
         'price_breakdown' => 'array',
     ];
 
+    /**
+     * Atributos calculados incluidos en la serialización JSON (API).
+     */
+    protected $appends = ['room_charges_total'];
+
     protected static function boot()
     {
         parent::boot();
@@ -232,9 +237,21 @@ class Reservation extends Model
         return $this->belongsTo(CancellationPolicy::class);
     }
 
+    /**
+     * Total pagado: solo pagos reales (payment_type_id no nulo).
+     * Los cargos a habitación (payment_type_id null) no cuentan como pagado.
+     */
     public function getTotalPaidAttribute()
     {
-        return $this->payments()->sum('amount');
+        return $this->payments()->whereNotNull('payment_type_id')->sum('amount');
+    }
+
+    /**
+     * Total de cargos a habitación (restaurante, etc.): pagos con payment_type_id null.
+     */
+    public function getRoomChargesTotalAttribute(): float
+    {
+        return (float) $this->payments()->whereNull('payment_type_id')->sum('amount');
     }
 
     public function getRemainingBalanceAttribute()
@@ -290,14 +307,15 @@ class Reservation extends Model
     }
 
     /**
-     * Recalcula final_price incluyendo alojamiento (calculated_price - discount) + servicios adicionales + cargos del minibar.
+     * Recalcula final_price incluyendo alojamiento (calculated_price - discount) + servicios adicionales + cargos del minibar + cargos a habitación (restaurante).
      */
     public function recomputeFinalPrice(): void
     {
         $base = (float) ($this->calculated_price ?? $this->total_price ?? 0) - (float) ($this->discount_amount ?? 0);
         $additionalTotal = $this->additional_services_total;
         $minibarTotal = $this->minibar_charges_total;
-        $this->final_price = round(max(0, $base + $additionalTotal + $minibarTotal), 2);
+        $roomChargesTotal = $this->room_charges_total;
+        $this->final_price = round(max(0, $base + $additionalTotal + $minibarTotal + $roomChargesTotal), 2);
         $this->saveQuietly();
     }
 
@@ -352,14 +370,19 @@ class Reservation extends Model
     }
 
     /**
-     * Obtener cantidad de comidas incluidas por tipo
+     * Obtener cantidad de comidas incluidas por tipo (total estadía).
+     * Enlace con servicios adicionales: solo se cuentan servicios con is_food_service=true
+     * y (meal_type = $mealType o meal_type null = "alimentación completa" aplica a los 3 tipos).
      */
     public function getIncludedMealQuantity(string $mealType): int
     {
         return $this->additionalServices()
             ->whereHas('additionalService', function($query) use ($mealType) {
                 $query->where('is_food_service', true)
-                      ->where('meal_type', $mealType);
+                      ->where(function($q) use ($mealType) {
+                          $q->where('meal_type', $mealType)
+                            ->orWhereNull('meal_type'); // Alimentación completa = aplica a desayuno, almuerzo y cena
+                      });
             })
             ->get()
             ->sum(function($ras) {
@@ -369,24 +392,64 @@ class Reservation extends Model
     }
 
     /**
-     * Verificar si puede consumir comida incluida
+     * Obtener cantidad de comidas incluidas por tipo para un día concreto.
+     * Si la fecha no está dentro de [check_in_date, check_out_date], devuelve 0.
+     * Mismo enlace: servicios con meal_type = tipo o meal_type null (completa).
+     */
+    public function getIncludedMealQuantityPerDay(string $mealType, $date): int
+    {
+        $date = Carbon::parse($date)->startOfDay();
+        $checkIn = $this->check_in_date->startOfDay();
+        $checkOut = $this->check_out_date ? $this->check_out_date->startOfDay() : $checkIn;
+
+        if ($date->lt($checkIn) || $date->gt($checkOut)) {
+            return 0;
+        }
+
+        return $this->additionalServices()
+            ->whereHas('additionalService', function($query) use ($mealType) {
+                $query->where('is_food_service', true)
+                      ->where(function($q) use ($mealType) {
+                          $q->where('meal_type', $mealType)
+                            ->orWhereNull('meal_type'); // Alimentación completa = aplica a los 3 tipos
+                      });
+            })
+            ->get()
+            ->sum(function($ras) {
+                return (int) $ras->guests_count;
+            });
+    }
+
+    /**
+     * Verificar si puede consumir comida incluida.
+     * Con $date: lógica por día (incluidos ese día vs consumidos ese día).
+     * Sin $date: lógica total estadía (comportamiento anterior).
      */
     public function canConsumeIncludedMeal(string $mealType, $date = null): bool
     {
+        if ($date !== null) {
+            $included = $this->getIncludedMealQuantityPerDay($mealType, $date);
+            $consumed = $this->getMealConsumptionByType($mealType, $date);
+            return $consumed < $included;
+        }
         $included = $this->getIncludedMealQuantity($mealType);
         $consumed = $this->getMealConsumptionByType($mealType, $date);
-        
         return $consumed < $included;
     }
 
     /**
-     * Obtener cantidad restante de comidas incluidas
+     * Obtener cantidad restante de comidas incluidas.
+     * Con $date: lógica por día. Sin $date: total estadía.
      */
     public function getRemainingIncludedMeals(string $mealType, $date = null): int
     {
+        if ($date !== null) {
+            $included = $this->getIncludedMealQuantityPerDay($mealType, $date);
+            $consumed = $this->getMealConsumptionByType($mealType, $date);
+            return max(0, $included - $consumed);
+        }
         $included = $this->getIncludedMealQuantity($mealType);
         $consumed = $this->getMealConsumptionByType($mealType, $date);
-        
         return max(0, $included - $consumed);
     }
 }

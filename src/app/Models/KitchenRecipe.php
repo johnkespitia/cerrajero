@@ -13,7 +13,12 @@ class KitchenRecipe extends Model
         'name',
         'description',
         'yield',
-        'measure_id'
+        'measure_id',
+        'default_price',
+    ];
+
+    protected $casts = [
+        'default_price' => 'decimal:2',
     ];
 
     public function recipeIngredients()

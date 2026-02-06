@@ -32,7 +32,9 @@ class KioskInvoiceController extends Controller
      */
     public function index()
     {
-        return KioskInvoice::with(["customer","payment_type","details.kiosk_unit.product.tax","details.kiosk_unit.product.category"])->get();
+        return KioskInvoice::with(["customer","payment_type","details.kiosk_unit.product.tax","details.kiosk_unit.product.category"])
+            ->orderBy('id', 'desc')
+            ->get();
     }
 
     /**
@@ -412,7 +414,7 @@ class KioskInvoiceController extends Controller
                         ->sum('amount');
                     $finalPrice = $activeReservation->final_price ?? $activeReservation->total_price;
                     
-                    // Verificar si hay facturas pendientes del kiosko
+                    // Verificar solo facturas pendientes de esta reserva (no de otras estancias del cliente)
                     $pendingKioskInvoices = $activeReservation->kioskInvoices()
                         ->whereHas('payment_type', function ($query) {
                             $query->where('credit', true);
@@ -420,21 +422,7 @@ class KioskInvoiceController extends Controller
                         ->where('payed', false)
                         ->with('details')
                         ->get();
-                    
-                    // Si la reserva está activa, también incluir facturas pendientes del cliente sin reservation_id
-                    if ($activeReservation->status === 'checked_in') {
-                        $pendingCustomerInvoices = \App\Models\KioskInvoice::where('customer_id', $activeReservation->customer_id)
-                            ->whereHas('payment_type', function($query) {
-                                $query->where('credit', true);
-                            })
-                            ->where('payed', false)
-                            ->whereNull('reservation_id')
-                            ->with('details')
-                            ->get();
-                        
-                        $pendingKioskInvoices = $pendingKioskInvoices->merge($pendingCustomerInvoices);
-                    }
-                    
+
                     $totalPendingKiosk = $pendingKioskInvoices->sum(function ($invoice) {
                         return $invoice->details->sum('price');
                     });

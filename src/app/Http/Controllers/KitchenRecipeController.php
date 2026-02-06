@@ -28,6 +28,7 @@ class KitchenRecipeController extends Controller
             'description' => 'required|string',
             'yield' => 'required|numeric|min:0',
             'measure_id' => 'required|exists:inventory_measures,id',
+            'default_price' => 'nullable|numeric|min:0',
         ]);
 
         if ($validator->fails()) {
@@ -39,6 +40,7 @@ class KitchenRecipeController extends Controller
         $recipe->description = $request->input('description');
         $recipe->yield = $request->input('yield');
         $recipe->measure_id = $request->input('measure_id');
+        $recipe->default_price = $request->input('default_price');
         $recipe->save();
 
         return response()->json($recipe);
@@ -51,16 +53,20 @@ class KitchenRecipeController extends Controller
             'description' => 'sometimes|string',
             'yield' => 'sometimes|numeric|min:0',
             'measure_id' => 'sometimes|exists:inventory_measures,id',
+            'default_price' => 'nullable|numeric|min:0',
         ]);
 
         if ($validator->fails()) {
             return response()->json(['errors' => $validator->errors()], 422);
         }
 
-        $recipe->name = $request->input('name')??$recipe->name;
-        $recipe->description = $request->input('description')??$recipe->description;
-        $recipe->yield = $request->input('yield')??$recipe->yield;
-        $recipe->measure_id = $request->input('measure_id')??$recipe->measure_id;
+        $recipe->name = $request->input('name') ?? $recipe->name;
+        $recipe->description = $request->input('description') ?? $recipe->description;
+        $recipe->yield = $request->input('yield') ?? $recipe->yield;
+        $recipe->measure_id = $request->input('measure_id') ?? $recipe->measure_id;
+        if ($request->has('default_price')) {
+            $recipe->default_price = $request->input('default_price');
+        }
         $recipe->save();
 
         return response()->json($recipe);

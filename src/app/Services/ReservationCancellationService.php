@@ -39,8 +39,8 @@ class ReservationCancellationService
             ];
         }
 
-        // Calcular total pagado
-        $totalPaid = $reservation->payments()->sum('amount');
+        // Calcular total pagado (solo pagos reales; excluye cargos a habitación)
+        $totalPaid = $reservation->total_paid;
         
         if ($totalPaid <= 0) {
             return [
@@ -81,12 +81,11 @@ class ReservationCancellationService
 
         // Si es no reembolsable, penalización = total pagado
         if ($policy->policy_type === 'non_refundable') {
-            $totalPaid = $reservation->payments()->sum('amount');
-            return $totalPaid;
+            return $reservation->total_paid;
         }
 
         // Si es parcial, calcular según días y penalización
-        $totalPaid = $reservation->payments()->sum('amount');
+        $totalPaid = $reservation->total_paid;
         $finalPrice = $reservation->final_price ?? $reservation->total_price;
         
         // Usar el menor entre total pagado y precio final

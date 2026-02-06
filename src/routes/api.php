@@ -93,6 +93,8 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::put('/inventory-input/{inventoryInput}', 'update')->middleware('permission:input.edit,restbodega');
     });
 
+    Route::get('/inventory-consumption-log', [\App\Http\Controllers\InventoryConsumptionLogController::class, 'index'])
+        ->middleware('permission:batch.list,restbodega');
     Route::controller(\App\Http\Controllers\InventoryBatchController::class)->group(function () {
         Route::get('/inventory-batch', 'index')->middleware('permission:batch.list,restbodega');
         Route::get('/inventory-batch/{inventoryBatch}', 'show')->middleware('permission:batch.list,restbodega');
@@ -133,14 +135,17 @@ Route::middleware(['auth:sanctum'])->group(function () {
     });
 
 
+    // Métodos de pago para órdenes (antes de /order/{order} para que no se interprete como ID)
+    Route::get('/order/payment-methods', [\App\Http\Controllers\PaymentTypeController::class, 'indexForReservations'])
+        ->middleware('permission:order.list,restcaja');
     Route::controller(\App\Http\Controllers\OrderController::class)->group(function () {
         Route::get('/order', 'index')->middleware('permission:order.list,restcaja');
-        Route::get('/order/{order}', 'show')->middleware('permission:order.list,restcaja');
         Route::post('/order', 'store')->middleware('permission:order.create,restcaja');
-        Route::put('/order/{order}', 'update')->middleware('permission:order.edit,restcaja');
-        Route::delete('/order/{order}', 'destroy')->middleware('permission:order.edit,restcaja');
         Route::get('/order/active-reservation', 'getActiveReservation')->middleware('permission:order.list,restcaja');
         Route::get('/order/reservation/{reservationId}/meal-consumption', 'getMealConsumption')->middleware('permission:order.list,restcaja');
+        Route::get('/order/{order}', 'show')->middleware('permission:order.list,restcaja');
+        Route::put('/order/{order}', 'update')->middleware('permission:order.edit,restcaja');
+        Route::delete('/order/{order}', 'destroy')->middleware('permission:order.edit,restcaja');
         Route::post('/order/{order}/verify-inventory', 'verifyInventory')->middleware('permission:order.create,restcaja');
     });
     Route::controller(\App\Http\Controllers\OrderItemController::class)->group(function () {

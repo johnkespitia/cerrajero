@@ -10,17 +10,27 @@ use Carbon\Carbon;
 class MealConsumptionService
 {
     /**
-     * Registrar consumo de alimentación
+     * Registrar consumo de alimentación.
+     * @param int $quantity Cantidad de platos consumidos (por defecto se calcula desde la orden)
      */
     public function registerConsumption(
         Reservation $reservation,
         Order $order,
         string $mealType,
-        bool $isIncluded = false
+        bool $isIncluded = false,
+        int $quantity = null
     ): ReservationMealConsumption {
-        // Verificar si es consumo incluido o adicional
-        $canConsumeIncluded = $reservation->canConsumeIncludedMeal($mealType);
-        
+        if ($quantity === null || $quantity < 1) {
+            $quantity = (int) $order->orderItems()->sum('quantity');
+            if ($quantity < 1) {
+                $quantity = 1;
+            }
+        }
+
+        // Verificar si es consumo incluido o adicional (por día: fecha de hoy)
+        $consumptionDate = Carbon::today();
+        $canConsumeIncluded = $reservation->canConsumeIncludedMeal($mealType, $consumptionDate);
+
         if ($isIncluded && !$canConsumeIncluded) {
             // Si se intenta consumir incluido pero ya no hay disponible, marcar como adicional
             $isIncluded = false;
@@ -33,11 +43,54 @@ class MealConsumptionService
             'reservation_id' => $reservation->id,
             'order_id' => $order->id,
             'meal_type' => $mealType,
-            'quantity_consumed' => 1, // Por defecto 1 comida
+            'quantity_consumed' => $quantity,
             'is_included' => $isIncluded,
             'is_additional' => $isAdditional,
             'consumption_date' => Carbon::today(),
         ]);
+    }
+
+    /**
+     * Registrar consumo dividido: parte incluida (plan) y parte adicional (cargo a habitación).
+     * Crea uno o dos registros según cantidades.
+     *
+     * @return ReservationMealConsumption[]
+     */
+    public function registerConsumptionSplit(
+        Reservation $reservation,
+        Order $order,
+        string $mealType,
+        int $totalQuantity
+    ): array {
+        $date = Carbon::today();
+        $remainingIncluded = $reservation->getRemainingIncludedMeals($mealType, $date);
+        $includedQty = min($remainingIncluded, $totalQuantity);
+        $additionalQty = $totalQuantity - $includedQty;
+
+        $created = [];
+        if ($includedQty > 0) {
+            $created[] = ReservationMealConsumption::create([
+                'reservation_id' => $reservation->id,
+                'order_id' => $order->id,
+                'meal_type' => $mealType,
+                'quantity_consumed' => $includedQty,
+                'is_included' => true,
+                'is_additional' => false,
+                'consumption_date' => $date,
+            ]);
+        }
+        if ($additionalQty > 0) {
+            $created[] = ReservationMealConsumption::create([
+                'reservation_id' => $reservation->id,
+                'order_id' => $order->id,
+                'meal_type' => $mealType,
+                'quantity_consumed' => $additionalQty,
+                'is_included' => false,
+                'is_additional' => true,
+                'consumption_date' => $date,
+            ]);
+        }
+        return $created;
     }
 
     /**
@@ -51,7 +104,8 @@ class MealConsumptionService
         $mealTypes = ['breakfast', 'lunch', 'dinner'];
 
         foreach ($mealTypes as $mealType) {
-            $included = $reservation->getIncludedMealQuantity($mealType);
+            // Por día: incluido ese día (huéspedes con ese tipo de comida en el plan)
+            $included = $reservation->getIncludedMealQuantityPerDay($mealType, $date);
             $consumed = $reservation->getMealConsumptionByType($mealType, $date);
             $remaining = $reservation->getRemainingIncludedMeals($mealType, $date);
             $additional = ReservationMealConsumption::getAdditionalConsumption(

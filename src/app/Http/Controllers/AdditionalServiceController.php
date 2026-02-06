@@ -45,6 +45,8 @@ class AdditionalServiceController extends Controller
             'applies_to' => 'required|in:room,day_pass,both',
             'is_per_guest' => 'boolean',
             'status' => 'in:active,inactive',
+            'is_food_service' => 'boolean',
+            'meal_type' => 'nullable|in:breakfast,lunch,dinner',
         ]);
 
         if ($validator->fails()) {
@@ -52,10 +54,14 @@ class AdditionalServiceController extends Controller
         }
 
         $data = $request->only([
-            'name', 'description', 'price', 'billing_type', 'applies_to', 'is_per_guest', 'status'
+            'name', 'description', 'price', 'billing_type', 'applies_to', 'is_per_guest', 'status', 'meal_type'
         ]);
         $data['is_per_guest'] = $request->boolean('is_per_guest', true);
         $data['status'] = $request->input('status', 'active');
+        $data['is_food_service'] = $request->boolean('is_food_service', false);
+        if ($request->has('meal_type') && ($request->meal_type === '' || $request->meal_type === null)) {
+            $data['meal_type'] = null;
+        }
 
         $item = AdditionalService::create($data);
         return response()->json($item, 201);
@@ -71,6 +77,8 @@ class AdditionalServiceController extends Controller
             'applies_to' => 'sometimes|in:room,day_pass,both',
             'is_per_guest' => 'boolean',
             'status' => 'sometimes|in:active,inactive',
+            'is_food_service' => 'boolean',
+            'meal_type' => 'nullable|in:breakfast,lunch,dinner',
         ]);
 
         if ($validator->fails()) {
@@ -78,10 +86,16 @@ class AdditionalServiceController extends Controller
         }
 
         $data = $request->only([
-            'name', 'description', 'price', 'billing_type', 'applies_to', 'is_per_guest', 'status'
+            'name', 'description', 'price', 'billing_type', 'applies_to', 'is_per_guest', 'status', 'meal_type'
         ]);
         if ($request->has('is_per_guest')) {
             $data['is_per_guest'] = $request->boolean('is_per_guest');
+        }
+        if ($request->has('is_food_service')) {
+            $data['is_food_service'] = $request->boolean('is_food_service');
+        }
+        if ($request->has('meal_type') && ($request->meal_type === '' || $request->meal_type === null)) {
+            $data['meal_type'] = null;
         }
 
         $additionalService->update($data);
