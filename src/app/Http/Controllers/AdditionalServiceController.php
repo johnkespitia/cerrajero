@@ -54,14 +54,14 @@ class AdditionalServiceController extends Controller
         }
 
         $data = $request->only([
-            'name', 'description', 'price', 'billing_type', 'applies_to', 'is_per_guest', 'status', 'meal_type'
+            'name', 'description', 'price', 'billing_type', 'applies_to', 'is_per_guest', 'status'
         ]);
         $data['is_per_guest'] = $request->boolean('is_per_guest', true);
         $data['status'] = $request->input('status', 'active');
         $data['is_food_service'] = $request->boolean('is_food_service', false);
-        if ($request->has('meal_type') && ($request->meal_type === '' || $request->meal_type === null)) {
-            $data['meal_type'] = null;
-        }
+        $data['meal_type'] = in_array($request->input('meal_type'), ['breakfast', 'lunch', 'dinner'], true)
+            ? $request->meal_type
+            : null;
 
         $item = AdditionalService::create($data);
         return response()->json($item, 201);
@@ -86,7 +86,7 @@ class AdditionalServiceController extends Controller
         }
 
         $data = $request->only([
-            'name', 'description', 'price', 'billing_type', 'applies_to', 'is_per_guest', 'status', 'meal_type'
+            'name', 'description', 'price', 'billing_type', 'applies_to', 'is_per_guest', 'status'
         ]);
         if ($request->has('is_per_guest')) {
             $data['is_per_guest'] = $request->boolean('is_per_guest');
@@ -94,8 +94,11 @@ class AdditionalServiceController extends Controller
         if ($request->has('is_food_service')) {
             $data['is_food_service'] = $request->boolean('is_food_service');
         }
-        if ($request->has('meal_type') && ($request->meal_type === '' || $request->meal_type === null)) {
-            $data['meal_type'] = null;
+        // Persistir meal_type siempre que venga en la petición (evita fallos si only() no lo incluye)
+        if ($request->has('meal_type')) {
+            $data['meal_type'] = in_array($request->meal_type, ['breakfast', 'lunch', 'dinner'], true)
+                ? $request->meal_type
+                : null;
         }
 
         $additionalService->update($data);
