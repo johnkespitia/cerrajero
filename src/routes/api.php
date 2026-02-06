@@ -601,13 +601,13 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::delete('/reservations/meal-consumption/{reservationMealConsumption}', 'destroy')->middleware('permission:reservation.edit,reservas');
     });
 
-    // Comidas de trabajadores
+    // Comidas de trabajadores (ruta /report antes de /{id} para no capturar "report" como id)
     Route::controller(\App\Http\Controllers\EmployeeMealController::class)->group(function () {
         Route::get('/employee-meals', 'index')->middleware('permission:order.list,restcaja');
+        Route::get('/employee-meals/report', 'getReport')->middleware('permission:order.list,restcaja');
         Route::get('/employee-meals/{employeeMeal}', 'show')->middleware('permission:order.list,restcaja');
         Route::post('/employee-meals', 'store')->middleware('permission:order.create,restcaja');
         Route::put('/employee-meals/{employeeMeal}', 'update')->middleware('permission:order.edit,restcaja');
         Route::delete('/employee-meals/{employeeMeal}', 'destroy')->middleware('permission:order.edit,restcaja');
-        Route::get('/employee-meals/report', 'getReport')->middleware('permission:order.list,restcaja');
     });
 });
