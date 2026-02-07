@@ -16,6 +16,8 @@ class InventoryConsumptionLogController extends Controller
         $query = InventoryConsumptionLog::with([
             'orderItem.order',
             'orderItem.recipe',
+            'employeeMealItem.employeeMeal.user',
+            'employeeMealItem.recipe',
             'inventoryBatch',
             'input.measure',
             'measure',

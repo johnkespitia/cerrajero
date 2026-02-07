@@ -4,9 +4,9 @@ namespace App\Services;
 
 use App\Models\EmployeeMeal;
 use App\Models\EmployeeMealItem;
-use App\Models\User;
-use App\Models\KitchenRecipe;
 use App\Models\InventoryBatch;
+use App\Models\InventoryConsumptionLog;
+use App\Models\KitchenRecipe;
 use App\Models\InventoryMeasureConversion;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -58,7 +58,7 @@ class EmployeeMealService
     }
 
     /**
-     * Descontar inventario de bodega para comida de trabajador
+     * Descontar inventario de bodega para comida de trabajador y registrar en historial de consumo.
      */
     public function consumeInventory(
         EmployeeMeal $employeeMeal,
@@ -66,10 +66,22 @@ class EmployeeMealService
         float $quantity,
         int $measureId
     ): float {
+        // Crear el ítem de comida primero para poder asociar el log de consumo
+        $mealItem = EmployeeMealItem::create([
+            'employee_meal_id' => $employeeMeal->id,
+            'recipe_id' => $recipe->id,
+            'quantity' => $quantity,
+            'measure_id' => $measureId,
+            'inventory_cost' => 0,
+        ]);
+
         $totalCost = 0;
 
         foreach ($recipe->recipeIngredients as $ingredient) {
-            // Obtener batches disponibles (FIFO)
+            if (!$ingredient->inventoryInput) {
+                throw new \Exception("La receta tiene un ingrediente sin producto de inventario asignado.");
+            }
+
             $batches = InventoryBatch::with('input')
                 ->whereDate('expiration_date', '>=', now())
                 ->where('quantity', '>', 0)
@@ -81,20 +93,16 @@ class EmployeeMealService
                 throw new \Exception("No hay inventario disponible para: {$ingredient->inventoryInput->name}");
             }
 
-            // Calcular cantidad requerida
             $requiredQty = $this->calculateRequiredQuantity($ingredient, $batches->first(), $quantity);
-            
             if ($requiredQty === false) {
                 throw new \Exception("No se puede convertir la medida para: {$ingredient->inventoryInput->name}");
             }
 
             $totalInStock = $batches->sum('quantity');
-            
             if ($requiredQty > $totalInStock) {
                 throw new \Exception("Cantidad insuficiente de: {$ingredient->inventoryInput->name}. Requerido: {$requiredQty}, Disponible: {$totalInStock}");
             }
 
-            // Descontar usando FIFO
             $remainingToDiscount = $requiredQty;
             $itemCost = 0;
 
@@ -104,33 +112,38 @@ class EmployeeMealService
                 }
 
                 $calculatedQty = $this->calculateRequiredQuantity($ingredient, $batch, $quantity);
-                
+                $toDeduct = 0;
+
                 if ($calculatedQty <= $batch->quantity) {
-                    // El batch tiene suficiente
-                    $itemCost += $batch->price * $calculatedQty;
-                    $batch->quantity -= $calculatedQty;
-                    $remainingToDiscount -= $calculatedQty;
+                    $toDeduct = $calculatedQty;
+                    $itemCost += $batch->price * $toDeduct;
+                    $batch->quantity -= $toDeduct;
+                    $remainingToDiscount -= $toDeduct;
                 } else {
-                    // Usar todo el batch y continuar con el siguiente
-                    $itemCost += $batch->price * $batch->quantity;
-                    $remainingToDiscount -= $batch->quantity;
+                    $toDeduct = $batch->quantity;
+                    $itemCost += $batch->price * $toDeduct;
+                    $remainingToDiscount -= $toDeduct;
                     $batch->quantity = 0;
                 }
-                
+
                 $batch->save();
+
+                if ($toDeduct > 0) {
+                    InventoryConsumptionLog::create([
+                        'order_item_id' => null,
+                        'employee_meal_item_id' => $mealItem->id,
+                        'inventory_batch_id' => $batch->id,
+                        'input_id' => $ingredient->inventoryInput->id,
+                        'quantity_consumed' => $toDeduct,
+                        'measure_id' => $batch->input->measure_id ?? null,
+                    ]);
+                }
             }
 
             $totalCost += $itemCost;
         }
 
-        // Crear registro del item consumido
-        EmployeeMealItem::create([
-            'employee_meal_id' => $employeeMeal->id,
-            'recipe_id' => $recipe->id,
-            'quantity' => $quantity,
-            'measure_id' => $measureId,
-            'inventory_cost' => $totalCost,
-        ]);
+        $mealItem->update(['inventory_cost' => $totalCost]);
 
         return $totalCost;
     }

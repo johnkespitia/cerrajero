@@ -10,6 +10,7 @@ class InventoryConsumptionLog extends Model
 
     protected $fillable = [
         'order_item_id',
+        'employee_meal_item_id',
         'inventory_batch_id',
         'input_id',
         'quantity_consumed',
@@ -23,6 +24,11 @@ class InventoryConsumptionLog extends Model
     public function orderItem()
     {
         return $this->belongsTo(OrderItem::class, 'order_item_id');
+    }
+
+    public function employeeMealItem()
+    {
+        return $this->belongsTo(EmployeeMealItem::class, 'employee_meal_item_id');
     }
 
     public function inventoryBatch()
