@@ -230,7 +230,7 @@ class OrderController extends Controller
                 'meal_type' => $request->meal_type,
                 'charge_to_room' => $request->charge_to_room ?? false,
                 'payment_type_id' => $request->charge_to_room ? null : $request->payment_type_id,
-                'external_reference' => $request->external_reference,
+                'external_reference' => $request->filled('external_reference') ? $request->external_reference : null,
                 'price' => $totalPrice,
                 'inventory_verified' => $hasItems,
                 'inventory_verification_date' => $hasItems ? now() : null,
