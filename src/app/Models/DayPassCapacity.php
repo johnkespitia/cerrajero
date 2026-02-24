@@ -95,13 +95,26 @@ class DayPassCapacity extends Model
      */
     public static function getOrCreateForDate($date, $defaultMaxCapacity = 0, $defaultAdultPrice = 0, $defaultChildPrice = 0)
     {
+        // Usar valores por defecto configurables si no se pasan explícitamente
+        $maxCapacity = $defaultMaxCapacity > 0
+            ? $defaultMaxCapacity
+            : config('day_pass.default_capacity', 200);
+
+        $adultPrice = $defaultAdultPrice > 0
+            ? $defaultAdultPrice
+            : config('day_pass.default_adult_price', 20000);
+
+        $childPrice = $defaultChildPrice > 0
+            ? $defaultChildPrice
+            : config('day_pass.default_child_price', 5000);
+
         return static::firstOrCreate(
             ['date' => $date],
             [
-                'max_capacity' => $defaultMaxCapacity,
+                'max_capacity' => $maxCapacity,
                 'consumed_capacity' => 0,
-                'adult_price' => $defaultAdultPrice,
-                'child_price' => $defaultChildPrice,
+                'adult_price' => $adultPrice,
+                'child_price' => $childPrice,
             ]
         );
     }
