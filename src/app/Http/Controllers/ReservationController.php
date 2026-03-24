@@ -435,6 +435,21 @@ class ReservationController extends Controller
             }
         }
 
+        // Validación temprana: si ni siquiera la capacidad total disponible alcanza,
+        // devolvemos conflicto antes de intentar distribuir huéspedes.
+        $totalAvailableCapacity = $availableRooms->sum(fn ($room) => (int) ($room->max_capacity ?? $room->capacity));
+        if ($totalAvailableCapacity < $totalGuests) {
+            $missingSpaces = $totalGuests - $totalAvailableCapacity;
+            \Log::warning('Capacidad insuficiente para reserva múltiple', [
+                'total_available_capacity' => $totalAvailableCapacity,
+                'total_guests' => $totalGuests,
+                'missing_spaces' => $missingSpaces,
+            ]);
+            return response()->json([
+                'message' => 'No hay suficientes habitaciones disponibles. Faltan ' . $missingSpaces . ' espacios'
+            ], 409);
+        }
+
         // Calcular habitaciones necesarias con distribución inteligente de huéspedes
         $roomsNeeded = [];
         $guests = $request->has('guests') && is_array($request->guests) ? $request->guests : [];
