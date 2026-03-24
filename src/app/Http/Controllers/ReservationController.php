@@ -411,18 +411,45 @@ class ReservationController extends Controller
 
             $availableRooms = $selectedRooms->sortByDesc(fn ($r) => (int) ($r->max_capacity ?? $r->capacity));
         } else {
-            // Buscar habitaciones disponibles automáticamente
-            $availableRooms = Room::where('room_type_id', $roomTypeId)
+            // Buscar habitaciones candidatas automáticamente
+            $candidateRooms = Room::where('room_type_id', $roomTypeId)
                 ->where('status', 'available')
                 ->where('active', true)
                 ->orderBy('capacity', 'desc')
-                ->get()
-                ->filter(function ($room) use ($request) {
-                    return $room->isAvailable(
-                        $request->check_in_date,
-                        $request->check_out_date ?? $request->check_in_date
-                    );
-                });
+                ->get();
+
+            if ($candidateRooms->isEmpty()) {
+                \Log::warning('No hay habitaciones candidatas para reserva múltiple', [
+                    'room_type_id' => $roomTypeId,
+                    'total_guests' => $totalGuests,
+                ]);
+                return response()->json([
+                    'message' => 'No hay suficientes habitaciones disponibles para alojar a todos los huéspedes'
+                ], 409);
+            }
+
+            // Guardrail temprano por capacidad total teórica para evitar errores aguas abajo.
+            $candidateCapacity = $candidateRooms->sum(fn ($room) => (int) ($room->max_capacity ?? $room->capacity));
+            if ($candidateCapacity < $totalGuests) {
+                $missingSpaces = $totalGuests - $candidateCapacity;
+                \Log::warning('Capacidad teórica insuficiente para reserva múltiple', [
+                    'room_type_id' => $roomTypeId,
+                    'candidate_capacity' => $candidateCapacity,
+                    'total_guests' => $totalGuests,
+                    'missing_spaces' => $missingSpaces,
+                ]);
+                return response()->json([
+                    'message' => 'No hay suficientes habitaciones disponibles. Faltan ' . $missingSpaces . ' espacios'
+                ], 409);
+            }
+
+            // Filtrar por disponibilidad real en rango de fechas.
+            $availableRooms = $candidateRooms->filter(function ($room) use ($request) {
+                return $room->isAvailable(
+                    $request->check_in_date,
+                    $request->check_out_date ?? $request->check_in_date
+                );
+            });
 
             if ($availableRooms->isEmpty()) {
                 \Log::warning('No hay habitaciones disponibles para reserva múltiple', [
