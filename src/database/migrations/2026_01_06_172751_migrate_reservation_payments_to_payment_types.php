@@ -21,7 +21,7 @@ class MigrateReservationPaymentsToPaymentTypes extends Migration
             'card' => 'Tarjeta',
             'transfer' => 'Transferencia',
             'check' => 'Cheque',
-            'other' => 'Otro'
+            'other' => 'Otro',
         ];
 
         $paymentTypeIds = [];
@@ -31,7 +31,7 @@ class MigrateReservationPaymentsToPaymentTypes extends Migration
                 [
                     'active' => true,
                     'credit' => false,
-                    'calculator' => true
+                    'calculator' => true,
                 ]
             );
             $paymentTypeIds[$enumValue] = $paymentType->id;
@@ -50,7 +50,10 @@ class MigrateReservationPaymentsToPaymentTypes extends Migration
         }
 
         // 4. Hacer el campo payment_type_id obligatorio (después de migrar)
-        DB::statement('ALTER TABLE reservation_payments MODIFY payment_type_id BIGINT UNSIGNED NOT NULL');
+        // SQLite no soporta ALTER ... MODIFY, y en tests usamos sqlite in-memory.
+        if (DB::getDriverName() !== 'sqlite') {
+            DB::statement('ALTER TABLE reservation_payments MODIFY payment_type_id BIGINT UNSIGNED NOT NULL');
+        }
 
         // 5. Agregar foreign key después de que el campo sea NOT NULL
         Schema::table('reservation_payments', function (Blueprint $table) {
@@ -81,7 +84,7 @@ class MigrateReservationPaymentsToPaymentTypes extends Migration
             'Tarjeta' => 'card',
             'Transferencia' => 'transfer',
             'Cheque' => 'check',
-            'Otro' => 'other'
+            'Otro' => 'other',
         ];
 
         foreach ($paymentTypesMap as $name => $enumValue) {

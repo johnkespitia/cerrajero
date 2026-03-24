@@ -20,7 +20,10 @@ class AllowNullPaymentTypeIdInReservationPayments extends Migration
             $table->dropForeign(['payment_type_id']);
         });
 
-        DB::statement('ALTER TABLE reservation_payments MODIFY payment_type_id BIGINT UNSIGNED NULL');
+        // SQLite no soporta ALTER ... MODIFY.
+        if (DB::getDriverName() !== 'sqlite') {
+            DB::statement('ALTER TABLE reservation_payments MODIFY payment_type_id BIGINT UNSIGNED NULL');
+        }
 
         Schema::table('reservation_payments', function (Blueprint $table) {
             $table->foreign('payment_type_id')->references('id')->on('payment_types')->onDelete('set null');
@@ -38,7 +41,10 @@ class AllowNullPaymentTypeIdInReservationPayments extends Migration
             $table->dropForeign(['payment_type_id']);
         });
 
-        DB::statement('ALTER TABLE reservation_payments MODIFY payment_type_id BIGINT UNSIGNED NOT NULL');
+        // SQLite no soporta ALTER ... MODIFY.
+        if (DB::getDriverName() !== 'sqlite') {
+            DB::statement('ALTER TABLE reservation_payments MODIFY payment_type_id BIGINT UNSIGNED NOT NULL');
+        }
 
         Schema::table('reservation_payments', function (Blueprint $table) {
             $table->foreign('payment_type_id')->references('id')->on('payment_types')->onDelete('restrict');
