@@ -13,10 +13,25 @@ class KioskUnitController extends Controller
 {
     /**
      * Display a listing of the resource.
+     * Optimización: Solo devolver unidades disponibles para la venta por defecto.
      */
-    public function index()
+    public function index(Request $request)
     {
-        return KioskUnit::all();
+        $query = KioskUnit::query();
+
+        // Si se solicita explícitamente ver todo (ej. para reportes)
+        if ($request->boolean('include_all')) {
+            return $query->all();
+        }
+
+        // Por defecto: solo unidades activas y NO vendidas
+        return $query->where('active', true)
+            ->where('sold', false)
+            ->where(function($q) {
+                $q->whereNull('expiration')
+                  ->orWhere('expiration', '>=', now()->toDateString());
+            })
+            ->get();
     }
 
     /**

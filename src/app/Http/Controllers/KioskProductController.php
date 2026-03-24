@@ -11,10 +11,17 @@ class KioskProductController extends Controller
 {
     /**
      * Display a listing of the resource.
+     * Optimización: Solo devolver productos activos por defecto.
      */
-    public function index()
+    public function index(Request $request)
     {
-        return KioskProduct::with('category')->with('tax')->get();
+        $query = KioskProduct::with('category')->with('tax');
+
+        if (!$request->boolean('include_inactive')) {
+            $query->where('active', true);
+        }
+
+        return $query->get();
     }
 
     /**
