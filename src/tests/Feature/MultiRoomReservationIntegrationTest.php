@@ -43,7 +43,8 @@ class MultiRoomReservationIntegrationTest extends TestCase
         
         $this->roomType = RoomType::create([
             'name' => 'Suite',
-            'capacity' => 4,
+            'code' => 'SUITE',
+            'default_capacity' => 4,
             'max_capacity' => 4,
             'active' => true,
         ]);
