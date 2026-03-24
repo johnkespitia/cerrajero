@@ -1,1 +1,35 @@
-<?php\nuse Illuminate\Database\Migrations\Migration;\nuse Illuminate\Database\Schema\Blueprint;\nuse Illuminate\Support\Facades\Schema;\n\nreturn new class extends Migration\n{\n    public function up(): void\n    {\n        Schema::create('room_inventory_items', function (Blueprint ) {\n            $table->id();\n            $table->string('name');\n            $table->string('sku')->unique();\n            $table->unsignedBigInteger('category_id')->nullable();\n            $table->string('purchase_unit')->nullable();\n            $table->decimal('purchase_price', 10, 2)->nullable();\n            $table->string('presentation_unit')->nullable();\n            $table->integer('quantity_per_presentation')->default(1);\n            $table->integer('min_qty_notify')->default(0);\n            $table->string('description')->nullable();\n            $table->timestamps();\n\n            $table->foreign('category_id')->references('id')->on('inventory_categories')->onDelete('set null');\n        });\n    }\n\n    public function down(): void\n    {\n        Schema::dropIfExists('room_inventory_items');\n    }\n};
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+class CreateRoomInventoryItemsTable extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('room_inventory_items', function (Blueprint $table): void {
+            $table->id();
+            $table->string('name');
+            $table->string('sku')->unique();
+            $table->unsignedBigInteger('category_id')->nullable();
+            $table->string('purchase_unit')->nullable();
+            $table->decimal('purchase_price', 10, 2)->nullable();
+            $table->string('presentation_unit')->nullable();
+            $table->integer('quantity_per_presentation')->default(1);
+            $table->integer('min_qty_notify')->default(0);
+            $table->string('description')->nullable();
+            $table->timestamps();
+
+            $table->foreign('category_id')
+                ->references('id')
+                ->on('inventory_categories')
+                ->onDelete('set null');
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists('room_inventory_items');
+    }
+}
