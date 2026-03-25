@@ -12,16 +12,18 @@ use Illuminate\Support\Facades\Validator;
 class KioskUnitController extends Controller
 {
     /**
-     * Display a listing of the resource.
-     * Optimización: Solo devolver unidades disponibles para la venta por defecto.
+     * Listado de unidades kiosko.
+     *
+     * Orden estable: product_id → id.
+     * Query: include_all=1 devuelve todas las unidades (admin); por defecto solo disponibles para venta.
      */
     public function index(Request $request)
     {
         $query = KioskUnit::query();
 
-        // Si se solicita explícitamente ver todo (ej. para reportes)
+        // Si se solicita explícitamente ver todo (ej. administración de inventario / reportes)
         if ($request->boolean('include_all')) {
-            return $query->all();
+            return $query->orderBy('product_id')->orderBy('id')->get();
         }
 
         // Por defecto: solo unidades activas y NO vendidas
@@ -31,6 +33,8 @@ class KioskUnitController extends Controller
                 $q->whereNull('expiration')
                   ->orWhere('expiration', '>=', now()->toDateString());
             })
+            ->orderBy('product_id')
+            ->orderBy('id')
             ->get();
     }
 

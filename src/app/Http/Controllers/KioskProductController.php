@@ -4,21 +4,29 @@ namespace App\Http\Controllers;
 
 use App\Models\KioskProduct;
 use Illuminate\Http\Request;
-use App\Http\Controllers\Controller;
+use Illuminate\Support\Facades\Storage;
 
 
 class KioskProductController extends Controller
 {
     /**
-     * Display a listing of the resource.
-     * Optimización: Solo devolver productos activos por defecto.
+     * Listado de productos kiosko.
+     *
+     * Orden estable (spec kiosk-inventory-presentation): categoría (nombre) → producto (nombre) → id.
+     * Query: include_inactive=1 incluye inactivos (p. ej. administración).
      */
     public function index(Request $request)
     {
-        $query = KioskProduct::with('category')->with('tax');
+        $query = KioskProduct::query()
+            ->with(['category', 'tax'])
+            ->leftJoin('kiosk_categories', 'kiosk_products.category_id', '=', 'kiosk_categories.id')
+            ->orderBy('kiosk_categories.name')
+            ->orderBy('kiosk_products.name')
+            ->orderBy('kiosk_products.id')
+            ->select('kiosk_products.*');
 
         if (!$request->boolean('include_inactive')) {
-            $query->where('active', true);
+            $query->where('kiosk_products.active', true);
         }
 
         return $query->get();
