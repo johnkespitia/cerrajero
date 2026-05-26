@@ -12,7 +12,12 @@ use App\Services\ElectronicInvoicing\Certificate\InMemoryCertificateSecretStore;
 use App\Services\ElectronicInvoicing\Certificate\InMemoryCertificateStorage;
 use App\Services\ElectronicInvoicing\LegacyPt\InMemoryLegacyPtArtifactStorage;
 use App\Services\ElectronicInvoicing\LegacyPt\LegacyPtArtifactStorageInterface;
+use App\Domain\ElectronicInvoicing\Ports\CertificateProviderInterface;
+use App\Infrastructure\ElectronicInvoicing\Certificates\P12CertificateProvider;
+use App\Infrastructure\ElectronicInvoicing\Xades\XadesEpesSigner;
+use App\Services\ElectronicInvoicing\Storage\InMemorySignedXmlStorage;
 use App\Services\ElectronicInvoicing\Storage\InMemoryUnsignedXmlStorage;
+use App\Services\ElectronicInvoicing\Storage\SignedXmlStorageInterface;
 use App\Services\ElectronicInvoicing\Storage\UnsignedXmlStorageInterface;
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Log\LogManager;
@@ -62,6 +67,39 @@ class ElectronicInvoicingServiceProvider extends ServiceProvider
 
         $this->app->singleton(CertificateSecretStoreInterface::class, function (): CertificateSecretStoreInterface {
             return new InMemoryCertificateSecretStore();
+        });
+
+        $this->app->singleton(SignedXmlStorageInterface::class, function (): SignedXmlStorageInterface {
+            return new InMemorySignedXmlStorage();
+        });
+
+        $this->app->bind(CertificateProviderInterface::class, function (Container $app): CertificateProviderInterface {
+            return new P12CertificateProvider(
+                $app->make(CertificateStorageInterface::class),
+                $app->make(CertificateSecretStoreInterface::class),
+            );
+        });
+
+        $this->app->bind(XadesEpesSigner::class, function (Container $app): XadesEpesSigner {
+            $config = function_exists('config')
+                ? (array) config('electronic-invoicing.signature', [])
+                : [];
+
+            return new XadesEpesSigner(
+                $app->make(CertificateProviderInterface::class),
+                $config
+            );
+        });
+
+        $this->app->bind(\App\Services\ElectronicInvoicing\SigningCoordinator::class, function (Container $app): \App\Services\ElectronicInvoicing\SigningCoordinator {
+            return new \App\Services\ElectronicInvoicing\SigningCoordinator(
+                $app->make(UnsignedXmlStorageInterface::class),
+                $app->make(SignedXmlStorageInterface::class),
+                $app->make(CertificateProviderInterface::class),
+                $app->make(XadesEpesSigner::class),
+                $app->make(MetricsRecorderInterface::class),
+                $app->make(ElectronicInvoicingLoggerInterface::class),
+            );
         });
     }
 

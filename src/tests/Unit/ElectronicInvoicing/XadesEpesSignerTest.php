@@ -89,12 +89,12 @@ class XadesEpesSignerTest extends TestCase
         $signer->sign('<?xml version="1.0"?><Invoice/>', 'active');
     }
 
-    public function test_sign_raises_unavailable_when_xades_full_envelope_is_not_wired(): void
+    public function test_sign_raises_unavailable_when_no_material_is_bound_to_alias(): void
     {
         $signer = $this->newSigner();
 
         $this->expectException(XadesEpesSigningUnavailableException::class);
-        $this->expectExceptionMessageMatches('/not yet wired|xmlsec/i');
+        $this->expectExceptionMessageMatches('/key material/i');
         $signer->sign('<?xml version="1.0"?><Invoice><cbc:ID>1</cbc:ID></Invoice>', 'active');
     }
 
@@ -123,6 +123,110 @@ class XadesEpesSignerTest extends TestCase
                 );
             }
         }
+    }
+
+    public function test_sign_with_material_produces_verifiable_envelope(): void
+    {
+        if (! extension_loaded('openssl') || ! extension_loaded('dom')) {
+            $this->markTestSkipped('OpenSSL + DOM extensions are required for this test.');
+        }
+
+        $material = $this->generateTestMaterial();
+
+        $signer = $this->newSigner();
+        $signed = $signer->signWithMaterial(
+            '<?xml version="1.0"?>' .
+            '<Invoice xmlns="urn:oasis:names:specification:ubl:schema:xsd:Invoice-2">' .
+            '<cbc xmlns="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2">' .
+            '<ID>SETP990000001</ID></cbc></Invoice>',
+            $material
+        );
+
+        // ds:Signature is anchored under ext:UBLExtensions/ext:UBLExtension/ext:ExtensionContent
+        $this->assertStringContainsString('ext:UBLExtensions', $signed);
+        $this->assertStringContainsString('ext:UBLExtension', $signed);
+        $this->assertStringContainsString('ds:Signature', $signed);
+        $this->assertStringContainsString('xades:SignedProperties', $signed);
+        $this->assertStringContainsString('xades:SignaturePolicyIdentifier', $signed);
+        $this->assertStringContainsString('ds:X509Certificate', $signed);
+        $this->assertStringContainsString('SignatureMethod Algorithm="http://www.w3.org/2001/04/xmldsig-more#rsa-sha256"', $signed);
+        $this->assertStringContainsString('CanonicalizationMethod Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"', $signed);
+
+        // The signature MUST verify against the embedded X.509 certificate.
+        $this->assertTrue($signer->verifySignature($signed));
+    }
+
+    public function test_sign_with_material_includes_signature_policy_identifier_from_config(): void
+    {
+        if (! extension_loaded('openssl') || ! extension_loaded('dom')) {
+            $this->markTestSkipped('OpenSSL + DOM extensions are required for this test.');
+        }
+
+        $material = $this->generateTestMaterial();
+        $signer = $this->newSigner();
+        $signed = $signer->signWithMaterial('<?xml version="1.0"?><Invoice/>', $material);
+
+        $this->assertStringContainsString(
+            '<xades:Identifier>https://facturaelectronica.dian.gov.co/politicadefirma/v2/politicadefirmav2.pdf</xades:Identifier>',
+            $signed
+        );
+
+        $document = new \DOMDocument();
+        $document->loadXML($signed);
+        $xpath = new \DOMXPath($document);
+        $xpath->registerNamespace('xades', \App\Infrastructure\ElectronicInvoicing\Xades\XadesEpesSigner::NS_XADES);
+        $xpath->registerNamespace('ds', \App\Infrastructure\ElectronicInvoicing\Xades\XadesEpesSigner::NS_DS);
+        $policyDigestNodes = $xpath->query('//xades:SigPolicyHash/ds:DigestValue');
+        $this->assertGreaterThan(0, $policyDigestNodes->length, 'SigPolicyHash/DigestValue must exist.');
+        $this->assertSame('dMqkBgDfJ+CMb6tJM7gQUFA0R5o=', trim((string) $policyDigestNodes->item(0)->nodeValue));
+    }
+
+    public function test_with_material_clones_the_signer_without_mutating_the_original(): void
+    {
+        if (! extension_loaded('openssl')) {
+            $this->markTestSkipped('OpenSSL extension is required for this test.');
+        }
+
+        $material = $this->generateTestMaterial();
+        $base = $this->newSigner();
+        $bound = $base->withMaterial('alias-1', $material);
+
+        $this->expectException(XadesEpesSigningUnavailableException::class);
+        $base->sign('<?xml version="1.0"?><Invoice/>', 'alias-1');
+
+        $signed = $bound->sign('<?xml version="1.0"?><Invoice/>', 'alias-1');
+        $this->assertNotSame('', $signed);
+    }
+
+    public function test_verify_signature_returns_false_when_payload_tampered(): void
+    {
+        if (! extension_loaded('openssl') || ! extension_loaded('dom')) {
+            $this->markTestSkipped('OpenSSL + DOM extensions are required for this test.');
+        }
+        $material = $this->generateTestMaterial();
+        $signer = $this->newSigner();
+        $signed = $signer->signWithMaterial(
+            '<?xml version="1.0"?><Invoice><ID>1</ID></Invoice>',
+            $material
+        );
+
+        $tampered = str_replace('<ID>1</ID>', '<ID>2</ID>', $signed);
+        $this->assertFalse($signer->verifySignature($tampered));
+    }
+
+    private function generateTestMaterial(): array
+    {
+        $keyPair = openssl_pkey_new(['private_key_bits' => 2048, 'private_key_type' => OPENSSL_KEYTYPE_RSA]);
+        $csr = openssl_csr_new(['CN' => 'Signer Test', 'O' => 'Campo Verde'], $keyPair, ['digest_alg' => 'sha256']);
+        $cert = openssl_csr_sign($csr, null, $keyPair, 365, ['digest_alg' => 'sha256']);
+
+        $certPem = '';
+        openssl_x509_export($cert, $certPem);
+
+        $privatePem = '';
+        openssl_pkey_export($keyPair, $privatePem);
+
+        return ['certificate' => $certPem, 'private_key' => $privatePem, 'chain_pem' => null];
     }
 
     public function test_digest_sha256_matches_known_vector(): void

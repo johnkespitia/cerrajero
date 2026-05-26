@@ -15,6 +15,7 @@ use App\Infrastructure\ElectronicInvoicing\Metrics\InMemoryMetricsRecorder;
 use App\Models\ElectronicDocument;
 use App\Models\ElectronicDocumentEvent;
 use App\Services\ElectronicInvoicing\Exceptions\IncompleteEmissionPayloadException;
+use App\Services\ElectronicInvoicing\SigningCoordinator;
 use App\Services\ElectronicInvoicing\Storage\InMemoryUnsignedXmlStorage;
 use App\Services\ElectronicInvoicing\Storage\UnsignedXmlStorageInterface;
 use Carbon\Carbon;
@@ -60,6 +61,12 @@ final class DocumentEmitter
     /** @var ElectronicInvoicingLoggerInterface */
     private $logger;
 
+    /** @var SigningCoordinator|null */
+    private $signingCoordinator;
+
+    /** @var bool */
+    private $signingEnabled;
+
     public function __construct(
         DocumentAssembler $assembler,
         ?CufeCalculatorInterface $cufeCalculator = null,
@@ -67,7 +74,9 @@ final class DocumentEmitter
         ?UblBuilderRegistry $builderRegistry = null,
         ?UnsignedXmlStorageInterface $xmlStorage = null,
         ?MetricsRecorderInterface $metrics = null,
-        ?ElectronicInvoicingLoggerInterface $logger = null
+        ?ElectronicInvoicingLoggerInterface $logger = null,
+        ?SigningCoordinator $signingCoordinator = null,
+        ?bool $signingEnabled = null
     ) {
         $this->assembler = $assembler;
         $this->cufeCalculator = $cufeCalculator ?: new Sha384CufeCalculator();
@@ -76,6 +85,9 @@ final class DocumentEmitter
         $this->xmlStorage = $xmlStorage ?: new InMemoryUnsignedXmlStorage();
         $this->metrics = $metrics ?: new InMemoryMetricsRecorder();
         $this->logger = $logger ?: new ElectronicInvoicingLogger();
+        $this->signingCoordinator = $signingCoordinator;
+        $this->signingEnabled = $signingEnabled
+            ?? (function_exists('config') ? (bool) config('electronic-invoicing.signing.enabled', false) : false);
     }
 
     /**
@@ -178,6 +190,10 @@ final class DocumentEmitter
                 microtime(true) - $emissionStartedAt,
                 ['type' => $documentType, 'environment' => $environment]
             );
+
+            if ($this->signingEnabled && $this->signingCoordinator !== null) {
+                $document = $this->signingCoordinator->sign($document, $correlationId);
+            }
 
             $document->load('events');
             return $document;
