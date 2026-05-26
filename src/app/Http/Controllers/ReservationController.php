@@ -17,6 +17,10 @@ use App\Services\ReservationValidationService;
 use App\Services\ReservationNotificationService;
 use App\Services\ReservationCancellationService;
 use App\Services\AdditionalServicePriceCalculator;
+use App\Services\ElectronicInvoicing\Exceptions\ReservationEmissionException;
+use App\Services\ElectronicInvoicing\Exceptions\ReservationEmissionInvalidPayloadException;
+use App\Services\ElectronicInvoicing\Exceptions\ReservationEmissionUnavailableException;
+use App\Services\ElectronicInvoicing\ReservationInvoiceEmissionService;
 use App\Models\AdditionalService;
 use App\Models\ServicePackage;
 use App\Models\ReservationAdditionalService;
@@ -2722,6 +2726,24 @@ class ReservationController extends Controller
             ], 422);
         }
 
+        // Validación temprana de electronic_invoice / acquirer (sólo cuando EI activo).
+        // Mantiene el contrato: el FEV de reserva exige adquiriente fiscal antes de
+        // tocar la BD; sin acquirer devolvemos 422 sin consumir resolución DIAN.
+        if ($this->reservationElectronicEmissionEnabled()
+            && $request->boolean('electronic_invoice', true)
+            && empty($request->input('acquirer'))) {
+            return response()->json([
+                'message' => 'electronic_invoice=true requiere los datos fiscales del adquiriente para emitir la FEV de la reserva.',
+                'errors' => [
+                    'acquirer' => ['Debe enviar el bloque acquirer cuando electronic_invoice es true.'],
+                ],
+                'electronic_document_error' => [
+                    'code' => ReservationEmissionInvalidPayloadException::CODE_MISSING_ACQUIRER,
+                    'message' => 'Reservation checkout with electronic_invoice=true requires an acquirer block.',
+                ],
+            ], 422);
+        }
+
         // Validar que la reserva esté completamente pagada (excluyendo pagos a crédito del kiosko)
         // IMPORTANTE: Los cargos del minibar SÍ deben estar pagados para hacer checkout
         // Para reservas multihabitación: sumar totalPrice, totalPaid, minibar de TODAS las reservas del grupo
@@ -2905,6 +2927,33 @@ class ReservationController extends Controller
                 \Log::warning('Error generating checkout invoice: ' . $e->getMessage());
             }
 
+            // Emisión electrónica DIAN (FEV) — local, sin red.
+            // Si EI activo: se ejecuta dentro de la transacción de checkout.
+            // - InvalidPayload => 422 con rollback (acquirer inválido).
+            // - Unavailable    => commit del checkout + electronic_document_error.
+            $electronicEnvelope = [];
+            if ($this->reservationElectronicEmissionEnabled()
+                && $request->boolean('electronic_invoice', true)) {
+                try {
+                    $electronicEnvelope = $this->attemptReservationElectronicEmission(
+                        $reservation,
+                        $request->input('acquirer')
+                    );
+                } catch (ReservationEmissionInvalidPayloadException $re) {
+                    DB::rollBack();
+                    return response()->json([
+                        'message' => $re->getMessage(),
+                        'errors' => [
+                            'acquirer' => [$re->getMessage()],
+                        ],
+                        'electronic_document_error' => [
+                            'code' => $re->emissionCode(),
+                            'message' => $re->getMessage(),
+                        ],
+                    ], 422);
+                }
+            }
+
             // Enviar email con PDF de checkout y factura consolidada
             if ($checkoutCertificate) {
                 try {
@@ -2927,11 +2976,15 @@ class ReservationController extends Controller
 
             $reservation->load(['customer', 'room', 'room.roomType', 'guests', 'payments']);
 
-            return response()->json([
+            $responseBody = [
                 'message' => 'Check-out realizado exitosamente',
                 'reservation' => $reservation,
-                'certificate' => $checkoutCertificate
-            ]);
+                'certificate' => $checkoutCertificate,
+            ];
+            if (!empty($electronicEnvelope)) {
+                $responseBody = array_merge($responseBody, $electronicEnvelope);
+            }
+            return response()->json($responseBody);
         } catch (\Exception $e) {
             DB::rollBack();
             return response()->json([
@@ -2939,6 +2992,68 @@ class ReservationController extends Controller
                 'error' => $e->getMessage()
             ], 500);
         }
+    }
+
+    /**
+     * Run the FEV emission flow for this reservation and return the JSON
+     * envelope keys to merge into the response (`electronic_document` or
+     * `electronic_document_error`).
+     *
+     * Throws `ReservationEmissionInvalidPayloadException` for 422 cases.
+     * Configuration gaps (Unavailable) are swallowed and reported as a
+     * structured `electronic_document_error` so the checkout commits.
+     */
+    protected function attemptReservationElectronicEmission(Reservation $reservation, ?array $acquirerPayload): array
+    {
+        /** @var ReservationInvoiceEmissionService $service */
+        $service = app(ReservationInvoiceEmissionService::class);
+        try {
+            $document = $service->emitForReservation($reservation, $acquirerPayload);
+            return ['electronic_document' => $service->summarise($document)];
+        } catch (ReservationEmissionInvalidPayloadException $e) {
+            throw $e;
+        } catch (ReservationEmissionUnavailableException $e) {
+            \Log::warning('Reservation electronic emission unavailable', [
+                'reservation_id' => $reservation->id,
+                'code' => $e->emissionCode(),
+            ]);
+            return [
+                'electronic_document_error' => [
+                    'code' => $e->emissionCode(),
+                    'message' => $e->getMessage(),
+                ],
+            ];
+        } catch (ReservationEmissionException $e) {
+            return [
+                'electronic_document_error' => [
+                    'code' => $e->emissionCode(),
+                    'message' => $e->getMessage(),
+                ],
+            ];
+        } catch (\Throwable $e) {
+            \Log::warning('Reservation electronic emission threw unexpected exception', [
+                'reservation_id' => $reservation->id,
+                'error' => $e->getMessage(),
+            ]);
+            return [
+                'electronic_document_error' => [
+                    'code' => ReservationEmissionUnavailableException::CODE_EMITTER_FAILURE,
+                    'message' => 'Unexpected error while building the electronic document.',
+                ],
+            ];
+        }
+    }
+
+    protected function reservationElectronicEmissionEnabled(): bool
+    {
+        $value = function_exists('config') ? config('electronic-invoicing.enabled') : false;
+        if (is_bool($value)) {
+            return $value;
+        }
+        if (is_string($value)) {
+            return in_array(strtolower($value), ['1', 'true', 'yes', 'on'], true);
+        }
+        return (bool) $value;
     }
 
     /**

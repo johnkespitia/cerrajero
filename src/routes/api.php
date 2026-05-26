@@ -25,6 +25,37 @@ Route::get('/google-calendar/callback', [\App\Http\Controllers\GoogleCalendarCon
 
 Route::middleware(['auth:sanctum'])->group(function () {
     // ============================================
+    // Módulo de Facturación Electrónica DIAN (Admin)
+    // ============================================
+    Route::prefix('electronic-invoicing')->group(function () {
+        Route::controller(\App\Http\Controllers\ElectronicInvoicing\CompanyProfileController::class)->group(function () {
+            Route::get('/company-profile', 'show')->name('fiscal-admin.company.show');
+            Route::put('/company-profile', 'update')->name('fiscal-admin.company.update');
+        });
+        Route::controller(\App\Http\Controllers\ElectronicInvoicing\SoftwareCredentialController::class)->group(function () {
+            Route::get('/software-credentials', 'show')->name('fiscal-admin.credential.show');
+            Route::put('/software-credentials', 'update')->name('fiscal-admin.credential.update');
+        });
+        Route::controller(\App\Http\Controllers\ElectronicInvoicing\ResolutionController::class)->group(function () {
+            Route::get('/resolutions', 'index')->name('fiscal-admin.resolutions.index');
+            Route::post('/resolutions', 'store')->name('fiscal-admin.resolutions.store');
+            Route::put('/resolutions/{id}', 'update')->name('fiscal-admin.resolutions.update');
+            Route::delete('/resolutions/{id}', 'destroy')->name('fiscal-admin.resolutions.destroy');
+        });
+        Route::controller(\App\Http\Controllers\ElectronicInvoicing\HealthcheckController::class)->group(function () {
+            Route::get('/healthcheck', 'show')->name('fiscal-admin.healthcheck');
+        });
+        Route::controller(\App\Http\Controllers\ElectronicInvoicing\DocumentLookupController::class)->group(function () {
+            Route::get('/documents', 'index')->name('fiscal.documents.index');
+            Route::get('/documents/{id}', 'show')->name('fiscal.documents.show');
+        });
+        Route::controller(\App\Http\Controllers\ElectronicInvoicing\CreditDebitNoteController::class)->group(function () {
+            Route::post('/documents/{id}/credit-note', 'storeCreditNote')->name('fiscal.documents.credit-note');
+            Route::post('/documents/{id}/debit-note', 'storeDebitNote')->name('fiscal.documents.debit-note');
+        });
+    });
+
+    // ============================================
     // Módulo de Gestión de Usuarios y Permisos
     // ============================================
     

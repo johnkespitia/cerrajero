@@ -67,7 +67,12 @@ class Reservation extends Model
         // Campos para reservas agrupadas (múltiples habitaciones)
         'parent_reservation_id',
         'is_group_reservation',
-        'room_sequence'
+        'room_sequence',
+        // Campos fiscales (slice electronic-invoicing-dian-reservations-backend)
+        'electronic_document_id',
+        'fiscal_payment_means_code',
+        'fiscal_payment_terms',
+        'fiscal_due_date',
     ];
 
     protected $casts = [
@@ -97,7 +102,13 @@ class Reservation extends Model
         'early_check_in' => 'boolean',
         'late_check_out' => 'boolean',
         'price_breakdown' => 'array',
+        'fiscal_due_date' => 'date',
     ];
+
+    public function electronicDocument()
+    {
+        return $this->belongsTo(ElectronicDocument::class, 'electronic_document_id');
+    }
 
     /**
      * Atributos calculados incluidos en la serialización JSON (API).

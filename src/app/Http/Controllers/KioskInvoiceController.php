@@ -9,6 +9,10 @@ use App\Models\KioskInvoiceDetail;
 use App\Models\CashRegisterClosure;
 use App\Models\Reservation;
 use App\Models\ReservationPayment;
+use App\Services\ElectronicInvoicing\Exceptions\KioskEmissionInvalidPayloadException;
+use App\Services\ElectronicInvoicing\Exceptions\KioskEmissionUnavailableException;
+use App\Services\ElectronicInvoicing\KioskFiscalSnapshotBuilder;
+use App\Services\ElectronicInvoicing\KioskInvoiceEmissionService;
 use App\Services\KioskOtpService;
 use Illuminate\Http\Request;
 use App\Http\Controllers\Controller;
@@ -87,13 +91,16 @@ class KioskInvoiceController extends Controller
 
             // Guardar unidades temporalmente (en sesión o tabla temporal)
             // Por ahora, guardamos en la factura pero no marcamos como vendidas
+            $snapshotBuilder = new KioskFiscalSnapshotBuilder();
             $units = $request->get("units");
             foreach ($units as $unit) {
-                KioskInvoiceDetail::create([
+                $unitModel = KioskUnit::with('product.tax')->find($unit['kiosk_units_id']);
+                $snapshot = $snapshotBuilder->buildForUnit($unitModel, $unit['price']);
+                KioskInvoiceDetail::create(array_merge([
                     'kiosk_invoices_id' => $tempInvoice->id,
                     'kiosk_units_id' => $unit['kiosk_units_id'],
-                    'price' => $unit['price']
-                ]);
+                    'price' => $unit['price'],
+                ], $snapshot));
             }
 
             // Generar y enviar OTP
@@ -185,14 +192,40 @@ class KioskInvoiceController extends Controller
                 $kioskInvoice->save();
             }
 
+            $electronicEnvelope = [];
+            if ($this->electronicEmissionEnabled()) {
+                try {
+                    $electronicEnvelope = $this->attemptElectronicEmission(
+                        $kioskInvoice,
+                        $request->input('acquirer')
+                    );
+                } catch (KioskEmissionInvalidPayloadException $ke) {
+                    DB::rollBack();
+                    return response()->json([
+                        'message' => $ke->getMessage(),
+                        'errors' => [
+                            'acquirer' => [$ke->getMessage()],
+                        ],
+                        'electronic_document_error' => [
+                            'code' => $ke->emissionCode(),
+                            'message' => $ke->getMessage(),
+                        ],
+                    ], 422);
+                }
+            }
+
             DB::commit();
 
             $kioskInvoice->load(['details.kiosk_unit.product', 'payment_type', 'customer', 'reservation']);
-            
-            return response()->json([
+
+            $response = [
                 'message' => 'Compra completada exitosamente.',
-                'invoice' => $kioskInvoice
-            ], 200);
+                'invoice' => $kioskInvoice,
+            ];
+            foreach ($electronicEnvelope as $key => $value) {
+                $response[$key] = $value;
+            }
+            return response()->json($response, 200);
         } catch (\Exception $e) {
             DB::rollBack();
             Log::error('Error completando factura con OTP: ' . $e->getMessage());
@@ -257,8 +290,35 @@ class KioskInvoiceController extends Controller
                 'electronic_invoice' => 'required|boolean',
                 'payed_value' => 'numeric',
                 'temp_invoice_id' => 'nullable|exists:kiosk_invoices,id', // ID de factura temporal con OTP
-                'otp_code' => 'nullable|string|size:6' // OTP para compras a crédito
+                'otp_code' => 'nullable|string|size:6', // OTP para compras a crédito
+                'acquirer' => 'nullable|array',
+                'acquirer.document_type' => 'required_with:acquirer|string|max:30',
+                'acquirer.document_number' => 'required_with:acquirer|string|max:30',
+                'acquirer.legal_name' => 'required_with:acquirer|string|max:200',
+                'acquirer.dv' => 'nullable|integer|min:0|max:9',
+                'acquirer.email' => 'nullable|email|max:200',
+                'acquirer.address_line' => 'nullable|string|max:255',
+                'acquirer.city_code_dian' => 'nullable|string|max:5',
+                'acquirer.country_code' => 'nullable|string|size:2',
+                'acquirer.tax_regime_code' => 'nullable|string|max:4',
+                'acquirer.tax_responsibilities' => 'nullable|array',
             ]);
+
+            if ($this->electronicEmissionEnabled()
+                && $request->boolean('electronic_invoice')
+                && empty($request->input('acquirer'))) {
+                DB::rollBack();
+                return response()->json([
+                    'message' => 'electronic_invoice=true requiere los datos fiscales del adquiriente.',
+                    'errors' => [
+                        'acquirer' => ['Debe enviar el bloque acquirer cuando electronic_invoice es true.'],
+                    ],
+                    'electronic_document_error' => [
+                        'code' => KioskEmissionInvalidPayloadException::CODE_MISSING_ACQUIRER,
+                        'message' => 'electronic_invoice=true requires an acquirer block.',
+                    ],
+                ], 422);
+            }
 
             // OPCIÓN C: Asociación Automática Inteligente de Reservas
             $activeReservation = $this->findActiveReservation($request->customer_id, $request->reservation_id);
@@ -359,10 +419,12 @@ class KioskInvoiceController extends Controller
                 }
             } else {
                 // Crear nuevas unidades
+                $snapshotBuilder = new KioskFiscalSnapshotBuilder();
                 foreach ($units as $key => $unit) {
-                    $unitModel = KioskUnit::find($unit['kiosk_units_id']);
+                    $unitModel = KioskUnit::with('product.tax')->find($unit['kiosk_units_id']);
                     $unit['kiosk_invoices_id'] = $kioskInvoice->id;
-                    $unit_saved = KioskInvoiceDetail::create($unit);
+                    $snapshot = $snapshotBuilder->buildForUnit($unitModel, $unit['price'] ?? 0);
+                    $unit_saved = KioskInvoiceDetail::create(array_merge($unit, $snapshot));
                     $unitModel->sold = true;
                     $unitModel->save();
                     $total_invoice += $unitModel->product->sale_price;
@@ -453,10 +515,37 @@ class KioskInvoiceController extends Controller
                 $kioskInvoice->save();
             }
 
+            $electronicEnvelope = [];
+            if ($this->electronicEmissionEnabled()) {
+                try {
+                    $electronicEnvelope = $this->attemptElectronicEmission(
+                        $kioskInvoice,
+                        $request->input('acquirer')
+                    );
+                } catch (KioskEmissionInvalidPayloadException $ke) {
+                    DB::rollBack();
+                    return response()->json([
+                        'message' => $ke->getMessage(),
+                        'errors' => [
+                            'acquirer' => [$ke->getMessage()],
+                        ],
+                        'electronic_document_error' => [
+                            'code' => $ke->emissionCode(),
+                            'message' => $ke->getMessage(),
+                        ],
+                    ], 422);
+                }
+            }
+
             DB::commit();
 
             $kioskInvoice->load(['details', 'payment_type', 'customer', 'reservation']);
-            return response()->json($kioskInvoice, 201);
+
+            $payload = $kioskInvoice->toArray();
+            foreach ($electronicEnvelope as $key => $value) {
+                $payload[$key] = $value;
+            }
+            return response()->json($payload, 201);
         }catch(ValidationException $ve){
             DB::rollBack();
             return response()->json([
@@ -471,6 +560,51 @@ class KioskInvoiceController extends Controller
             ], 500);
         }
 
+    }
+
+    /**
+     * Helper para emitir el ElectronicDocument local asociado a una KioskInvoice.
+     *
+     * - Retorna { electronic_document: {...} } cuando la emisi\u00f3n local prospera.
+     * - Retorna { electronic_document_error: {...} } cuando hay gaps de configuraci\u00f3n
+     *   fiscal en entornos no productivos para no bloquear caja.
+     * - Re-lanza KioskEmissionInvalidPayloadException para que el caller responda 422.
+     */
+    protected function attemptElectronicEmission(KioskInvoice $invoice, ?array $acquirerPayload): array
+    {
+        /** @var KioskInvoiceEmissionService $service */
+        $service = app(KioskInvoiceEmissionService::class);
+
+        try {
+            $document = $service->emitForKioskInvoice($invoice, $acquirerPayload);
+            return ['electronic_document' => $service->summarise($document)];
+        } catch (KioskEmissionInvalidPayloadException $e) {
+            throw $e;
+        } catch (KioskEmissionUnavailableException $e) {
+            Log::warning('Electronic emission unavailable for kiosk invoice', [
+                'kiosk_invoice_id' => $invoice->id,
+                'code' => $e->emissionCode(),
+                'message' => $e->getMessage(),
+            ]);
+            return [
+                'electronic_document_error' => [
+                    'code' => $e->emissionCode(),
+                    'message' => $e->getMessage(),
+                ],
+            ];
+        }
+    }
+
+    protected function electronicEmissionEnabled(): bool
+    {
+        $value = function_exists('config') ? config('electronic-invoicing.enabled', false) : false;
+        if (is_bool($value)) {
+            return $value;
+        }
+        if (is_string($value)) {
+            return in_array(strtolower($value), ['1', 'true', 'yes', 'on'], true);
+        }
+        return (bool) $value;
     }
 
     /**
