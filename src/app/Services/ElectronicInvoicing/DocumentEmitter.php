@@ -14,6 +14,7 @@ use App\Infrastructure\ElectronicInvoicing\Logging\ElectronicInvoicingLogger;
 use App\Infrastructure\ElectronicInvoicing\Metrics\InMemoryMetricsRecorder;
 use App\Models\ElectronicDocument;
 use App\Models\ElectronicDocumentEvent;
+use App\Services\ElectronicInvoicing\DianDispatcher;
 use App\Services\ElectronicInvoicing\Exceptions\IncompleteEmissionPayloadException;
 use App\Services\ElectronicInvoicing\SigningCoordinator;
 use App\Services\ElectronicInvoicing\Storage\InMemoryUnsignedXmlStorage;
@@ -67,6 +68,15 @@ final class DocumentEmitter
     /** @var bool */
     private $signingEnabled;
 
+    /** @var DianDispatcher|null */
+    private $dispatcher;
+
+    /** @var bool */
+    private $dispatchEnabled;
+
+    /** @var string */
+    private $dispatchMode;
+
     public function __construct(
         DocumentAssembler $assembler,
         ?CufeCalculatorInterface $cufeCalculator = null,
@@ -76,7 +86,10 @@ final class DocumentEmitter
         ?MetricsRecorderInterface $metrics = null,
         ?ElectronicInvoicingLoggerInterface $logger = null,
         ?SigningCoordinator $signingCoordinator = null,
-        ?bool $signingEnabled = null
+        ?bool $signingEnabled = null,
+        ?DianDispatcher $dispatcher = null,
+        ?bool $dispatchEnabled = null,
+        ?string $dispatchMode = null
     ) {
         $this->assembler = $assembler;
         $this->cufeCalculator = $cufeCalculator ?: new Sha384CufeCalculator();
@@ -88,6 +101,11 @@ final class DocumentEmitter
         $this->signingCoordinator = $signingCoordinator;
         $this->signingEnabled = $signingEnabled
             ?? (function_exists('config') ? (bool) config('electronic-invoicing.signing.enabled', false) : false);
+        $this->dispatcher = $dispatcher;
+        $this->dispatchEnabled = $dispatchEnabled
+            ?? (function_exists('config') ? (bool) config('electronic-invoicing.dispatch.enabled', false) : false);
+        $this->dispatchMode = $dispatchMode
+            ?? (function_exists('config') ? (string) config('electronic-invoicing.dispatch.mode', 'sync') : 'sync');
     }
 
     /**
@@ -193,6 +211,10 @@ final class DocumentEmitter
 
             if ($this->signingEnabled && $this->signingCoordinator !== null) {
                 $document = $this->signingCoordinator->sign($document, $correlationId);
+            }
+            if ($this->dispatchEnabled && $this->dispatcher !== null
+                && (string) $document->status === DocumentStatus::XADES_SIGNED) {
+                $document = $this->dispatcher->dispatch($document, $correlationId, $this->dispatchMode);
             }
 
             $document->load('events');

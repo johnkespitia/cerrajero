@@ -15,6 +15,8 @@ use App\Services\ElectronicInvoicing\LegacyPt\LegacyPtArtifactStorageInterface;
 use App\Domain\ElectronicInvoicing\Ports\CertificateProviderInterface;
 use App\Infrastructure\ElectronicInvoicing\Certificates\P12CertificateProvider;
 use App\Infrastructure\ElectronicInvoicing\Xades\XadesEpesSigner;
+use App\Services\ElectronicInvoicing\Storage\DianResponseStorageInterface;
+use App\Services\ElectronicInvoicing\Storage\InMemoryDianResponseStorage;
 use App\Services\ElectronicInvoicing\Storage\InMemorySignedXmlStorage;
 use App\Services\ElectronicInvoicing\Storage\InMemoryUnsignedXmlStorage;
 use App\Services\ElectronicInvoicing\Storage\SignedXmlStorageInterface;
@@ -99,6 +101,27 @@ class ElectronicInvoicingServiceProvider extends ServiceProvider
                 $app->make(XadesEpesSigner::class),
                 $app->make(MetricsRecorderInterface::class),
                 $app->make(ElectronicInvoicingLoggerInterface::class),
+            );
+        });
+
+        $this->app->singleton(DianResponseStorageInterface::class, function (): DianResponseStorageInterface {
+            return new InMemoryDianResponseStorage();
+        });
+
+        $this->app->bind(\App\Services\ElectronicInvoicing\DianDispatcher::class, function (Container $app): \App\Services\ElectronicInvoicing\DianDispatcher {
+            $mode = function_exists('config')
+                ? (string) config('electronic-invoicing.dispatch.mode', 'sync')
+                : 'sync';
+
+            return new \App\Services\ElectronicInvoicing\DianDispatcher(
+                $app->make(SignedXmlStorageInterface::class),
+                $app->make(DianResponseStorageInterface::class),
+                $app->make(\App\Domain\ElectronicInvoicing\Ports\DianSoapClientInterface::class),
+                new \App\Services\ElectronicInvoicing\Dispatch\DianZipPackager(),
+                new \App\Services\ElectronicInvoicing\Dispatch\DianResponseMapper(),
+                $app->make(MetricsRecorderInterface::class),
+                $app->make(ElectronicInvoicingLoggerInterface::class),
+                $mode
             );
         });
     }
