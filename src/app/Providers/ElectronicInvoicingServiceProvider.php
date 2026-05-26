@@ -158,6 +158,21 @@ class ElectronicInvoicingServiceProvider extends ServiceProvider
             );
         });
 
+        $this->app->bind(\App\Services\ElectronicInvoicing\Radian\RadianEventService::class, function (Container $app): \App\Services\ElectronicInvoicing\Radian\RadianEventService {
+            return new \App\Services\ElectronicInvoicing\Radian\RadianEventService(
+                $app->make(\App\Domain\ElectronicInvoicing\Ports\CertificateProviderInterface::class),
+                $app->make(\App\Infrastructure\ElectronicInvoicing\Xades\XadesEpesSigner::class),
+                $app->make(SignedXmlStorageInterface::class),
+                $app->make(DianResponseStorageInterface::class),
+                $app->make(\App\Domain\ElectronicInvoicing\Ports\DianSoapClientInterface::class),
+                new \App\Services\ElectronicInvoicing\Radian\RadianEventBuilder(),
+                new \App\Services\ElectronicInvoicing\Dispatch\DianZipPackager(),
+                new \App\Services\ElectronicInvoicing\Dispatch\DianResponseMapper(),
+                $app->make(MetricsRecorderInterface::class),
+                $app->make(ElectronicInvoicingLoggerInterface::class),
+            );
+        });
+
         $this->app->bind(\App\Services\ElectronicInvoicing\SyncContingencyDocumentsService::class, function (Container $app): \App\Services\ElectronicInvoicing\SyncContingencyDocumentsService {
             $config = function_exists('config') ? (array) config('electronic-invoicing.contingency', []) : [];
 

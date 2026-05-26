@@ -87,6 +87,12 @@ Route::middleware(['auth:sanctum'])->group(function () {
                 Route::post('/admin/certificates/{id}/activate', 'activate')->name('fiscal.certificates.activate');
                 Route::delete('/admin/certificates/{id}', 'destroy')->name('fiscal.certificates.destroy');
             });
+        Route::controller(\App\Http\Controllers\ElectronicInvoicing\RadianEventController::class)->group(function () {
+            Route::get('/documents/{id}/radian', 'index')->name('fiscal.documents.radian.index')
+                ->middleware('permission:electronic_invoicing.list,cerrajero');
+            Route::post('/documents/{id}/radian/{event}', 'store')->name('fiscal.documents.radian.store')
+                ->middleware('permission:electronic_invoicing.radian,cerrajero');
+        });
     });
 
     // ============================================
