@@ -50,6 +50,7 @@ final class DocumentStatus
         self::DRAFT,
         self::CONTINGENCY_EMITTED,
         self::LEGACY_IMPORTED,
+        self::LEGACY_IMPORT_INCONSISTENT,
     ];
 
     public static function all(): array

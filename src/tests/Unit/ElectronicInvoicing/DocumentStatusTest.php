@@ -48,6 +48,7 @@ class DocumentStatusTest extends TestCase
         $this->assertTrue(DocumentStatus::isInitial(DocumentStatus::DRAFT));
         $this->assertTrue(DocumentStatus::isInitial(DocumentStatus::CONTINGENCY_EMITTED));
         $this->assertTrue(DocumentStatus::isInitial(DocumentStatus::LEGACY_IMPORTED));
+        $this->assertTrue(DocumentStatus::isInitial(DocumentStatus::LEGACY_IMPORT_INCONSISTENT));
         $this->assertFalse(DocumentStatus::isInitial(DocumentStatus::SENT_TO_DIAN));
     }
 

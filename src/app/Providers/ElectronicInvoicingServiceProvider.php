@@ -6,6 +6,8 @@ use App\Domain\ElectronicInvoicing\Ports\ElectronicInvoicingLoggerInterface;
 use App\Domain\ElectronicInvoicing\Ports\MetricsRecorderInterface;
 use App\Infrastructure\ElectronicInvoicing\Logging\ElectronicInvoicingLogger;
 use App\Infrastructure\ElectronicInvoicing\Metrics\InMemoryMetricsRecorder;
+use App\Services\ElectronicInvoicing\LegacyPt\InMemoryLegacyPtArtifactStorage;
+use App\Services\ElectronicInvoicing\LegacyPt\LegacyPtArtifactStorageInterface;
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Log\LogManager;
 use Illuminate\Support\ServiceProvider;
@@ -38,6 +40,10 @@ class ElectronicInvoicingServiceProvider extends ServiceProvider
             $logger = $this->resolveBaseLogger($app);
 
             return new ElectronicInvoicingLogger($logger);
+        });
+
+        $this->app->singleton(LegacyPtArtifactStorageInterface::class, function (): LegacyPtArtifactStorageInterface {
+            return new InMemoryLegacyPtArtifactStorage();
         });
     }
 

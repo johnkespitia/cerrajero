@@ -66,6 +66,10 @@ Route::middleware(['auth:sanctum'])->group(function () {
             Route::post('/documents/{id}/debit-note', 'storeDebitNote')->name('fiscal.documents.debit-note')
                 ->middleware('permission:electronic_invoicing.create,cerrajero');
         });
+        Route::controller(\App\Http\Controllers\ElectronicInvoicing\LegacyPtImportController::class)->group(function () {
+            Route::post('/legacy-pt/import', 'store')->name('fiscal.legacy-pt.import')
+                ->middleware('permission:electronic_invoicing.admin,cerrajero');
+        });
     });
 
     // ============================================
