@@ -108,6 +108,23 @@ class ElectronicInvoicingServiceProvider extends ServiceProvider
             return new InMemoryDianResponseStorage();
         });
 
+        $this->app->singleton(\App\Services\ElectronicInvoicing\Contingency\CircuitBreakerInterface::class, function (): \App\Services\ElectronicInvoicing\Contingency\CircuitBreakerInterface {
+            $config = function_exists('config') ? (array) config('electronic-invoicing.circuit_breaker', []) : [];
+
+            return new \App\Services\ElectronicInvoicing\Contingency\InMemoryCircuitBreaker(
+                failureThreshold: (int) ($config['failure_threshold'] ?? 5),
+                recoverySeconds: (int) ($config['recovery_seconds'] ?? 60),
+            );
+        });
+
+        $this->app->bind(\App\Services\ElectronicInvoicing\Contingency\ContingencyManager::class, function (Container $app): \App\Services\ElectronicInvoicing\Contingency\ContingencyManager {
+            return new \App\Services\ElectronicInvoicing\Contingency\ContingencyManager(
+                $app->make(\App\Services\ElectronicInvoicing\Contingency\CircuitBreakerInterface::class),
+                $app->make(MetricsRecorderInterface::class),
+                $app->make(ElectronicInvoicingLoggerInterface::class),
+            );
+        });
+
         $this->app->bind(\App\Services\ElectronicInvoicing\DianDispatcher::class, function (Container $app): \App\Services\ElectronicInvoicing\DianDispatcher {
             $mode = function_exists('config')
                 ? (string) config('electronic-invoicing.dispatch.mode', 'sync')
@@ -121,7 +138,35 @@ class ElectronicInvoicingServiceProvider extends ServiceProvider
                 new \App\Services\ElectronicInvoicing\Dispatch\DianResponseMapper(),
                 $app->make(MetricsRecorderInterface::class),
                 $app->make(ElectronicInvoicingLoggerInterface::class),
-                $mode
+                $mode,
+                $app->make(\App\Services\ElectronicInvoicing\Contingency\ContingencyManager::class),
+            );
+        });
+
+        $this->app->bind(\App\Services\ElectronicInvoicing\DocumentReconciler::class, function (Container $app): \App\Services\ElectronicInvoicing\DocumentReconciler {
+            $config = function_exists('config') ? (array) config('electronic-invoicing.reconciler', []) : [];
+
+            return new \App\Services\ElectronicInvoicing\DocumentReconciler(
+                $app->make(\App\Domain\ElectronicInvoicing\Ports\DianSoapClientInterface::class),
+                $app->make(DianResponseStorageInterface::class),
+                new \App\Services\ElectronicInvoicing\Dispatch\DianResponseMapper(),
+                $app->make(\App\Services\ElectronicInvoicing\Contingency\ContingencyManager::class),
+                $app->make(MetricsRecorderInterface::class),
+                $app->make(ElectronicInvoicingLoggerInterface::class),
+                (int) ($config['interval_minutes'] ?? 5),
+                (int) ($config['stuck_after_minutes'] ?? 10),
+            );
+        });
+
+        $this->app->bind(\App\Services\ElectronicInvoicing\SyncContingencyDocumentsService::class, function (Container $app): \App\Services\ElectronicInvoicing\SyncContingencyDocumentsService {
+            $config = function_exists('config') ? (array) config('electronic-invoicing.contingency', []) : [];
+
+            return new \App\Services\ElectronicInvoicing\SyncContingencyDocumentsService(
+                $app->make(\App\Services\ElectronicInvoicing\SigningCoordinator::class),
+                $app->make(\App\Services\ElectronicInvoicing\DianDispatcher::class),
+                $app->make(MetricsRecorderInterface::class),
+                $app->make(ElectronicInvoicingLoggerInterface::class),
+                (int) ($config['max_window_hours'] ?? 48),
             );
         });
     }

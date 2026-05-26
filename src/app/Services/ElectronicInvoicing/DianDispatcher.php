@@ -10,6 +10,7 @@ use App\Infrastructure\ElectronicInvoicing\Logging\ElectronicInvoicingLogger;
 use App\Infrastructure\ElectronicInvoicing\Metrics\InMemoryMetricsRecorder;
 use App\Models\ElectronicDocument;
 use App\Models\ElectronicDocumentEvent;
+use App\Services\ElectronicInvoicing\Contingency\ContingencyManager;
 use App\Services\ElectronicInvoicing\Dispatch\DianResponseMapper;
 use App\Services\ElectronicInvoicing\Dispatch\DianZipPackager;
 use App\Services\ElectronicInvoicing\Exceptions\DispatchException;
@@ -60,6 +61,7 @@ class DianDispatcher
         private readonly MetricsRecorderInterface $metrics = new InMemoryMetricsRecorder(),
         private readonly ElectronicInvoicingLoggerInterface $logger = new ElectronicInvoicingLogger(),
         private readonly string $defaultMode = 'sync',
+        private readonly ?ContingencyManager $contingencyManager = null,
     ) {
     }
 
@@ -125,6 +127,7 @@ class DianDispatcher
                 'operation' => $operation,
                 'environment' => (string) $document->environment,
             ]);
+            $this->contingencyManager?->recordDispatchFailure();
             $scopedLogger->warning('document.dian_soap_error', [
                 'operation' => $operation,
                 'reason' => $e->getMessage(),
@@ -145,6 +148,7 @@ class DianDispatcher
         }
 
         $outcome = $this->responseMapper->map($response, $operation);
+        $this->contingencyManager?->recordDispatchSuccess();
 
         return DB::transaction(function () use ($document, $outcome, $correlationId, $operation, $scopedLogger, $startedAt): ElectronicDocument {
             $document->refresh();
