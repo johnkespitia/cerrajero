@@ -12,6 +12,8 @@ use App\Services\ElectronicInvoicing\Certificate\InMemoryCertificateSecretStore;
 use App\Services\ElectronicInvoicing\Certificate\InMemoryCertificateStorage;
 use App\Services\ElectronicInvoicing\LegacyPt\InMemoryLegacyPtArtifactStorage;
 use App\Services\ElectronicInvoicing\LegacyPt\LegacyPtArtifactStorageInterface;
+use App\Services\ElectronicInvoicing\Storage\InMemoryUnsignedXmlStorage;
+use App\Services\ElectronicInvoicing\Storage\UnsignedXmlStorageInterface;
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Log\LogManager;
 use Illuminate\Support\ServiceProvider;
@@ -48,6 +50,10 @@ class ElectronicInvoicingServiceProvider extends ServiceProvider
 
         $this->app->singleton(LegacyPtArtifactStorageInterface::class, function (): LegacyPtArtifactStorageInterface {
             return new InMemoryLegacyPtArtifactStorage();
+        });
+
+        $this->app->singleton(UnsignedXmlStorageInterface::class, function (): UnsignedXmlStorageInterface {
+            return new InMemoryUnsignedXmlStorage();
         });
 
         $this->app->singleton(CertificateStorageInterface::class, function (): CertificateStorageInterface {

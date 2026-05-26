@@ -60,6 +60,15 @@ Route::middleware(['auth:sanctum'])->group(function () {
             Route::get('/documents/{id}', 'show')->name('fiscal.documents.show')
                 ->middleware('permission:electronic_invoicing.list,cerrajero');
         });
+        Route::controller(\App\Http\Controllers\ElectronicInvoicing\DocumentDownloadController::class)
+            ->middleware('permission:electronic_invoicing.list,cerrajero')
+            ->group(function () {
+                Route::get('/documents/{id}/xml-unsigned', 'xmlUnsigned')->name('fiscal.documents.xml-unsigned');
+                Route::get('/documents/{id}/xml-signed', 'xmlSigned')->name('fiscal.documents.xml-signed');
+                Route::get('/documents/{id}/attached-document', 'attachedDocument')->name('fiscal.documents.attached-document');
+                Route::get('/documents/{id}/pdf', 'pdf')->name('fiscal.documents.pdf');
+                Route::get('/documents/{id}/events', 'events')->name('fiscal.documents.events');
+            });
         Route::controller(\App\Http\Controllers\ElectronicInvoicing\CreditDebitNoteController::class)->group(function () {
             Route::post('/documents/{id}/credit-note', 'storeCreditNote')->name('fiscal.documents.credit-note')
                 ->middleware('permission:electronic_invoicing.create,cerrajero');
