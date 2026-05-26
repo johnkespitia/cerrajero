@@ -24,11 +24,13 @@ use App\Services\ElectronicInvoicing\Storage\InMemoryUnsignedXmlStorage;
 use App\Services\ElectronicInvoicing\UblBuilderRegistry;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\Concerns\SeedsElectronicInvoicingPermissions;
 use Tests\TestCase;
 
 class CreditDebitNoteServiceTest extends TestCase
 {
     use RefreshDatabase;
+    use SeedsElectronicInvoicingPermissions;
 
     /** @var InMemoryUnsignedXmlStorage */
     private $storage;
@@ -238,12 +240,7 @@ class CreditDebitNoteServiceTest extends TestCase
         [$company, $parent] = $this->seedParentFev();
         $this->seedResolution($company, DocumentType::NC, ['prefix' => 'NCR', 'from_number' => 1, 'to_number' => 100]);
 
-        $user = \App\Models\User::create([
-            'name' => 'Fiscal',
-            'email' => 'fiscal@test.local',
-            'password' => bcrypt('test1234'),
-        ]);
-        $this->actingAs($user, 'sanctum');
+        $this->actingAsFiscal();
 
         $response = $this->postJson("/api/electronic-invoicing/documents/{$parent->id}/credit-note", [
             'discrepancy_code' => '02',
@@ -271,12 +268,7 @@ class CreditDebitNoteServiceTest extends TestCase
         [$company, $parent] = $this->seedParentFev();
         $this->seedResolution($company, DocumentType::NC, ['prefix' => 'NCR', 'from_number' => 1, 'to_number' => 100]);
 
-        $user = \App\Models\User::create([
-            'name' => 'Fiscal',
-            'email' => 'fiscal@test.local',
-            'password' => bcrypt('test1234'),
-        ]);
-        $this->actingAs($user, 'sanctum');
+        $this->actingAsFiscal();
 
         $response = $this->postJson("/api/electronic-invoicing/documents/{$parent->id}/credit-note", [
             'reason' => 'Sin código',
@@ -298,12 +290,7 @@ class CreditDebitNoteServiceTest extends TestCase
     public function test_credit_note_endpoint_returns_422_when_parent_not_found(): void
     {
         $this->seedFiscalConfiguration();
-        $user = \App\Models\User::create([
-            'name' => 'Fiscal',
-            'email' => 'fiscal@test.local',
-            'password' => bcrypt('test1234'),
-        ]);
-        $this->actingAs($user, 'sanctum');
+        $this->actingAsFiscal();
 
         $response = $this->postJson('/api/electronic-invoicing/documents/9999/credit-note', [
             'discrepancy_code' => '02',
@@ -315,6 +302,17 @@ class CreditDebitNoteServiceTest extends TestCase
                 'electronic_document_error.code',
                 CreditDebitNoteInvalidPayloadException::CODE_PARENT_NOT_FOUND
             );
+    }
+
+    private function actingAsFiscal(?array $permissions = null): void
+    {
+        $user = \App\Models\User::create([
+            'name' => 'Fiscal',
+            'email' => 'fiscal@test.local',
+            'password' => bcrypt('test1234'),
+        ]);
+        $this->grantElectronicInvoicingPermissions($user, $permissions);
+        $this->actingAs($user, 'sanctum');
     }
 
     private function seedParentFev(): array

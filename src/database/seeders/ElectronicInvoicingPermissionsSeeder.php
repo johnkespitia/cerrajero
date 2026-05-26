@@ -23,18 +23,21 @@ class ElectronicInvoicingPermissionsSeeder extends Seeder
     private const GUARD = 'cerrajero';
 
     /**
-     * Source of truth for the EI permission catalogue. Each slice must use
-     * one of these names exactly as listed; extending the catalogue is
-     * allowed, renaming is not.
+     * Source of truth for the EI permission catalogue. Names align with the
+     * spec section "Permisos nuevos (en spatie/laravel-permission)" and are
+     * the exact tokens used by `permission:<name>,cerrajero` middleware on
+     * `/api/electronic-invoicing/**` routes.
+     *
+     * Extending the catalogue is allowed; renaming an already-released name
+     * requires a migration plan because roles may have it assigned.
      */
     public const PERMISSIONS = [
-        'electronic_documents.view' => 'Listar y consultar documentos electrónicos DIAN',
-        'electronic_documents.emit' => 'Emitir FEV / DEE POS directamente',
-        'electronic_documents.emit_note' => 'Emitir Notas Crédito / Débito',
-        'electronic_documents.retry' => 'Reintentar el envío de un documento a DIAN',
-        'electronic_documents.cancel' => 'Marcar documentos para reposo / contingencia / dead letter',
-        'electronic_documents.admin' => 'Administrar configuración fiscal (certificado, software, resoluciones, promoción)',
-        'electronic_documents.radian' => 'Emitir eventos RADIAN 030/031/032/033/034',
+        'electronic_invoicing.list' => 'Listar y consultar documentos electrónicos DIAN',
+        'electronic_invoicing.create' => 'Emitir documentos electrónicos (FEV, DEE POS, NC, ND)',
+        'electronic_invoicing.retry' => 'Reintentar envío de un documento a DIAN',
+        'electronic_invoicing.cancel' => 'Marcar documentos para contingencia o dead letter',
+        'electronic_invoicing.admin' => 'Administrar configuración fiscal (certificado, software, resoluciones, promoción)',
+        'electronic_invoicing.radian' => 'Emitir eventos RADIAN 030/031/032/033/034',
     ];
 
     public function run(): void

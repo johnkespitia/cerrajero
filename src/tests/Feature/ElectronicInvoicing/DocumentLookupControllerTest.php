@@ -11,11 +11,13 @@ use App\Models\ElectronicDocument;
 use App\Models\User;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\Concerns\SeedsElectronicInvoicingPermissions;
 use Tests\TestCase;
 
 class DocumentLookupControllerTest extends TestCase
 {
     use RefreshDatabase;
+    use SeedsElectronicInvoicingPermissions;
 
     protected function setUp(): void
     {
@@ -147,13 +149,14 @@ class DocumentLookupControllerTest extends TestCase
         $response->assertStatus(404);
     }
 
-    private function actingAsFiscal(): void
+    private function actingAsFiscal(?array $permissions = null): void
     {
         $user = User::create([
             'name' => 'Fiscal',
             'email' => 'fiscal-dash@test.local',
             'password' => bcrypt('test1234'),
         ]);
+        $this->grantElectronicInvoicingPermissions($user, $permissions);
         $this->actingAs($user, 'sanctum');
     }
 

@@ -6,8 +6,12 @@ use App\Domain\ElectronicInvoicing\Enums\DocumentStatus;
 use App\Domain\ElectronicInvoicing\Enums\DocumentType;
 use App\Domain\ElectronicInvoicing\Enums\FiscalEnvironment;
 use App\Domain\ElectronicInvoicing\Ports\CufeCalculatorInterface;
+use App\Domain\ElectronicInvoicing\Ports\ElectronicInvoicingLoggerInterface;
+use App\Domain\ElectronicInvoicing\Ports\MetricsRecorderInterface;
 use App\Infrastructure\ElectronicInvoicing\Cufe\Sha384CufeCalculator;
 use App\Infrastructure\ElectronicInvoicing\Cufe\SoftwareSecurityCodeCalculator;
+use App\Infrastructure\ElectronicInvoicing\Logging\ElectronicInvoicingLogger;
+use App\Infrastructure\ElectronicInvoicing\Metrics\InMemoryMetricsRecorder;
 use App\Models\ElectronicDocument;
 use App\Models\ElectronicDocumentEvent;
 use App\Services\ElectronicInvoicing\Exceptions\IncompleteEmissionPayloadException;
@@ -50,18 +54,28 @@ final class DocumentEmitter
     /** @var UnsignedXmlStorageInterface */
     private $xmlStorage;
 
+    /** @var MetricsRecorderInterface */
+    private $metrics;
+
+    /** @var ElectronicInvoicingLoggerInterface */
+    private $logger;
+
     public function __construct(
         DocumentAssembler $assembler,
         ?CufeCalculatorInterface $cufeCalculator = null,
         ?SoftwareSecurityCodeCalculator $softwareSecurityCalculator = null,
         ?UblBuilderRegistry $builderRegistry = null,
-        ?UnsignedXmlStorageInterface $xmlStorage = null
+        ?UnsignedXmlStorageInterface $xmlStorage = null,
+        ?MetricsRecorderInterface $metrics = null,
+        ?ElectronicInvoicingLoggerInterface $logger = null
     ) {
         $this->assembler = $assembler;
         $this->cufeCalculator = $cufeCalculator ?: new Sha384CufeCalculator();
         $this->softwareSecurityCalculator = $softwareSecurityCalculator ?: new SoftwareSecurityCodeCalculator();
         $this->builderRegistry = $builderRegistry ?: UblBuilderRegistry::default();
         $this->xmlStorage = $xmlStorage ?: new InMemoryUnsignedXmlStorage();
+        $this->metrics = $metrics ?: new InMemoryMetricsRecorder();
+        $this->logger = $logger ?: new ElectronicInvoicingLogger();
     }
 
     /**
@@ -93,13 +107,23 @@ final class DocumentEmitter
             throw IncompleteEmissionPayloadException::for('source_meta');
         }
 
-        return DB::transaction(function () use ($context, $payload, $documentType, $environment, $sourceMeta) {
+        $correlationId = (string) ($context['correlation_id'] ?? Str::uuid());
+        $scopedLogger = $this->logger->withCorrelationId($correlationId);
+        $emissionStartedAt = microtime(true);
+
+        return DB::transaction(function () use ($context, $payload, $documentType, $environment, $sourceMeta, $scopedLogger, $correlationId, $emissionStartedAt) {
             $document = $this->createDraft($context, $payload, $documentType, $environment, $sourceMeta);
+            $scopedLogger = $scopedLogger->withElectronicDocument((int) $document->id);
+            $scopedLogger->info('document.queued', [
+                'document_type' => $documentType,
+                'environment' => $environment,
+                'source_type' => $sourceMeta['source_type'] ?? null,
+            ]);
             $this->appendEvent($document, 'queued', [
                 'document_type' => $documentType,
                 'environment' => $environment,
                 'source' => $sourceMeta,
-            ]);
+            ], $correlationId);
 
             $softwareSecurityCode = $this->resolveSoftwareSecurityCode(
                 $context['software_credential'] ?? null,
@@ -122,7 +146,7 @@ final class DocumentEmitter
                 'algorithm' => 'sha384',
                 'document_type' => $documentType,
                 'document_number' => $payload['document']['number'],
-            ]);
+            ], $correlationId);
 
             $builder = $this->builderRegistry->resolve($documentType);
             $xml = $builder->build($payload);
@@ -137,7 +161,23 @@ final class DocumentEmitter
                 'builder' => get_class($builder),
                 'unsigned_xml_path' => $xmlPath,
                 'cufe' => $cufe->value(),
+            ], $correlationId);
+
+            $scopedLogger->info('document.ubl_built', [
+                'document_type' => $documentType,
+                'environment' => $environment,
+                'builder' => get_class($builder),
             ]);
+
+            $this->metrics->increment(
+                'electronic_documents_emitted_total',
+                ['type' => $documentType, 'status' => DocumentStatus::UBL_BUILT, 'environment' => $environment]
+            );
+            $this->metrics->observeSeconds(
+                'electronic_documents_emission_latency_seconds',
+                microtime(true) - $emissionStartedAt,
+                ['type' => $documentType, 'environment' => $environment]
+            );
 
             $document->load('events');
             return $document;
@@ -206,14 +246,19 @@ final class DocumentEmitter
         );
     }
 
-    private function appendEvent(ElectronicDocument $document, string $eventType, array $payload): void
-    {
+    private function appendEvent(
+        ElectronicDocument $document,
+        string $eventType,
+        array $payload,
+        ?string $correlationId = null
+    ): void {
         ElectronicDocumentEvent::create([
             'electronic_document_id' => $document->id,
             'event_type' => $eventType,
             'payload' => $payload,
             'actor' => 'system:document_emitter',
-            'correlation_id' => (string) ($document->reference_code ?? Str::uuid()),
+            'correlation_id' => $correlationId
+                ?? (string) ($document->reference_code ?? Str::uuid()),
             'occurred_at' => Carbon::now(),
         ]);
     }

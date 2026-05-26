@@ -2,8 +2,10 @@
 
 namespace App\Exceptions;
 
+use Illuminate\Auth\AuthenticationException;
 use Illuminate\Foundation\Exceptions\Handler as ExceptionHandler;
 use Illuminate\Validation\ValidationException;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 use Throwable;
 
@@ -54,9 +56,26 @@ class Handler extends ExceptionHandler
                 ], 400);
             }
         });
+        $this->renderable(function (AuthenticationException $e, $request) {
+            if ($request->is('api/*')) {
+                return response()->json([
+                    'message' => $e->getMessage() ?: 'Unauthenticated.',
+                ], 401);
+            }
+        });
+        $this->renderable(function (HttpException $e, $request) {
+            // Preserve native HTTP status codes (401/403/404/...) emitted via `abort()`.
+            if ($request->is('api/*')) {
+                return response()->json([
+                    'message' => $e->getMessage(),
+                ], $e->getStatusCode());
+            }
+        });
         $this->renderable(function (\Exception $e, $request) {
-            // Detectar error de PDO no encontrado
-            if (strpos($e->getMessage(), "Class 'PDO' not found") !== false || 
+            if ($e instanceof HttpException || $e instanceof AuthenticationException) {
+                return null;
+            }
+            if (strpos($e->getMessage(), "Class 'PDO' not found") !== false ||
                 strpos($e->getMessage(), 'Class "PDO" not found') !== false) {
                 $message = "La extensión PDO de PHP no está habilitada en el servidor. ";
                 $message .= "Por favor, contacta al administrador del servidor para habilitar las extensiones 'pdo' y 'pdo_mysql'. ";

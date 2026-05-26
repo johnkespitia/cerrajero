@@ -11,11 +11,13 @@ use App\Models\DianResolution;
 use App\Models\DianSoftwareCredential;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\Concerns\SeedsElectronicInvoicingPermissions;
 use Tests\TestCase;
 
 class FiscalAdminTest extends TestCase
 {
     use RefreshDatabase;
+    use SeedsElectronicInvoicingPermissions;
 
     protected function setUp(): void
     {
@@ -32,6 +34,7 @@ class FiscalAdminTest extends TestCase
             'email' => 'fiscal-admin@test.local',
             'password' => bcrypt('test1234'),
         ]);
+        $this->grantElectronicInvoicingPermissions($user);
         $this->actingAs($user, 'sanctum');
     }
 
