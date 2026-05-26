@@ -6,6 +6,10 @@ use App\Domain\ElectronicInvoicing\Ports\ElectronicInvoicingLoggerInterface;
 use App\Domain\ElectronicInvoicing\Ports\MetricsRecorderInterface;
 use App\Infrastructure\ElectronicInvoicing\Logging\ElectronicInvoicingLogger;
 use App\Infrastructure\ElectronicInvoicing\Metrics\InMemoryMetricsRecorder;
+use App\Services\ElectronicInvoicing\Certificate\CertificateSecretStoreInterface;
+use App\Services\ElectronicInvoicing\Certificate\CertificateStorageInterface;
+use App\Services\ElectronicInvoicing\Certificate\InMemoryCertificateSecretStore;
+use App\Services\ElectronicInvoicing\Certificate\InMemoryCertificateStorage;
 use App\Services\ElectronicInvoicing\LegacyPt\InMemoryLegacyPtArtifactStorage;
 use App\Services\ElectronicInvoicing\LegacyPt\LegacyPtArtifactStorageInterface;
 use Illuminate\Contracts\Container\Container;
@@ -44,6 +48,14 @@ class ElectronicInvoicingServiceProvider extends ServiceProvider
 
         $this->app->singleton(LegacyPtArtifactStorageInterface::class, function (): LegacyPtArtifactStorageInterface {
             return new InMemoryLegacyPtArtifactStorage();
+        });
+
+        $this->app->singleton(CertificateStorageInterface::class, function (): CertificateStorageInterface {
+            return new InMemoryCertificateStorage();
+        });
+
+        $this->app->singleton(CertificateSecretStoreInterface::class, function (): CertificateSecretStoreInterface {
+            return new InMemoryCertificateSecretStore();
         });
     }
 

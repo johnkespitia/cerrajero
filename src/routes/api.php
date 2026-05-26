@@ -70,6 +70,14 @@ Route::middleware(['auth:sanctum'])->group(function () {
             Route::post('/legacy-pt/import', 'store')->name('fiscal.legacy-pt.import')
                 ->middleware('permission:electronic_invoicing.admin,cerrajero');
         });
+        Route::controller(\App\Http\Controllers\ElectronicInvoicing\CertificateController::class)
+            ->middleware('permission:electronic_invoicing.admin,cerrajero')
+            ->group(function () {
+                Route::get('/admin/certificates', 'index')->name('fiscal.certificates.index');
+                Route::post('/admin/certificates', 'store')->name('fiscal.certificates.store');
+                Route::post('/admin/certificates/{id}/activate', 'activate')->name('fiscal.certificates.activate');
+                Route::delete('/admin/certificates/{id}', 'destroy')->name('fiscal.certificates.destroy');
+            });
     });
 
     // ============================================
