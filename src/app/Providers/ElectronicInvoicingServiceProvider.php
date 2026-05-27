@@ -212,6 +212,18 @@ class ElectronicInvoicingServiceProvider extends ServiceProvider
             );
         });
 
+        $this->app->bind(\App\Services\ElectronicInvoicing\Cutover\CutoverReadinessService::class, function (Container $app): \App\Services\ElectronicInvoicing\Cutover\CutoverReadinessService {
+            $config = function_exists('config') ? (array) config('electronic-invoicing.cutover', []) : [];
+
+            return new \App\Services\ElectronicInvoicing\Cutover\CutoverReadinessService(
+                $app->make(\App\Services\ElectronicInvoicing\Contingency\CircuitBreakerInterface::class),
+                $app->make(\App\Services\ElectronicInvoicing\Habilitacion\TestSetReportRepository::class),
+                (int) ($config['certificate_min_days_valid'] ?? 90),
+                (int) ($config['resolution_min_days_valid'] ?? 60),
+                (int) ($config['resolution_min_range_remaining'] ?? 1000),
+            );
+        });
+
         $this->app->bind(\App\Services\ElectronicInvoicing\SyncContingencyDocumentsService::class, function (Container $app): \App\Services\ElectronicInvoicing\SyncContingencyDocumentsService {
             $config = function_exists('config') ? (array) config('electronic-invoicing.contingency', []) : [];
 

@@ -80,6 +80,12 @@ return [
         'max_window_hours' => 48,
     ],
 
+    'cutover' => [
+        'certificate_min_days_valid' => env('EI_CUTOVER_CERT_MIN_DAYS', 90),
+        'resolution_min_days_valid' => env('EI_CUTOVER_RES_MIN_DAYS', 60),
+        'resolution_min_range_remaining' => env('EI_CUTOVER_RES_MIN_RANGE', 1000),
+    ],
+
     'storage_disk' => env('ELECTRONIC_INVOICING_DISK', 'fiscal'),
     'retention_years' => 5,
 

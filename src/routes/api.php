@@ -71,9 +71,9 @@ Route::middleware(['auth:sanctum'])->group(function () {
             });
         Route::controller(\App\Http\Controllers\ElectronicInvoicing\CreditDebitNoteController::class)->group(function () {
             Route::post('/documents/{id}/credit-note', 'storeCreditNote')->name('fiscal.documents.credit-note')
-                ->middleware('permission:electronic_invoicing.create,cerrajero');
+                ->middleware(['permission:electronic_invoicing.create,cerrajero', 'fiscal.environment']);
             Route::post('/documents/{id}/debit-note', 'storeDebitNote')->name('fiscal.documents.debit-note')
-                ->middleware('permission:electronic_invoicing.create,cerrajero');
+                ->middleware(['permission:electronic_invoicing.create,cerrajero', 'fiscal.environment']);
         });
         Route::controller(\App\Http\Controllers\ElectronicInvoicing\LegacyPtImportController::class)->group(function () {
             Route::post('/legacy-pt/import', 'store')->name('fiscal.legacy-pt.import')
@@ -91,13 +91,19 @@ Route::middleware(['auth:sanctum'])->group(function () {
             Route::get('/documents/{id}/radian', 'index')->name('fiscal.documents.radian.index')
                 ->middleware('permission:electronic_invoicing.list,cerrajero');
             Route::post('/documents/{id}/radian/{event}', 'store')->name('fiscal.documents.radian.store')
-                ->middleware('permission:electronic_invoicing.radian,cerrajero');
+                ->middleware(['permission:electronic_invoicing.radian,cerrajero', 'fiscal.environment']);
         });
         Route::controller(\App\Http\Controllers\ElectronicInvoicing\HabilitacionController::class)
             ->middleware('permission:electronic_invoicing.admin,cerrajero')
             ->group(function () {
-                Route::post('/habilitacion/run-test-set', 'runTestSet')->name('fiscal.habilitacion.run-test-set');
+                Route::post('/habilitacion/run-test-set', 'runTestSet')->name('fiscal.habilitacion.run-test-set')
+                    ->middleware('fiscal.environment');
                 Route::get('/habilitacion/latest-report', 'latestReport')->name('fiscal.habilitacion.latest-report');
+            });
+        Route::controller(\App\Http\Controllers\ElectronicInvoicing\CutoverReadinessController::class)
+            ->middleware('permission:electronic_invoicing.admin,cerrajero')
+            ->group(function () {
+                Route::get('/cutover/readiness', 'show')->name('fiscal.cutover.readiness');
             });
     });
 
