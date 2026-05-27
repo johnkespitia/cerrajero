@@ -93,6 +93,12 @@ Route::middleware(['auth:sanctum'])->group(function () {
             Route::post('/documents/{id}/radian/{event}', 'store')->name('fiscal.documents.radian.store')
                 ->middleware('permission:electronic_invoicing.radian,cerrajero');
         });
+        Route::controller(\App\Http\Controllers\ElectronicInvoicing\HabilitacionController::class)
+            ->middleware('permission:electronic_invoicing.admin,cerrajero')
+            ->group(function () {
+                Route::post('/habilitacion/run-test-set', 'runTestSet')->name('fiscal.habilitacion.run-test-set');
+                Route::get('/habilitacion/latest-report', 'latestReport')->name('fiscal.habilitacion.latest-report');
+            });
     });
 
     // ============================================

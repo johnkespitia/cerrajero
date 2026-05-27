@@ -22,6 +22,18 @@ final class FakeDianSoapClient implements DianSoapClientInterface
         $this->scripted[$operation][] = $response;
     }
 
+    /**
+     * Convenience helper: queue multiple responses for the same operation.
+     *
+     * @param array<int, array> $responses
+     */
+    public function scriptQueue(string $operation, array $responses): void
+    {
+        foreach ($responses as $response) {
+            $this->scripted[$operation][] = $response;
+        }
+    }
+
     public function fail(string $operation, \Throwable $exception): void
     {
         $this->scripted[$operation][] = $exception;

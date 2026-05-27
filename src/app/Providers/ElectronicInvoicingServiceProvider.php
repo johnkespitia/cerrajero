@@ -158,6 +158,45 @@ class ElectronicInvoicingServiceProvider extends ServiceProvider
             );
         });
 
+        $this->app->bind(\App\Services\ElectronicInvoicing\Habilitacion\TestSetReportRepository::class, function (): \App\Services\ElectronicInvoicing\Habilitacion\TestSetReportRepository {
+            $base = function_exists('storage_path')
+                ? storage_path('electronic-invoicing/test-sets')
+                : sys_get_temp_dir() . '/electronic-invoicing/test-sets';
+
+            return new \App\Services\ElectronicInvoicing\Habilitacion\FileTestSetReportRepository($base);
+        });
+
+        $this->app->bind(\App\Services\ElectronicInvoicing\Habilitacion\TestCaseEmitterInterface::class, function (Container $app): \App\Services\ElectronicInvoicing\Habilitacion\TestCaseEmitterInterface {
+            $config = function_exists('config') ? (array) config('electronic-invoicing', []) : [];
+            $env = (string) ($config['environment'] ?? 'habilitacion');
+            $company = \App\Models\CompanyFiscalProfile::query()
+                ->where('active', true)
+                ->where('environment', $env)
+                ->first();
+            if ($company === null) {
+                throw new \RuntimeException('No active CompanyFiscalProfile to drive habilitacion test set.');
+            }
+
+            return new \App\Services\ElectronicInvoicing\Habilitacion\SyntheticTestCaseEmitter(
+                $app->make(\App\Domain\ElectronicInvoicing\Ports\CertificateProviderInterface::class),
+                $app->make(\App\Infrastructure\ElectronicInvoicing\Xades\XadesEpesSigner::class),
+                (int) $company->id,
+                $env,
+                (string) $company->nit,
+            );
+        });
+
+        $this->app->bind(\App\Services\ElectronicInvoicing\Habilitacion\HabilitacionTestSetRunner::class, function (Container $app): \App\Services\ElectronicInvoicing\Habilitacion\HabilitacionTestSetRunner {
+            return new \App\Services\ElectronicInvoicing\Habilitacion\HabilitacionTestSetRunner(
+                $app->make(\App\Services\ElectronicInvoicing\Habilitacion\TestCaseEmitterInterface::class),
+                $app->make(\App\Domain\ElectronicInvoicing\Ports\DianSoapClientInterface::class),
+                new \App\Services\ElectronicInvoicing\Dispatch\DianResponseMapper(),
+                $app->make(MetricsRecorderInterface::class),
+                $app->make(ElectronicInvoicingLoggerInterface::class),
+                (string) config('electronic-invoicing.environment', 'habilitacion'),
+            );
+        });
+
         $this->app->bind(\App\Services\ElectronicInvoicing\Radian\RadianEventService::class, function (Container $app): \App\Services\ElectronicInvoicing\Radian\RadianEventService {
             return new \App\Services\ElectronicInvoicing\Radian\RadianEventService(
                 $app->make(\App\Domain\ElectronicInvoicing\Ports\CertificateProviderInterface::class),

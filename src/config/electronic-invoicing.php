@@ -14,6 +14,8 @@ return [
     'enabled' => env('ELECTRONIC_INVOICING_ENABLED', false),
     'environment' => env('ELECTRONIC_INVOICING_ENV', 'habilitacion'),
 
+    'test_set_id' => env('DIAN_TEST_SET_ID', ''),
+
     'webservice' => [
         'habilitacion_url' => env(
             'DIAN_HAB_WSDL',
