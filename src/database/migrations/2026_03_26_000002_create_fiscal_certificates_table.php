@@ -8,6 +8,10 @@ class CreateFiscalCertificatesTable extends Migration
 {
     public function up()
     {
+        if (Schema::hasTable('fiscal_certificates')) {
+            return;
+        }
+
         Schema::create('fiscal_certificates', function (Blueprint $table) {
             $table->id();
             $table->foreignId('company_id')

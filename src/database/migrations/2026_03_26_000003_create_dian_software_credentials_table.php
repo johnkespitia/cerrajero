@@ -8,6 +8,10 @@ class CreateDianSoftwareCredentialsTable extends Migration
 {
     public function up()
     {
+        if (Schema::hasTable('dian_software_credentials')) {
+            return;
+        }
+
         Schema::create('dian_software_credentials', function (Blueprint $table) {
             $table->id();
             $table->foreignId('company_id')

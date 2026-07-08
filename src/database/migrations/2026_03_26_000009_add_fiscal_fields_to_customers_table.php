@@ -8,6 +8,10 @@ class AddFiscalFieldsToCustomersTable extends Migration
 {
     public function up()
     {
+        if (! Schema::hasTable('customers') || Schema::hasColumn('customers', 'fiscal_document_type')) {
+            return;
+        }
+
         Schema::table('customers', function (Blueprint $table) {
             $table->string('fiscal_document_type', 30)->nullable()->after('phone_number');
             $table->string('fiscal_document_number', 30)->nullable()->after('fiscal_document_type');
@@ -27,6 +31,10 @@ class AddFiscalFieldsToCustomersTable extends Migration
 
     public function down()
     {
+        if (! Schema::hasTable('customers') || ! Schema::hasColumn('customers', 'fiscal_document_type')) {
+            return;
+        }
+
         Schema::table('customers', function (Blueprint $table) {
             $table->dropIndex('customers_fiscal_doc_idx');
             $table->dropColumn([

@@ -6,13 +6,12 @@ use Illuminate\Support\Facades\Schema;
 
 class CreateRoomInventoryAssignmentsTable extends Migration
 {
-    /**
-     * Run the migrations.
-     *
-     * @return void
-     */
-    public function up()
+    public function up(): void
     {
+        if (Schema::hasTable('room_inventory_assignments')) {
+            return;
+        }
+
         Schema::create('room_inventory_assignments', function (Blueprint $table) {
             $table->id();
             $table->string('assignable_type', 125)->comment('App\Models\Room o App\Models\CommonArea');
@@ -27,7 +26,7 @@ class CreateRoomInventoryAssignmentsTable extends Migration
             $table->foreignId('last_checked_by')->nullable()->constrained('users')->onDelete('set null');
             $table->boolean('active')->default(true);
             $table->timestamps();
-            
+
             $table->index(['assignable_type', 'assignable_id'], 'assignable_index');
             $table->index('item_id');
             $table->index('status');
@@ -37,12 +36,7 @@ class CreateRoomInventoryAssignmentsTable extends Migration
         });
     }
 
-    /**
-     * Reverse the migrations.
-     *
-     * @return void
-     */
-    public function down()
+    public function down(): void
     {
         Schema::dropIfExists('room_inventory_assignments');
     }

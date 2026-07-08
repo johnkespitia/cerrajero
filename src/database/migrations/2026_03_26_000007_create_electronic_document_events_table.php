@@ -8,6 +8,10 @@ class CreateElectronicDocumentEventsTable extends Migration
 {
     public function up()
     {
+        if (Schema::hasTable('electronic_document_events')) {
+            return;
+        }
+
         Schema::create('electronic_document_events', function (Blueprint $table) {
             $table->id();
             $table->foreignId('electronic_document_id')

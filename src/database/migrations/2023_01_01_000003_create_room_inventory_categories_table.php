@@ -6,13 +6,12 @@ use Illuminate\Support\Facades\Schema;
 
 class CreateRoomInventoryCategoriesTable extends Migration
 {
-    /**
-     * Run the migrations.
-     *
-     * @return void
-     */
-    public function up()
+    public function up(): void
     {
+        if (Schema::hasTable('room_inventory_categories')) {
+            return;
+        }
+
         Schema::create('room_inventory_categories', function (Blueprint $table) {
             $table->id();
             $table->string('name', 125);
@@ -20,17 +19,12 @@ class CreateRoomInventoryCategoriesTable extends Migration
             $table->string('icon', 50)->nullable()->comment('Icono para UI');
             $table->boolean('active')->default(true);
             $table->timestamps();
-            
+
             $table->index('active');
         });
     }
 
-    /**
-     * Reverse the migrations.
-     *
-     * @return void
-     */
-    public function down()
+    public function down(): void
     {
         Schema::dropIfExists('room_inventory_categories');
     }

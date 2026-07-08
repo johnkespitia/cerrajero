@@ -8,6 +8,10 @@ class CreateLegacyPtImportsTable extends Migration
 {
     public function up()
     {
+        if (Schema::hasTable('legacy_pt_imports')) {
+            return;
+        }
+
         Schema::create('legacy_pt_imports', function (Blueprint $table) {
             $table->id();
             $table->foreignId('company_id')

@@ -8,6 +8,10 @@ class CreateDianResolutionsTable extends Migration
 {
     public function up()
     {
+        if (Schema::hasTable('dian_resolutions')) {
+            return;
+        }
+
         Schema::create('dian_resolutions', function (Blueprint $table) {
             $table->id();
             $table->foreignId('company_id')

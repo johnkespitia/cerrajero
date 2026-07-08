@@ -8,6 +8,10 @@ class CreateCompanyFiscalProfilesTable extends Migration
 {
     public function up()
     {
+        if (Schema::hasTable('company_fiscal_profiles')) {
+            return;
+        }
+
         Schema::create('company_fiscal_profiles', function (Blueprint $table) {
             $table->id();
             $table->string('legal_name', 200);

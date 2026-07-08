@@ -13,6 +13,8 @@ class RoomType extends Model
         'name',
         'code',
         'description',
+        'image_url',
+        'gallery',
         'default_capacity',
         'max_capacity',
         'base_price',
@@ -21,6 +23,7 @@ class RoomType extends Model
     ];
 
     protected $casts = [
+        'gallery' => 'array',
         'features' => 'array',
         'base_price' => 'decimal:2',
         'active' => 'boolean',

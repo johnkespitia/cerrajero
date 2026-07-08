@@ -184,6 +184,17 @@ class ReservationController extends Controller
             $query->where('room_type_id', $request->room_type_id);
         }
 
+        if ($request->has('contact_channel')) {
+            $query->where('contact_channel', $request->contact_channel);
+        }
+
+        if ($request->boolean('web_booking_only')) {
+            $query->where(function ($q) {
+                $q->where('contact_channel', 'website')
+                    ->orWhereNotNull('web_payment_mode');
+            });
+        }
+
         // Filtro por servicio adicional: reservas que tienen ese servicio
         if ($request->has('additional_service_id')) {
             $query->whereHas('additionalServices', function ($q) use ($request) {
@@ -270,6 +281,8 @@ class ReservationController extends Controller
                           $request->has('payment_status') ||
                           $request->has('reservation_type') || 
                           $request->has('room_type_id') ||
+                          $request->has('contact_channel') ||
+                          $request->boolean('web_booking_only') ||
                           $request->has('search') ||
                           $request->has('customer_name') ||
                           $request->has('reservation_number') ||
@@ -921,6 +934,26 @@ class ReservationController extends Controller
                         });
 
                     if ($availableRooms->isEmpty()) {
+                        $roomsForDates = Room::where('room_type_id', $request->room_type_id)
+                            ->where('status', 'available')
+                            ->where('active', true)
+                            ->get()
+                            ->filter(function ($room) use ($request) {
+                                return $room->isAvailable(
+                                    $request->check_in_date,
+                                    $request->check_out_date ?? $request->check_in_date
+                                );
+                            });
+
+                        if ($roomsForDates->isNotEmpty()) {
+                            DB::rollBack();
+                            return $this->createMultiRoomReservation(
+                                $request,
+                                (int) $request->room_type_id,
+                                $totalGuests
+                            );
+                        }
+
                         return response()->json([
                             'message' => 'No hay habitaciones disponibles del tipo seleccionado para las fechas y número de huéspedes'
                         ], 409);

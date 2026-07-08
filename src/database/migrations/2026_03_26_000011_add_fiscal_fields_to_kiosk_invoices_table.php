@@ -8,6 +8,10 @@ class AddFiscalFieldsToKioskInvoicesTable extends Migration
 {
     public function up()
     {
+        if (! Schema::hasTable('kiosk_invoices') || Schema::hasColumn('kiosk_invoices', 'electronic_document_id')) {
+            return;
+        }
+
         Schema::table('kiosk_invoices', function (Blueprint $table) {
             $table->foreignId('electronic_document_id')->nullable()
                 ->after('closure_id')
@@ -24,6 +28,10 @@ class AddFiscalFieldsToKioskInvoicesTable extends Migration
 
     public function down()
     {
+        if (! Schema::hasTable('kiosk_invoices') || ! Schema::hasColumn('kiosk_invoices', 'electronic_document_id')) {
+            return;
+        }
+
         Schema::table('kiosk_invoices', function (Blueprint $table) {
             $table->dropForeign(['electronic_document_id']);
             $table->dropForeign(['acquirer_id']);

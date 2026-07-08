@@ -8,6 +8,10 @@ class CreateElectronicDocumentsTable extends Migration
 {
     public function up()
     {
+        if (Schema::hasTable('electronic_documents')) {
+            return;
+        }
+
         Schema::create('electronic_documents', function (Blueprint $table) {
             $table->id();
             $table->foreignId('company_id')

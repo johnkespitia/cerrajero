@@ -8,6 +8,10 @@ class AddFiscalFieldsToReservationsTable extends Migration
 {
     public function up()
     {
+        if (! Schema::hasTable('reservations') || Schema::hasColumn('reservations', 'electronic_document_id')) {
+            return;
+        }
+
         Schema::table('reservations', function (Blueprint $table) {
             $table->foreignId('electronic_document_id')->nullable()
                 ->constrained('electronic_documents')
@@ -22,6 +26,10 @@ class AddFiscalFieldsToReservationsTable extends Migration
 
     public function down()
     {
+        if (! Schema::hasTable('reservations') || ! Schema::hasColumn('reservations', 'electronic_document_id')) {
+            return;
+        }
+
         Schema::table('reservations', function (Blueprint $table) {
             $table->dropForeign(['electronic_document_id']);
             $table->dropIndex('reservations_edoc_idx');

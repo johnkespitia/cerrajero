@@ -20,6 +20,22 @@ Route::get("/greating", function() {
 
 Route::post('/login', [\App\Http\Controllers\UserController::class, 'apiLogin']);
 
+// Reservas web públicas (sin autenticación)
+Route::prefix('public/booking')->middleware('throttle:60,1')->group(function () {
+    Route::controller(\App\Http\Controllers\PublicBookingController::class)->group(function () {
+        Route::get('/config', 'config');
+        Route::get('/room-types', 'roomTypes');
+        Route::get('/plans', 'plans');
+        Route::get('/availability', 'availability');
+        Route::get('/calendar', 'calendar');
+        Route::post('/reservations', 'store');
+    });
+});
+
+Route::prefix('public/site')->middleware('throttle:60,1')->group(function () {
+    Route::get('/content', [\App\Http\Controllers\PublicSiteController::class, 'content']);
+});
+
 // Callback público de Google Calendar OAuth (sin autenticación)
 Route::get('/google-calendar/callback', [\App\Http\Controllers\GoogleCalendarConfigController::class, 'handleCallback']);
 
@@ -412,6 +428,14 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::get('/reservation-settings', 'index')->middleware('permission:reservation.edit,reservas');
         Route::put('/reservation-settings', 'update')->middleware('permission:reservation.edit,reservas');
     });
+
+    Route::controller(\App\Http\Controllers\SiteContentController::class)->group(function () {
+        Route::get('/site-content', 'show')->middleware('permission:reservation.edit,reservas');
+        Route::put('/site-content', 'update')->middleware('permission:reservation.edit,reservas');
+    });
+
+    Route::post('/site-media', [\App\Http\Controllers\SiteMediaController::class, 'store'])
+        ->middleware('permission:reservation.edit,reservas');
 
     Route::controller(\App\Http\Controllers\CancellationPolicyController::class)->group(function () {
         Route::get('/cancellation-policies', 'index')->middleware('permission:reservation.edit,reservas');

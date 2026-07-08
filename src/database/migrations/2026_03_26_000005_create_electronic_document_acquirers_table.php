@@ -8,6 +8,10 @@ class CreateElectronicDocumentAcquirersTable extends Migration
 {
     public function up()
     {
+        if (Schema::hasTable('electronic_document_acquirers')) {
+            return;
+        }
+
         Schema::create('electronic_document_acquirers', function (Blueprint $table) {
             $table->id();
             $table->foreignId('customer_id')->nullable()

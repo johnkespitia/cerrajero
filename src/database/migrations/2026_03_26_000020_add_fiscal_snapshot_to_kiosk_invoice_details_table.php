@@ -20,6 +20,10 @@ class AddFiscalSnapshotToKioskInvoiceDetailsTable extends Migration
 {
     public function up()
     {
+        if (! Schema::hasTable('kiosk_invoice_details') || Schema::hasColumn('kiosk_invoice_details', 'fiscal_tax_id')) {
+            return;
+        }
+
         Schema::table('kiosk_invoice_details', function (Blueprint $table) {
             $table->unsignedBigInteger('fiscal_tax_id')->nullable()->after('price');
             $table->string('fiscal_tax_code_dian', 4)->nullable()->after('fiscal_tax_id');
@@ -39,6 +43,10 @@ class AddFiscalSnapshotToKioskInvoiceDetailsTable extends Migration
 
     public function down()
     {
+        if (! Schema::hasTable('kiosk_invoice_details') || ! Schema::hasColumn('kiosk_invoice_details', 'fiscal_tax_id')) {
+            return;
+        }
+
         Schema::table('kiosk_invoice_details', function (Blueprint $table) {
             $table->dropIndex('kiosk_invoice_details_fiscal_tax_idx');
             $table->dropColumn([

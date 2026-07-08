@@ -34,6 +34,7 @@ class Reservation extends Model
         'deposit_amount',
         'status',
         'payment_status',
+        'web_payment_mode',
         'free_reservation_reason',
         'free_reservation_reference',
         'special_requests',

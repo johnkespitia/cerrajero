@@ -8,6 +8,10 @@ class CreateDianEventsTable extends Migration
 {
     public function up()
     {
+        if (Schema::hasTable('dian_events')) {
+            return;
+        }
+
         Schema::create('dian_events', function (Blueprint $table) {
             $table->id();
             $table->foreignId('electronic_document_id')
