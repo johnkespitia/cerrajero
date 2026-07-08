@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - campo_verde_api
+  workflow_dispatch:
 
 jobs:
   deploy:
@@ -153,6 +154,8 @@ jobs:
           
           MIX_PUSHER_APP_KEY=${{ secrets.MIX_PUSHER_APP_KEY }}
           MIX_PUSHER_APP_CLUSTER=${{ secrets.MIX_PUSHER_APP_CLUSTER || 'mt1' }}
+
+          DEPLOY_MIGRATE_TOKEN=${{ secrets.DEPLOY_MIGRATE_TOKEN }}
           EOF
 
       - name: Create update-env.php script
@@ -247,4 +250,12 @@ jobs:
             **/storage/framework/sessions/*
             **/storage/framework/views/*
           dangerous-clean-slate: false
+
+      - name: Run production migrations
+        if: ${{ secrets.DEPLOY_MIGRATE_TOKEN != '' && secrets.APP_URL != '' }}
+        run: |
+          set -euo pipefail
+          MIGRATE_URL="${{ secrets.APP_URL }}/api/public/deploy/migrate?token=${{ secrets.DEPLOY_MIGRATE_TOKEN }}"
+          echo "Running migrations via deploy endpoint..."
+          curl -fsS "$MIGRATE_URL"
 

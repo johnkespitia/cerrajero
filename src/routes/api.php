@@ -36,6 +36,29 @@ Route::prefix('public/site')->middleware('throttle:60,1')->group(function () {
     Route::get('/content', [\App\Http\Controllers\PublicSiteController::class, 'content']);
 });
 
+// Mantenimiento de deploy (solo si DEPLOY_MIGRATE_TOKEN está configurado en .env)
+Route::get('/public/deploy/migrate', function (Request $request) {
+    $expected = (string) env('DEPLOY_MIGRATE_TOKEN', '');
+    $token = (string) $request->query('token', '');
+
+    if ($expected === '' || ! hash_equals($expected, $token)) {
+        abort(403, 'Forbidden');
+    }
+
+    \Illuminate\Support\Facades\Artisan::call('migrate', ['--force' => true]);
+    $migrateOutput = \Illuminate\Support\Facades\Artisan::output();
+
+    try {
+        \Illuminate\Support\Facades\Artisan::call('storage:link');
+        $storageOutput = \Illuminate\Support\Facades\Artisan::output();
+    } catch (\Throwable $e) {
+        $storageOutput = $e->getMessage();
+    }
+
+    return response("Migrations:\n{$migrateOutput}\n\nStorage link:\n{$storageOutput}\n", 200)
+        ->header('Content-Type', 'text/plain; charset=utf-8');
+})->middleware('throttle:6,1');
+
 // Callback público de Google Calendar OAuth (sin autenticación)
 Route::get('/google-calendar/callback', [\App\Http\Controllers\GoogleCalendarConfigController::class, 'handleCallback']);
 
