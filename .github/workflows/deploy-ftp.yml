@@ -252,10 +252,16 @@ jobs:
           dangerous-clean-slate: false
 
       - name: Run production migrations
-        if: ${{ secrets.DEPLOY_MIGRATE_TOKEN != '' && secrets.APP_URL != '' }}
+        env:
+          MIGRATE_TOKEN: ${{ secrets.DEPLOY_MIGRATE_TOKEN }}
+          APP_URL: ${{ secrets.APP_URL }}
         run: |
           set -euo pipefail
-          MIGRATE_URL="${{ secrets.APP_URL }}/api/public/deploy/migrate?token=${{ secrets.DEPLOY_MIGRATE_TOKEN }}"
+          if [[ -z "${MIGRATE_TOKEN}" || -z "${APP_URL}" ]]; then
+            echo "Skipping auto-migrations: configure DEPLOY_MIGRATE_TOKEN and APP_URL secrets to enable."
+            exit 0
+          fi
+          MIGRATE_URL="${APP_URL}/api/public/deploy/migrate?token=${MIGRATE_TOKEN}"
           echo "Running migrations via deploy endpoint..."
           curl -fsS "$MIGRATE_URL"
 
