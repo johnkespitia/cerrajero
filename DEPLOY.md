@@ -1,54 +1,62 @@
 # Despliegue API a producción
 
-Push a la rama **`campo_verde_api`** (o ejecución manual del workflow) dispara `Deploy Backend to FTP`.
+Push a la rama **`campo_verde_api`** (o ejecución manual del workflow) dispara `Deploy Backend via SSH` (rsync).
 
-## Tras cada deploy
+## Secrets requeridos en GitHub (`cerrajero`)
 
-1. **Migraciones** (obligatorio si hay cambios de BD):
+| Secret | Descripción |
+|--------|-------------|
+| `SSH_HOST` | Host o IP del servidor |
+| `SSH_USER` | Usuario SSH (ej. `u123456789`) |
+| `SSH_PRIVATE_KEY` | Clave privada completa (PEM/OpenSSH) |
+| `SSH_PORT` | Puerto SSH (opcional, default `22`) |
+| `SSH_BACKEND_DIR` | Ruta absoluta del API en el servidor |
+| `APP_KEY`, `APP_URL`, `DB_*`, etc. | Variables de `.env` (como antes) |
 
-   Opción A — automática en CI (recomendada):
+## Preparación en el servidor (una vez)
 
-   Configura en GitHub Secrets del repo `cerrajero`:
-
-   - `DEPLOY_MIGRATE_TOKEN` — token largo y secreto
-   - `APP_URL` — URL base del API en producción (ej. `https://centrovacacionalcampoverde.com`)
-
-   El workflow ejecutará:
-
-   ```
-   GET {APP_URL}/api/public/deploy/migrate?token={DEPLOY_MIGRATE_TOKEN}
-   ```
-
-   Opción B — terminal/cPanel en el servidor:
+1. Genera un par de claves dedicado al CI:
 
    ```bash
-   php artisan migrate --force
-   php artisan storage:link
+   ssh-keygen -t ed25519 -C "github-actions-campoverde" -f ~/.ssh/campoverde_deploy -N ""
    ```
 
-   Opción C — script web (una vez, luego borrar):
-
-   En `.env` de producción agrega:
-
-   ```env
-   DEPLOY_MIGRATE_TOKEN=un-token-secreto-largo
-   ```
-
-   Visita:
-
-   ```
-   https://TU-DOMINIO/api/public/deploy/migrate?token=un-token-secreto-largo
-   ```
-
-2. **Contenido inicial del sitio** (opcional, primera vez):
+2. Agrega la clave **pública** en el hosting:
 
    ```bash
-   php artisan db:seed --class=HospitalityDemoSeeder --force
+   cat ~/.ssh/campoverde_deploy.pub >> ~/.ssh/authorized_keys
+   chmod 600 ~/.ssh/authorized_keys
    ```
 
-## Secrets GitHub
+3. Guarda la clave **privada** en GitHub → Settings → Secrets → `SSH_PRIVATE_KEY`.
 
-`FTP_SERVER`, `FTP_USERNAME`, `FTP_PASSWORD`, `FTP_BACKEND_DIR`, `APP_URL`, `DEPLOY_MIGRATE_TOKEN` y variables de `.env` vía secrets del workflow.
+4. Verifica acceso desde tu máquina:
+
+   ```bash
+   ssh -i ~/.ssh/campoverde_deploy USER@HOST "echo ok"
+   ```
+
+## Qué hace el workflow
+
+1. Build de Laravel (`composer install --no-dev`)
+2. `rsync` al directorio remoto (sin sobrescribir `.env` ni logs/cache)
+3. Por SSH en el servidor:
+   - `php update-env.php`
+   - `php artisan migrate --force`
+   - `php artisan storage:link`
+
+## Deploy manual local (opcional)
+
+```bash
+rsync -az --delete \
+  --exclude '.env' \
+  --exclude 'storage/logs/' \
+  --exclude 'storage/framework/cache/' \
+  --exclude 'storage/framework/sessions/' \
+  --exclude 'storage/framework/views/' \
+  -e "ssh -i ~/.ssh/campoverde_deploy" \
+  ./deploy/ USER@HOST:/ruta/al/api/
+```
 
 ## Relacionado
 
