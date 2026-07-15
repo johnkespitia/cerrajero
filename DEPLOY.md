@@ -45,6 +45,34 @@ Push a la rama **`campo_verde_api`** (o ejecución manual del workflow) dispara 
    - `php artisan migrate --force`
    - `php artisan storage:link`
 
+## Migraciones pendientes en producción (si `migrate` falla)
+
+Si la BD ya existía y `migrate` no puede correr todo, aplica al menos:
+
+```sql
+ALTER TABLE room_types
+  ADD COLUMN image_url VARCHAR(500) NULL AFTER description,
+  ADD COLUMN gallery JSON NULL AFTER image_url;
+```
+
+Luego marca la migración en Laravel:
+
+```sql
+INSERT INTO migrations (migration, batch)
+SELECT '2026_07_08_120100_add_media_fields_to_room_types_table', COALESCE(MAX(batch), 0) + 1
+FROM migrations
+WHERE NOT EXISTS (
+  SELECT 1 FROM migrations
+  WHERE migration = '2026_07_08_120100_add_media_fields_to_room_types_table'
+);
+```
+
+(Opcional) Tabla CMS del sitio:
+
+```sql
+-- Ver migración 2026_07_08_120000_create_site_settings_table.php
+```
+
 ## Deploy manual local (opcional)
 
 ```bash

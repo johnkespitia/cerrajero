@@ -13,12 +13,16 @@ use App\Models\RoomType;
 use App\Models\ServicePackage;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 use Symfony\Component\HttpFoundation\Response;
 
 class PublicBookingService
 {
     public const PAYMENT_MODES = ['request_only', 'deposit', 'full_payment'];
+
+    public const PAYMENT_MODES_REQUIRING_RECEIPT = ['deposit', 'full_payment'];
 
     public function __construct(
         protected ReservationController $reservationController
@@ -33,6 +37,7 @@ class PublicBookingService
             'web_payment_mode_deposit_enabled' => 'true',
             'web_payment_mode_full_enabled' => 'true',
             'web_deposit_percentage' => '30',
+            'web_payment_instructions' => 'Realice la transferencia o consignación y adjunte el comprobante (captura o PDF). Verificaremos el pago para confirmar su reserva.',
         ];
 
         foreach ($defaults as $key => $value) {
@@ -63,15 +68,59 @@ class PublicBookingService
                 ),
             ],
             'deposit_percentage' => ReservationSetting::getFloat('web_deposit_percentage', 30),
+            'payment_instructions' => ReservationSetting::get(
+                'web_payment_instructions',
+                'Realice la transferencia o consignación y adjunte el comprobante (captura o PDF). Verificaremos el pago para confirmar su reserva.'
+            ),
         ];
+    }
+
+    public function requiresPaymentReceipt(string $paymentMode): bool
+    {
+        return in_array($paymentMode, self::PAYMENT_MODES_REQUIRING_RECEIPT, true);
     }
 
     public function getRoomTypes(): array
     {
         return RoomType::where('active', true)
             ->orderBy('name')
-            ->get(['id', 'name', 'code', 'description', 'image_url', 'gallery', 'default_capacity', 'max_capacity', 'base_price', 'features'])
-            ->toArray();
+            ->get($this->roomTypeSelectColumns())
+            ->map(fn (RoomType $roomType) => $this->formatRoomTypeForPublic($roomType))
+            ->values()
+            ->all();
+    }
+
+    protected function roomTypeSelectColumns(): array
+    {
+        $columns = [
+            'id',
+            'name',
+            'code',
+            'description',
+            'default_capacity',
+            'max_capacity',
+            'base_price',
+            'features',
+        ];
+
+        if (Schema::hasColumn('room_types', 'image_url')) {
+            $columns[] = 'image_url';
+        }
+
+        if (Schema::hasColumn('room_types', 'gallery')) {
+            $columns[] = 'gallery';
+        }
+
+        return $columns;
+    }
+
+    protected function formatRoomTypeForPublic(RoomType $roomType): array
+    {
+        $data = $roomType->toArray();
+        $data['image_url'] = $data['image_url'] ?? null;
+        $data['gallery'] = $data['gallery'] ?? [];
+
+        return $data;
     }
 
     public function getPlans(): array
@@ -87,7 +136,7 @@ class PublicBookingService
         $packages = ServicePackage::query()
             ->active()
             ->with([
-                'roomType:id,name,code,base_price,image_url,gallery',
+                'roomType' => fn ($query) => $query->select($this->roomTypeSelectColumns()),
                 'additionalServices' => fn ($query) => $query->active()->orderBy('name'),
             ])
             ->orderBy('name')
@@ -96,14 +145,7 @@ class PublicBookingService
                 'id' => $package->id,
                 'name' => $package->name,
                 'description' => $package->description,
-                'room_type' => $package->roomType ? [
-                    'id' => $package->roomType->id,
-                    'name' => $package->roomType->name,
-                    'code' => $package->roomType->code,
-                    'base_price' => (float) $package->roomType->base_price,
-                    'image_url' => $package->roomType->image_url,
-                    'gallery' => $package->roomType->gallery ?? [],
-                ] : null,
+                'room_type' => $package->roomType ? $this->formatRoomTypeForPublic($package->roomType) : null,
                 'services' => $package->additionalServices
                     ->map(fn (AdditionalService $service) => $this->formatPlanService($service))
                     ->values()
@@ -418,15 +460,85 @@ class PublicBookingService
         $this->applyWebBookingDefaults($reservation, $paymentMode, $config['deposit_percentage']);
 
         $message = 'Reserva registrada exitosamente. Recibirá confirmación por correo.';
+        if ($this->requiresPaymentReceipt($paymentMode)) {
+            $message = 'Reserva registrada. Adjunte el comprobante de pago para completar el proceso.';
+        }
         if (!empty($reservationData['total_rooms']) && (int) $reservationData['total_rooms'] > 1) {
-            $message = 'Reserva registrada con ' . (int) $reservationData['total_rooms'] . ' habitaciones. Recibirá confirmación por correo.';
+            $suffix = ' Recibirá confirmación por correo.';
+            if ($this->requiresPaymentReceipt($paymentMode)) {
+                $suffix = ' Adjunte el comprobante de pago para completar el proceso.';
+            }
+            $message = 'Reserva registrada con ' . (int) $reservationData['total_rooms'] . ' habitaciones.' . $suffix;
         }
 
         return response()->json([
             'message' => $message,
             'reservation' => $this->formatPublicReservation($reservation->fresh(['customer', 'roomType'])),
             'total_rooms' => $reservationData['total_rooms'] ?? 1,
+            'requires_payment_receipt' => $this->requiresPaymentReceipt($paymentMode),
         ], 201);
+    }
+
+    public function uploadPaymentReceipt(Request $request, int $reservationId): Response
+    {
+        $validator = Validator::make($request->all(), [
+            'customer_email' => 'required|email|max:150',
+            'receipt' => 'required|file|mimes:jpeg,jpg,png,webp,pdf|max:5120',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json($validator->errors(), 422);
+        }
+
+        $reservation = Reservation::with('customer')->find($reservationId);
+
+        if (!$reservation || !$this->isWebReservation($reservation)) {
+            return response()->json(['message' => 'Reserva no encontrada.'], 404);
+        }
+
+        if (!$this->requiresPaymentReceipt((string) $reservation->web_payment_mode)) {
+            return response()->json(['message' => 'Esta reserva no requiere comprobante de pago.'], 422);
+        }
+
+        $customerEmail = strtolower(trim((string) $request->input('customer_email')));
+        $reservationEmail = strtolower(trim((string) ($reservation->customer->email ?? '')));
+
+        if ($customerEmail !== $reservationEmail) {
+            return response()->json(['message' => 'No coincide el correo con la reserva.'], 403);
+        }
+
+        if ($reservation->web_payment_receipt_url) {
+            return response()->json(['message' => 'Ya se recibió un comprobante para esta reserva.'], 422);
+        }
+
+        $path = $request->file('receipt')->store(
+            'booking-receipts/' . $reservation->id,
+            'public'
+        );
+        $url = Storage::disk('public')->url($path);
+
+        $reservation->update([
+            'web_payment_receipt_path' => $path,
+            'web_payment_receipt_url' => $url,
+            'web_payment_receipt_uploaded_at' => now(),
+        ]);
+
+        $reservation->childReservations()->update([
+            'web_payment_receipt_path' => $path,
+            'web_payment_receipt_url' => $url,
+            'web_payment_receipt_uploaded_at' => now(),
+        ]);
+
+        return response()->json([
+            'message' => 'Comprobante recibido. Verificaremos el pago para confirmar su reserva.',
+            'receipt_url' => $url,
+            'reservation' => $this->formatPublicReservation($reservation->fresh(['customer', 'roomType'])),
+        ], 201);
+    }
+
+    protected function isWebReservation(Reservation $reservation): bool
+    {
+        return $reservation->contact_channel === 'website' || !empty($reservation->web_payment_mode);
     }
 
     protected function applyWebBookingDefaults(
@@ -498,6 +610,8 @@ class PublicBookingService
             'status' => $reservation->status,
             'payment_status' => $reservation->payment_status,
             'web_payment_mode' => $reservation->web_payment_mode,
+            'web_payment_receipt_url' => $reservation->web_payment_receipt_url,
+            'web_payment_receipt_uploaded_at' => $reservation->web_payment_receipt_uploaded_at?->toIso8601String(),
             'check_in_date' => $reservation->check_in_date?->format('Y-m-d'),
             'check_out_date' => $reservation->check_out_date?->format('Y-m-d'),
             'adults' => $reservation->adults,
