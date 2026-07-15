@@ -237,4 +237,11 @@ jobs:
           SSH_BACKEND_DIR: ${{ secrets.SSH_BACKEND_DIR }}
         run: |
           set -euo pipefail
-          ssh -p "$SSH_PORT" "${SSH_USER}@${SSH_HOST}" "cd '${SSH_BACKEND_DIR}' && php update-env.php && php artisan migrate --force && php artisan storage:link || true && chmod -R 775 storage bootstrap/cache || true"
+          ssh -p "$SSH_PORT" "${SSH_USER}@${SSH_HOST}" bash -s <<REMOTE
+          set -euo pipefail
+          cd '${SSH_BACKEND_DIR}'
+          php update-env.php
+          php artisan migrate:production --force
+          php artisan storage:link || true
+          chmod -R 775 storage bootstrap/cache || true
+          REMOTE

@@ -42,12 +42,16 @@ Push a la rama **`campo_verde_api`** (o ejecución manual del workflow) dispara 
 2. `rsync` al directorio remoto (sin sobrescribir `.env` ni logs/cache)
 3. Por SSH en el servidor:
    - `php update-env.php`
-   - `php artisan migrate --force`
+   - `php artisan migrate:production --force` (migraciones pendientes; si el esquema ya existe, las marca como aplicadas)
    - `php artisan storage:link`
 
-## Migraciones pendientes en producción (si `migrate` falla)
+## Migraciones en producción
 
-Si la BD ya existía y `migrate` no puede correr todo, aplica al menos:
+El deploy **sí ejecuta migraciones** en cada despliegue. En bases que ya existían antes de Laravel, `migrate` fallaba en la primera tabla duplicada (ej. `customers`) y el workflow anterior ocultaba el error con `|| true`.
+
+`migrate:production` aplica solo lo pendiente y, si detecta conflicto seguro (tabla/columna ya existe), registra la migración y continúa.
+
+Si aún falla, aplica manualmente al menos:
 
 ```sql
 ALTER TABLE room_types
