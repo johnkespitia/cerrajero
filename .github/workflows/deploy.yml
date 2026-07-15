@@ -79,7 +79,7 @@ jobs:
       - name: Create .env.production from GitHub Secrets
         run: |
           cat > deploy/.env.production << EOF
-          APP_NAME=${{ secrets.APP_NAME || 'CAMPO VERDE API' }}
+          APP_NAME="${{ secrets.APP_NAME || 'CAMPO VERDE API' }}"
           APP_ENV=${{ secrets.APP_ENV || 'production' }}
           APP_KEY=${{ secrets.APP_KEY }}
           APP_DEBUG=${{ secrets.APP_DEBUG || 'false' }}
@@ -115,7 +115,7 @@ jobs:
           MAIL_PASSWORD=${{ secrets.MAIL_PASSWORD }}
           MAIL_ENCRYPTION=${{ secrets.MAIL_ENCRYPTION || 'tls' }}
           MAIL_FROM_ADDRESS=${{ secrets.MAIL_FROM_ADDRESS }}
-          MAIL_FROM_NAME=${{ secrets.MAIL_FROM_NAME }}
+          MAIL_FROM_NAME="${{ secrets.MAIL_FROM_NAME || 'Campo Verde' }}"
 
           AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}
