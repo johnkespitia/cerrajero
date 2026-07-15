@@ -77,6 +77,9 @@ class MigrateProductionCommand extends Command
             return true;
         }
 
-        return (bool) preg_match('/(already exists|Duplicate column|Duplicate key name)/i', $message);
+        return (bool) preg_match(
+            '/(already exists|Duplicate column|Duplicate key name|Can\'t DROP|check that it exists)/i',
+            $message
+        );
     }
 }
