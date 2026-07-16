@@ -2377,6 +2377,10 @@ class ReservationController extends Controller
                 }
             }
 
+            if ($reservation->status === 'pending' && $newTotalPaid > 0) {
+                $reservation->status = 'confirmed';
+            }
+
             $reservation->save();
 
             // Obtener el nombre del método de pago para la auditoría
@@ -3590,6 +3594,11 @@ class ReservationController extends Controller
                         'id' => $reservation->customer->id,
                         'name' => $reservation->customer->name,
                     ] : null,
+                    'status' => $reservation->status,
+                    'check_in_date' => $reservation->check_in_date,
+                    'check_out_date' => $reservation->check_out_date,
+                    'check_in_time' => $reservation->check_in_time,
+                    'check_out_time' => $reservation->check_out_time,
                     'adults' => $reservation->adults,
                     'children' => $reservation->children,
                     'infants' => $reservation->infants,
