@@ -28,6 +28,7 @@ class ReservationSettingController extends Controller
             'web_payment_mode_deposit_enabled' => 'true',
             'web_payment_mode_full_enabled' => 'true',
             'web_deposit_percentage' => '30',
+            'web_payment_instructions' => 'Realice la transferencia o consignación y adjunte el comprobante (captura o PDF). Verificaremos el pago para confirmar su reserva.',
         ];
 
         foreach ($defaults as $key => $value) {
@@ -50,13 +51,14 @@ class ReservationSettingController extends Controller
             'min_stay_nights' => 'nullable|integer|min:1',
             'max_stay_nights' => 'nullable|integer|min:1',
             'max_reservations_per_customer' => 'nullable|integer|min:1',
-            'check_in_time' => 'nullable|string|regex:/^([0-1][0-9]|2[0-3]):[0-5][0-9]$/',
-            'check_out_time' => 'nullable|string|regex:/^([0-1][0-9]|2[0-3]):[0-5][0-9]$/',
+            'check_in_time' => ['nullable', 'string', 'regex:/^([0-1][0-9]|2[0-3]):[0-5][0-9]$/'],
+            'check_out_time' => ['nullable', 'string', 'regex:/^([0-1][0-9]|2[0-3]):[0-5][0-9]$/'],
             'web_booking_enabled' => 'nullable|in:true,false,0,1',
             'web_payment_mode_request_enabled' => 'nullable|in:true,false,0,1',
             'web_payment_mode_deposit_enabled' => 'nullable|in:true,false,0,1',
             'web_payment_mode_full_enabled' => 'nullable|in:true,false,0,1',
             'web_deposit_percentage' => 'nullable|numeric|min:1|max:100',
+            'web_payment_instructions' => 'nullable|string|max:5000',
         ]);
 
         if ($validator->fails()) {
@@ -75,6 +77,7 @@ class ReservationSettingController extends Controller
             'web_payment_mode_deposit_enabled' => 'Modo abono/depósito (web)',
             'web_payment_mode_full_enabled' => 'Modo pago completo (web)',
             'web_deposit_percentage' => 'Porcentaje de abono para reservas web',
+            'web_payment_instructions' => 'Instrucciones de pago manual para reservas web',
         ];
 
         $booleanKeys = [
