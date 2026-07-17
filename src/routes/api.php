@@ -509,6 +509,11 @@ Route::middleware(['auth:sanctum'])->group(function () {
     });
 
     // Rutas de aforo de pasadía
+    Route::controller(\App\Http\Controllers\DayPassSettingController::class)->group(function () {
+        Route::get('/day-pass-settings', 'index')->middleware('permission:reservation.list,reservas');
+        Route::put('/day-pass-settings', 'update')->middleware('permission:reservation.edit,reservas');
+    });
+
     Route::controller(\App\Http\Controllers\DayPassCapacityController::class)->group(function () {
         Route::get('/day-pass-capacities', 'index')->middleware('permission:reservation.list,reservas');
         Route::get('/day-pass-capacities/availability', 'checkAvailability')->middleware('permission:reservation.list,reservas');

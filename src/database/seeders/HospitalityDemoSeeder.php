@@ -123,16 +123,17 @@ class HospitalityDemoSeeder extends Seeder
             }
         }
 
+        $defaults = app(\App\Services\DayPassSettingsService::class)->defaults();
         $today = Carbon::today();
         for ($i = 0; $i < 90; $i++) {
             $date = $today->copy()->addDays($i)->format('Y-m-d');
             DayPassCapacity::updateOrCreate(
                 ['date' => $date],
                 [
-                    'max_capacity' => 200,
+                    'max_capacity' => $defaults['default_capacity'],
                     'consumed_capacity' => 0,
-                    'adult_price' => 80000,
-                    'child_price' => 40000,
+                    'adult_price' => $defaults['default_adult_price'],
+                    'child_price' => $defaults['default_child_price'],
                 ]
             );
         }
