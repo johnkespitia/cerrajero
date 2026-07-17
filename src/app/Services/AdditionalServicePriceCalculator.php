@@ -9,12 +9,7 @@ use App\Models\ReservationAdditionalService;
 class AdditionalServicePriceCalculator
 {
     /**
-     * Calcula los "días de servicio" con lógica hotelera:
-     * - Check-in: solo cena (media jornada)
-     * - Check-out: desayuno + almuerzo (media jornada)
-     * - Check-in + Check-out = 1 día completo
-     * - Días intermedios = 1 día cada uno
-     * Para pasadía: 1 día.
+     * Días de cobro del servicio según la estadía (noches para habitación, 1 para pasadía).
      */
     public function getServiceDays(Reservation $reservation): float
     {
@@ -31,29 +26,42 @@ class AdditionalServicePriceCalculator
     }
 
     /**
-     * Calcula el total de un servicio adicional para una reserva.
+     * Cantidad de ítems por defecto al agregar un servicio (adultos + niños del grupo).
+     */
+    public function getDefaultItemQuantity(Reservation $reservation): int
+    {
+        $guests = (int) $reservation->adults + (int) $reservation->children;
+        if ($reservation->is_group_reservation && !$reservation->parent_reservation_id) {
+            $reservation->loadMissing(['childReservations']);
+            $guests += (int) $reservation->childReservations->sum(fn ($r) => $r->adults + $r->children);
+        }
+
+        return max(1, $guests);
+    }
+
+    /**
+     * Calcula el total: precio × cantidad de ítems × días (per_day) o × cantidad (one_time).
      */
     public function calculateTotal(
         AdditionalService $service,
         Reservation $reservation,
-        ?int $guestsOverride = null
+        int $itemQuantity = 1
     ): array {
-        $guests = $guestsOverride ?? ($reservation->adults + $reservation->children);
-        $guests = max(1, $guests);
+        $itemQuantity = max(1, $itemQuantity);
 
         if ($service->billing_type === 'one_time') {
-            $quantity = 1;
+            $serviceDays = 1;
+            $total = round($service->price * $itemQuantity, 2);
         } else {
-            $quantity = $this->getServiceDays($reservation);
+            $serviceDays = $this->getServiceDays($reservation);
+            $total = round($service->price * $itemQuantity * $serviceDays, 2);
         }
-
-        $multiplier = $service->is_per_guest ? $guests : 1;
-        $total = round($service->price * $quantity * $multiplier, 2);
 
         return [
             'unit_price' => $service->price,
-            'quantity' => $quantity,
-            'guests_count' => $guests,
+            'quantity' => $itemQuantity,
+            'service_days' => $serviceDays,
+            'guests_count' => 1,
             'total' => $total,
         ];
     }
@@ -67,19 +75,20 @@ class AdditionalServicePriceCalculator
     }
 
     /**
-     * Agrega un servicio a la reserva y calcula su total.
+     * Agrega un servicio a la reserva con cantidad de ítems explícita.
      */
     public function addServiceToReservation(
         Reservation $reservation,
         AdditionalService $service,
-        ?int $guestsOverride = null
+        int $itemQuantity = 1
     ): ReservationAdditionalService {
-        $calc = $this->calculateTotal($service, $reservation, $guestsOverride);
+        $calc = $this->calculateTotal($service, $reservation, $itemQuantity);
 
         return $reservation->additionalServices()->create([
             'additional_service_id' => $service->id,
             'unit_price' => $calc['unit_price'],
             'quantity' => $calc['quantity'],
+            'service_days' => $calc['service_days'],
             'guests_count' => $calc['guests_count'],
             'total' => $calc['total'],
         ])->load('additionalService');
@@ -91,10 +100,11 @@ class AdditionalServicePriceCalculator
     public function applyPackageToReservation(
         Reservation $reservation,
         \App\Models\ServicePackage $package,
-        ?int $guestsOverride = null
+        ?array $quantitiesByServiceId = null
     ): array {
         $added = [];
         $existingIds = $reservation->additionalServices()->pluck('additional_service_id')->toArray();
+        $quantitiesByServiceId = $quantitiesByServiceId ?? [];
 
         foreach ($package->additionalServices as $service) {
             if (in_array($service->id, $existingIds, true)) {
@@ -103,7 +113,8 @@ class AdditionalServicePriceCalculator
             if (!$this->serviceAppliesToReservationType($service, $reservation->reservation_type)) {
                 continue;
             }
-            $added[] = $this->addServiceToReservation($reservation, $service, $guestsOverride);
+            $qty = max(1, (int) ($quantitiesByServiceId[$service->id] ?? $this->getDefaultItemQuantity($reservation)));
+            $added[] = $this->addServiceToReservation($reservation, $service, $qty);
         }
 
         return $added;
@@ -118,28 +129,21 @@ class AdditionalServicePriceCalculator
     }
 
     /**
-     * Recalcula los totales de los servicios adicionales de una reserva (p. ej. al cambiar fechas o huéspedes).
-     * Para reservas con varias habitaciones (grupo), usa el total de huéspedes de todas las habitaciones.
+     * Recalcula los totales al cambiar fechas (actualiza días, conserva cantidad de ítems).
      */
     public function recalculateReservationAdditionalServices(Reservation $reservation): void
     {
-        $guests = $reservation->adults + $reservation->children;
-        if ($reservation->is_group_reservation && !$reservation->parent_reservation_id) {
-            $reservation->loadMissing(['childReservations']);
-            $guests = $guests + $reservation->childReservations->sum(fn ($r) => $r->adults + $r->children);
-        }
-        $guests = max(1, (int) $guests);
-
         foreach ($reservation->additionalServices as $ras) {
             $service = $ras->additionalService;
             if (!$service) {
                 continue;
             }
-            $calc = $this->calculateTotal($service, $reservation, $guests);
+            $itemQuantity = max(1, (int) $ras->quantity);
+            $calc = $this->calculateTotal($service, $reservation, $itemQuantity);
             $ras->update([
                 'unit_price' => $calc['unit_price'],
-                'quantity' => $calc['quantity'],
-                'guests_count' => $calc['guests_count'],
+                'service_days' => $calc['service_days'],
+                'guests_count' => 1,
                 'total' => $calc['total'],
             ]);
         }

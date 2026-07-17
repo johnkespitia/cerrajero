@@ -203,7 +203,6 @@ class PublicBookingService
             'description' => $service->description,
             'price' => (float) $service->price,
             'billing_type' => $service->billing_type,
-            'is_per_guest' => (bool) $service->is_per_guest,
             'is_food_service' => (bool) $service->is_food_service,
             'applies_to' => $service->applies_to,
         ];

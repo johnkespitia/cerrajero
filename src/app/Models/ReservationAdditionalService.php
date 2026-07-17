@@ -16,6 +16,7 @@ class ReservationAdditionalService extends Model
         'additional_service_id',
         'unit_price',
         'quantity',
+        'service_days',
         'guests_count',
         'total',
     ];
@@ -23,6 +24,7 @@ class ReservationAdditionalService extends Model
     protected $casts = [
         'unit_price' => 'decimal:2',
         'quantity' => 'decimal:2',
+        'service_days' => 'decimal:2',
         'total' => 'decimal:2',
     ];
 

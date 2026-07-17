@@ -43,7 +43,6 @@ class AdditionalServiceController extends Controller
             'price' => 'required|numeric|min:0',
             'billing_type' => 'required|in:per_day,one_time',
             'applies_to' => 'required|in:room,day_pass,both',
-            'is_per_guest' => 'boolean',
             'status' => 'in:active,inactive',
             'is_food_service' => 'boolean',
             'meal_type' => 'nullable|in:breakfast,lunch,dinner',
@@ -54,9 +53,10 @@ class AdditionalServiceController extends Controller
         }
 
         $data = $request->only([
-            'name', 'description', 'price', 'billing_type', 'applies_to', 'is_per_guest', 'status'
+            'name', 'description', 'price', 'billing_type', 'applies_to', 'status'
         ]);
-        $data['is_per_guest'] = $request->boolean('is_per_guest', true);
+        $data['billing_type'] = $request->input('billing_type', 'per_day');
+        $data['is_per_guest'] = false;
         $data['status'] = $request->input('status', 'active');
         $data['is_food_service'] = $request->boolean('is_food_service', false);
         $data['meal_type'] = in_array($request->input('meal_type'), ['breakfast', 'lunch', 'dinner'], true)
@@ -75,7 +75,6 @@ class AdditionalServiceController extends Controller
             'price' => 'sometimes|numeric|min:0',
             'billing_type' => 'sometimes|in:per_day,one_time',
             'applies_to' => 'sometimes|in:room,day_pass,both',
-            'is_per_guest' => 'boolean',
             'status' => 'sometimes|in:active,inactive',
             'is_food_service' => 'boolean',
             'meal_type' => 'nullable|in:breakfast,lunch,dinner',
@@ -86,11 +85,9 @@ class AdditionalServiceController extends Controller
         }
 
         $data = $request->only([
-            'name', 'description', 'price', 'billing_type', 'applies_to', 'is_per_guest', 'status'
+            'name', 'description', 'price', 'billing_type', 'applies_to', 'status'
         ]);
-        if ($request->has('is_per_guest')) {
-            $data['is_per_guest'] = $request->boolean('is_per_guest');
-        }
+        $data['is_per_guest'] = false;
         if ($request->has('is_food_service')) {
             $data['is_food_service'] = $request->boolean('is_food_service');
         }

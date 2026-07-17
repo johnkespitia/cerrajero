@@ -35,6 +35,9 @@ class Reservation extends Model
         'status',
         'payment_status',
         'web_payment_mode',
+        'web_payment_receipt_path',
+        'web_payment_receipt_url',
+        'web_payment_receipt_uploaded_at',
         'free_reservation_reason',
         'free_reservation_reference',
         'special_requests',
@@ -99,6 +102,7 @@ class Reservation extends Model
         'reminder_sent_at' => 'datetime',
         'check_in_reminder_sent' => 'boolean',
         'check_in_reminder_sent_at' => 'datetime',
+        'web_payment_receipt_uploaded_at' => 'datetime',
         'manual_price_override' => 'boolean',
         'early_check_in' => 'boolean',
         'late_check_out' => 'boolean',
@@ -398,8 +402,8 @@ class Reservation extends Model
             })
             ->get()
             ->sum(function($ras) {
-                // Calcular cantidad: quantity (días) * guests_count
-                return $ras->quantity * $ras->guests_count;
+                $days = (float) ($ras->service_days ?? 1);
+                return (int) $ras->quantity * $days;
             });
     }
 
@@ -428,7 +432,7 @@ class Reservation extends Model
             })
             ->get()
             ->sum(function($ras) {
-                return (int) $ras->guests_count;
+                return (int) $ras->quantity;
             });
     }
 

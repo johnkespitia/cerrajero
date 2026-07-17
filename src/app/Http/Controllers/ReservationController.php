@@ -693,23 +693,22 @@ class ReservationController extends Controller
             }
             $mainReservation->save();
 
-            // Aplicar servicios adicionales y paquete a la reserva principal con TODOS los huéspedes del grupo
-            $chargeableGuests = $totalGuests;
+            // Aplicar servicios adicionales y paquete a la reserva principal
+            $serviceQuantities = $this->resolveAdditionalServiceQuantities($request, max(1, (int) $totalGuests));
             if ($request->service_package_id) {
                 $package = ServicePackage::find($request->service_package_id);
                 if ($package && $package->status === 'active') {
                     $this->additionalServiceCalculator->applyPackageToReservation(
                         $mainReservation,
                         $package,
-                        $chargeableGuests
+                        $serviceQuantities
                     );
                 }
-            }
-            if ($request->has('additional_service_ids') && is_array($request->additional_service_ids)) {
-                foreach ($request->additional_service_ids as $sid) {
+            } else {
+                foreach ($serviceQuantities as $sid => $qty) {
                     $svc = AdditionalService::find($sid);
                     if ($svc && $svc->status === 'active' && $this->additionalServiceCalculator->serviceAppliesToReservationType($svc, $request->reservation_type ?? 'room')) {
-                        $this->additionalServiceCalculator->addServiceToReservation($mainReservation, $svc, $chargeableGuests);
+                        $this->additionalServiceCalculator->addServiceToReservation($mainReservation, $svc, $qty);
                     }
                 }
             }
@@ -864,6 +863,11 @@ class ReservationController extends Controller
             'marketing_notes' => 'nullable|string|max:1000',
             'additional_service_ids' => 'nullable|array',
             'additional_service_ids.*' => 'exists:additional_services,id',
+            'additional_service_quantities' => 'nullable|array',
+            'additional_service_quantities.*' => 'integer|min:1',
+            'additional_services' => 'nullable|array',
+            'additional_services.*.additional_service_id' => 'required_with:additional_services|exists:additional_services,id',
+            'additional_services.*.quantity' => 'nullable|integer|min:1',
             'service_package_id' => 'nullable|exists:service_packages,id',
         ];
 
@@ -1137,21 +1141,24 @@ class ReservationController extends Controller
             }
 
             // Aplicar paquete de servicios o servicios adicionales individuales
+            $serviceQuantities = $this->resolveAdditionalServiceQuantities(
+                $request,
+                max(1, (int) ($request->adults + ($request->children ?? 0)))
+            );
             if ($request->service_package_id) {
                 $package = ServicePackage::find($request->service_package_id);
                 if ($package && $package->status === 'active') {
                     $this->additionalServiceCalculator->applyPackageToReservation(
                         $reservation,
                         $package,
-                        $chargeableGuests
+                        $serviceQuantities
                     );
                 }
-            }
-            if ($request->has('additional_service_ids') && is_array($request->additional_service_ids)) {
-                foreach ($request->additional_service_ids as $sid) {
+            } else {
+                foreach ($serviceQuantities as $sid => $qty) {
                     $svc = AdditionalService::find($sid);
                     if ($svc && $svc->status === 'active' && $this->additionalServiceCalculator->serviceAppliesToReservationType($svc, $request->reservation_type)) {
-                        $this->additionalServiceCalculator->addServiceToReservation($reservation, $svc, $chargeableGuests);
+                        $this->additionalServiceCalculator->addServiceToReservation($reservation, $svc, $qty);
                     }
                 }
             }
@@ -1953,12 +1960,8 @@ class ReservationController extends Controller
 
     public function downloadCertificate(Reservation $reservation)
     {
+        $this->certificateService->generateCertificate($reservation);
         $path = $this->certificateService->getCertificatePath($reservation);
-
-        if (!\Storage::exists($path)) {
-            $this->certificateService->generateCertificate($reservation);
-        }
-
         $filename = "reserva-{$reservation->reservation_number}.pdf";
         
         return \Storage::download($path, $filename);
@@ -1969,13 +1972,8 @@ class ReservationController extends Controller
      */
     public function downloadCheckoutCertificate(Reservation $reservation)
     {
+        $this->certificateService->generateCheckoutCertificate($reservation);
         $path = $this->certificateService->getCheckoutCertificatePath($reservation);
-
-        if (!\Storage::exists($path)) {
-            $this->certificateService->generateCheckoutCertificate($reservation);
-            $path = $this->certificateService->getCheckoutCertificatePath($reservation);
-        }
-
         $filename = "checkout-{$reservation->reservation_number}.pdf";
         
         return \Storage::download($path, $filename);
@@ -2438,6 +2436,46 @@ class ReservationController extends Controller
     }
 
     /**
+     * Resuelve cantidades de ítems por servicio adicional desde la petición.
+     *
+     * @return array<int, int> [additional_service_id => quantity]
+     */
+    private function resolveAdditionalServiceQuantities(Request $request, int $defaultQuantity = 1): array
+    {
+        $quantities = [];
+        $defaultQuantity = max(1, $defaultQuantity);
+
+        if ($request->has('additional_services') && is_array($request->additional_services)) {
+            foreach ($request->additional_services as $entry) {
+                if (!is_array($entry)) {
+                    continue;
+                }
+                $id = (int) ($entry['additional_service_id'] ?? $entry['id'] ?? 0);
+                if ($id > 0) {
+                    $quantities[$id] = max(1, (int) ($entry['quantity'] ?? $defaultQuantity));
+                }
+            }
+        }
+
+        if ($request->has('additional_service_quantities') && is_array($request->additional_service_quantities)) {
+            foreach ($request->additional_service_quantities as $id => $qty) {
+                $quantities[(int) $id] = max(1, (int) $qty);
+            }
+        }
+
+        if ($request->has('additional_service_ids') && is_array($request->additional_service_ids)) {
+            foreach ($request->additional_service_ids as $sid) {
+                $id = (int) $sid;
+                if ($id > 0 && !isset($quantities[$id])) {
+                    $quantities[$id] = $defaultQuantity;
+                }
+            }
+        }
+
+        return $quantities;
+    }
+
+    /**
      * Agregar servicio adicional a una reserva
      */
     public function addAdditionalService(Request $request, Reservation $reservation)
@@ -2450,6 +2488,7 @@ class ReservationController extends Controller
 
         $validator = Validator::make($request->all(), [
             'additional_service_id' => 'required|exists:additional_services,id',
+            'quantity' => 'nullable|integer|min:1',
         ]);
         if ($validator->fails()) {
             return response()->json($validator->errors(), 422);
@@ -2466,16 +2505,10 @@ class ReservationController extends Controller
             return response()->json(['message' => 'Este servicio ya está agregado a la reserva.'], 422);
         }
 
-        // Para reservas con varias habitaciones, usar el total de huéspedes del grupo
-        $chargeableGuests = null;
-        if ($reservation->is_group_reservation && !$reservation->parent_reservation_id) {
-            $reservation->loadMissing(['childReservations']);
-            $chargeableGuests = $reservation->adults + $reservation->children
-                + $reservation->childReservations->sum(fn ($r) => $r->adults + $r->children);
-            $chargeableGuests = max(1, (int) $chargeableGuests);
-        }
-
-        $ras = $this->additionalServiceCalculator->addServiceToReservation($reservation, $svc, $chargeableGuests);
+        $itemQuantity = $request->filled('quantity')
+            ? max(1, (int) $request->input('quantity'))
+            : $this->additionalServiceCalculator->getDefaultItemQuantity($reservation);
+        $ras = $this->additionalServiceCalculator->addServiceToReservation($reservation, $svc, $itemQuantity);
         $reservation->recomputeFinalPrice();
         $reservation->load(['additionalServices.additionalService']);
 

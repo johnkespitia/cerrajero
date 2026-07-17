@@ -29,6 +29,7 @@ Route::prefix('public/booking')->middleware('throttle:60,1')->group(function () 
         Route::get('/availability', 'availability');
         Route::get('/calendar', 'calendar');
         Route::post('/reservations', 'store');
+        Route::post('/reservations/{reservation}/payment-receipt', 'uploadPaymentReceipt');
     });
 });
 

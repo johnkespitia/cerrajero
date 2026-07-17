@@ -55,6 +55,7 @@ class PublicBookingTest extends TestCase
                 'enabled',
                 'payment_modes' => ['request_only', 'deposit', 'full_payment'],
                 'deposit_percentage',
+                'payment_instructions',
             ]);
     }
 
@@ -187,5 +188,84 @@ class PublicBookingTest extends TestCase
         $this->assertDatabaseHas('customers', [
             'email' => 'juan@example.com',
         ]);
+    }
+
+    public function test_public_booking_accepts_payment_receipt_for_deposit(): void
+    {
+        $checkIn = now()->addDays(4)->format('Y-m-d');
+        $checkOut = now()->addDays(6)->format('Y-m-d');
+
+        $createResponse = $this->postJson('/api/public/booking/reservations', [
+            'reservation_type' => 'room',
+            'check_in_date' => $checkIn,
+            'check_out_date' => $checkOut,
+            'adults' => 2,
+            'children' => 0,
+            'room_type_id' => $this->roomType->id,
+            'payment_mode' => 'deposit',
+            'customer' => [
+                'customer_type' => 'person',
+                'dni' => '9876543210',
+                'name' => 'Ana',
+                'last_name' => 'Gómez',
+                'email' => 'ana@example.com',
+                'phone_number' => '3009876543',
+            ],
+        ]);
+
+        $createResponse->assertCreated()
+            ->assertJsonPath('requires_payment_receipt', true);
+
+        $reservationId = $createResponse->json('reservation.id');
+
+        $file = \Illuminate\Http\UploadedFile::fake()->create('recibo.pdf', 120, 'application/pdf');
+
+        $uploadResponse = $this->post("/api/public/booking/reservations/{$reservationId}/payment-receipt", [
+            'customer_email' => 'ana@example.com',
+            'receipt' => $file,
+        ]);
+
+        $uploadResponse->assertCreated()
+            ->assertJsonStructure(['receipt_url', 'reservation']);
+
+        $this->assertDatabaseHas('reservations', [
+            'id' => $reservationId,
+            'web_payment_mode' => 'deposit',
+        ]);
+
+        $reservation = Reservation::findOrFail($reservationId);
+        $this->assertNotNull($reservation->web_payment_receipt_url);
+        $this->assertNotNull($reservation->web_payment_receipt_uploaded_at);
+    }
+
+    public function test_payment_receipt_rejects_wrong_customer_email(): void
+    {
+        $checkIn = now()->addDays(4)->format('Y-m-d');
+        $checkOut = now()->addDays(6)->format('Y-m-d');
+
+        $createResponse = $this->postJson('/api/public/booking/reservations', [
+            'reservation_type' => 'room',
+            'check_in_date' => $checkIn,
+            'check_out_date' => $checkOut,
+            'adults' => 2,
+            'children' => 0,
+            'room_type_id' => $this->roomType->id,
+            'payment_mode' => 'full_payment',
+            'customer' => [
+                'customer_type' => 'person',
+                'dni' => '5555555555',
+                'name' => 'Luis',
+                'last_name' => 'Ruiz',
+                'email' => 'luis@example.com',
+            ],
+        ]);
+
+        $reservationId = $createResponse->json('reservation.id');
+        $file = \Illuminate\Http\UploadedFile::fake()->image('pago.jpg');
+
+        $this->post("/api/public/booking/reservations/{$reservationId}/payment-receipt", [
+            'customer_email' => 'otro@example.com',
+            'receipt' => $file,
+        ])->assertForbidden();
     }
 }

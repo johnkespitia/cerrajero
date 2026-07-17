@@ -81,14 +81,78 @@ class ReservationCertificateService
         ];
     }
 
+    /**
+     * Refresca totales de la reserva (y hijas en grupos) antes de generar PDF.
+     */
+    private function refreshReservationTotals(Reservation $reservation): void
+    {
+        $reservation->refresh();
+        $reservation->recomputeFinalPrice();
+
+        if ($reservation->is_group_reservation && !$reservation->parent_reservation_id) {
+            $reservation->loadMissing('childReservations');
+            foreach ($reservation->childReservations as $child) {
+                $child->refresh();
+                $child->recomputeFinalPrice();
+            }
+        }
+    }
+
+    /**
+     * Pagos y totales del grupo (reserva principal + hijas en multihabitación).
+     */
+    private function collectGroupFinancialData(Reservation $reservation): array
+    {
+        $reservation->loadMissing([
+            'payments.paymentType',
+            'childReservations.payments.paymentType',
+        ]);
+
+        if ($reservation->is_group_reservation && !$reservation->parent_reservation_id) {
+            $reservation->loadMissing('childReservations');
+        }
+
+        $multi = $this->multiRoomData($reservation);
+        $reservationsInGroup = $multi['reservations'];
+
+        $allPayments = $reservationsInGroup->flatMap(function ($r) {
+            return $r->payments ?? collect();
+        });
+        $payments = $allPayments->filter(function ($payment) {
+            return !$payment->concept || !str_contains($payment->concept, 'Compra en kiosko (a crédito)');
+        })->sortBy('created_at')->values();
+        $creditPayments = $allPayments->filter(function ($payment) {
+            return $payment->concept && str_contains($payment->concept, 'Compra en kiosko (a crédito)');
+        })->sortBy('created_at')->values();
+
+        $totalPriceGroup = $reservationsInGroup->sum(function ($r) {
+            return (float) ($r->final_price ?? $r->total_price ?? 0);
+        });
+        $totalPaid = (float) $payments->sum('amount');
+        $remainingBalance = max(0, $totalPriceGroup - $totalPaid);
+
+        return [
+            'payments' => $payments,
+            'creditPayments' => $creditPayments,
+            'totalPriceGroup' => $totalPriceGroup,
+            'totalPaid' => $totalPaid,
+            'remainingBalance' => $remainingBalance,
+            'multi' => $multi,
+        ];
+    }
+
     public function generateCertificate(Reservation $reservation)
     {
+        $this->refreshReservationTotals($reservation);
+
+        $financial = $this->collectGroupFinancialData($reservation);
+        $multi = $financial['multi'];
+
         $reservation->loadMissing([
             'customer', 'room', 'roomType', 'guests', 'additionalServices.additionalService',
             'childReservations.room', 'childReservations.guests',
         ]);
 
-        $multi = $this->multiRoomData($reservation);
         $logoBase64 = $this->getLogoBase64();
 
         $data = [
@@ -104,6 +168,11 @@ class ReservationCertificateService
             'totalChildren' => $multi['totalChildren'],
             'totalInfants' => $multi['totalInfants'],
             'isMultiRoom' => $multi['isMultiRoom'],
+            'payments' => $financial['payments'],
+            'creditPayments' => $financial['creditPayments'],
+            'totalPriceGroup' => $financial['totalPriceGroup'],
+            'totalPaid' => $financial['totalPaid'],
+            'remainingBalance' => $financial['remainingBalance'],
         ];
 
         $pdf = Pdf::loadView('reservations.certificate', $data);
@@ -131,6 +200,12 @@ class ReservationCertificateService
      */
     public function generateCheckoutCertificate(Reservation $reservation)
     {
+        $this->refreshReservationTotals($reservation);
+
+        $financial = $this->collectGroupFinancialData($reservation);
+        $multi = $financial['multi'];
+        $reservationsInGroup = $multi['reservations'];
+
         $reservation->loadMissing([
             'customer', 'room', 'roomType', 'guests', 'payments.paymentType', 'additionalServices.additionalService',
             'minibarCharges.product', 'kioskInvoices.details.kiosk_unit.product', 'kioskInvoices.payment_type',
@@ -141,19 +216,9 @@ class ReservationCertificateService
             'childReservations.payments.paymentType',
         ]);
 
-        $multi = $this->multiRoomData($reservation);
-        $reservationsInGroup = $multi['reservations'];
-
-        // Pagos del grupo (principal + hijas en multihabitación)
-        $allPayments = $reservationsInGroup->flatMap(function ($r) {
-            return $r->payments ?? collect();
-        });
-        $normalPayments = $allPayments->filter(function ($payment) {
-            return !$payment->concept || !str_contains($payment->concept, 'Compra en kiosko (a crédito)');
-        });
-        $creditPayments = $allPayments->filter(function ($payment) {
-            return $payment->concept && str_contains($payment->concept, 'Compra en kiosko (a crédito)');
-        });
+        $normalPayments = $financial['payments'];
+        $creditPayments = $financial['creditPayments'];
+        $totalPriceGroup = $financial['totalPriceGroup'];
 
         // Minibar y kiosko por reserva/habitación (para listar en PDF multihabitación)
         $minibarChargesByReservation = $reservationsInGroup->map(function ($r) {
@@ -175,11 +240,6 @@ class ReservationCertificateService
         // Lista plana de cargos de minibar (compatibilidad: una sola tabla cuando una habitación)
         $minibarCharges = $reservationsInGroup->flatMap(function ($r) {
             return $r->minibarCharges ?? collect();
-        });
-
-        // Precio total del grupo (multihabitación: suma de todas las habitaciones)
-        $totalPriceGroup = $reservationsInGroup->sum(function ($r) {
-            return (float) ($r->final_price ?? $r->total_price ?? 0);
         });
 
         $logoBase64 = $this->getLogoBase64();

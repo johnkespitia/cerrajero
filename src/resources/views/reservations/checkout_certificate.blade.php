@@ -440,8 +440,8 @@
                     <thead>
                         <tr>
                             <th>Servicio</th>
-                            <th class="text-center">Cantidad</th>
-                            <th class="text-center">Huéspedes</th>
+                            <th class="text-center">Ítems</th>
+                            <th class="text-center">Días</th>
                             <th class="text-right">Total</th>
                         </tr>
                     </thead>
@@ -450,7 +450,7 @@
                             <tr>
                                 <td>{{ optional($ras->additionalService)->name ?? 'N/A' }}</td>
                                 <td class="text-center">{{ $ras->quantity }}</td>
-                                <td class="text-center">{{ $ras->guests_count }}</td>
+                                <td class="text-center">{{ $ras->service_days ?? $ras->quantity }}</td>
                                 <td class="text-right">${{ number_format($ras->total, 0, ',', '.') }}</td>
                             </tr>
                         @endforeach

@@ -41,4 +41,9 @@ class PublicBookingController extends Controller
     {
         return $this->publicBookingService->createReservation($request);
     }
+
+    public function uploadPaymentReceipt(Request $request, int $reservation)
+    {
+        return $this->publicBookingService->uploadPaymentReceipt($request, $reservation);
+    }
 }

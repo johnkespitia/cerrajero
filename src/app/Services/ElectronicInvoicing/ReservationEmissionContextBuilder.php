@@ -180,7 +180,9 @@ final class ReservationEmissionContextBuilder
             if ($total <= 0) {
                 continue;
             }
-            $quantity = max(1, (int) ($service->quantity ?? 1));
+            $itemQty = max(1, (int) ($service->quantity ?? 1));
+            $serviceDays = max(1.0, (float) ($service->service_days ?? 1));
+            $quantity = max(1, (int) round($itemQty * $serviceDays));
             $unitPrice = (float) ($service->unit_price ?? round($total / max(1, $quantity), 2));
             $name = $service->additionalService->name ?? ('Servicio adicional #' . $service->additional_service_id);
 
@@ -196,7 +198,8 @@ final class ReservationEmissionContextBuilder
                 'extra' => [
                     'kind' => 'additional_service',
                     'additional_service_id' => (int) $service->additional_service_id,
-                    'guests_count' => (int) ($service->guests_count ?? 0),
+                    'item_quantity' => $itemQty,
+                    'service_days' => $serviceDays,
                 ],
             ];
             $sequence++;
