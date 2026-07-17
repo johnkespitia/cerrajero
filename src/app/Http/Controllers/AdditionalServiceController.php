@@ -46,7 +46,7 @@ class AdditionalServiceController extends Controller
             'applies_to' => 'required|in:room,day_pass,both',
             'status' => 'in:active,inactive',
             'is_food_service' => 'boolean',
-            'meal_type' => 'nullable|in:breakfast,lunch,dinner',
+            'meal_type' => 'nullable|in:breakfast,lunch,dinner,refreshment',
         ]);
 
         if ($validator->fails()) {
@@ -61,7 +61,7 @@ class AdditionalServiceController extends Controller
         $data['status'] = $request->input('status', 'active');
         $data['campo_verde_cost'] = $request->input('campo_verde_cost', 0);
         $data['is_food_service'] = $request->boolean('is_food_service', false);
-        $data['meal_type'] = in_array($request->input('meal_type'), ['breakfast', 'lunch', 'dinner'], true)
+        $data['meal_type'] = in_array($request->input('meal_type'), ['breakfast', 'lunch', 'dinner', 'refreshment'], true)
             ? $request->meal_type
             : null;
 
@@ -80,7 +80,7 @@ class AdditionalServiceController extends Controller
             'applies_to' => 'sometimes|in:room,day_pass,both',
             'status' => 'sometimes|in:active,inactive',
             'is_food_service' => 'boolean',
-            'meal_type' => 'nullable|in:breakfast,lunch,dinner',
+            'meal_type' => 'nullable|in:breakfast,lunch,dinner,refreshment',
         ]);
 
         if ($validator->fails()) {
@@ -99,7 +99,7 @@ class AdditionalServiceController extends Controller
         }
         // Persistir meal_type siempre que venga en la petición (evita fallos si only() no lo incluye)
         if ($request->has('meal_type')) {
-            $data['meal_type'] = in_array($request->meal_type, ['breakfast', 'lunch', 'dinner'], true)
+            $data['meal_type'] = in_array($request->meal_type, ['breakfast', 'lunch', 'dinner', 'refreshment'], true)
                 ? $request->meal_type
                 : null;
         }

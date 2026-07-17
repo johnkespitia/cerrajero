@@ -99,7 +99,7 @@ class OrderController extends Controller
             'user_id' => 'required|exists:users,id',
             'customer_id' => 'required|exists:customers,id',
             'reservation_id' => 'nullable|exists:reservations,id',
-            'meal_type' => 'required|in:breakfast,lunch,dinner',
+            'meal_type' => 'required|in:breakfast,lunch,dinner,refreshment',
             'charge_to_room' => 'boolean',
             'payment_type_id' => 'nullable|exists:payment_types,id',
             'external_reference' => 'nullable|string|max:20',
@@ -302,7 +302,7 @@ class OrderController extends Controller
             'user_id' => 'sometimes|exists:users,id',
             'customer_id' => 'sometimes|exists:customers,id',
             'reservation_id' => 'nullable|exists:reservations,id',
-            'meal_type' => 'sometimes|in:breakfast,lunch,dinner',
+            'meal_type' => 'sometimes|in:breakfast,lunch,dinner,refreshment',
             'charge_to_room' => 'boolean',
             'payment_type_id' => 'nullable|exists:payment_types,id',
         ]);

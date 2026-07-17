@@ -101,7 +101,7 @@ class MealConsumptionService
         $date = $date ? Carbon::parse($date) : Carbon::today();
         
         $summary = [];
-        $mealTypes = ['breakfast', 'lunch', 'dinner'];
+        $mealTypes = ['breakfast', 'lunch', 'dinner', 'refreshment'];
 
         foreach ($mealTypes as $mealType) {
             // Por día: incluido ese día (huéspedes con ese tipo de comida en el plan)

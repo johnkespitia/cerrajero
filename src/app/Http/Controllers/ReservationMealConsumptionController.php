@@ -59,7 +59,7 @@ class ReservationMealConsumptionController extends Controller
         $validator = Validator::make($request->all(), [
             'reservation_id' => 'required|exists:reservations,id',
             'order_id' => 'nullable|exists:orders,id',
-            'meal_type' => 'required|in:breakfast,lunch,dinner',
+            'meal_type' => 'required|in:breakfast,lunch,dinner,refreshment',
             'quantity_consumed' => 'required|integer|min:1',
             'is_included' => 'boolean',
             'consumption_date' => 'nullable|date',
