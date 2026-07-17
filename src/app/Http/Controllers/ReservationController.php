@@ -906,6 +906,11 @@ class ReservationController extends Controller
                 }
             } elseif ($request->reservation_type === 'room') {
                 $totalGuests = (int) $request->adults + (int) ($request->children ?? 0);
+                $capacityError = $this->validateRequestedRoomGuestCapacity($request, $totalGuests);
+                if ($capacityError) {
+                    DB::rollBack();
+                    return $capacityError;
+                }
                 $hasSelectedRooms = $request->has('selected_room_ids')
                     && is_array($request->selected_room_ids)
                     && count($request->selected_room_ids) > 0;
@@ -1002,6 +1007,13 @@ class ReservationController extends Controller
                         $request->children ?? 0,
                         0
                     )) {
+                        $capacityMessage = $room->guestCapacityViolationMessage(
+                            (int) $request->adults,
+                            (int) ($request->children ?? 0)
+                        );
+                        if ($capacityMessage && $totalGuests <= $room->getMaxGuestCapacity()) {
+                            return response()->json(['message' => $capacityMessage], 422);
+                        }
                         return $this->createMultiRoomReservation($request, $room->room_type_id, $totalGuests);
                     }
                 } elseif ($request->room_type_id) {
@@ -1383,6 +1395,39 @@ class ReservationController extends Controller
                 'late_check_out_fee',
             ]);
 
+            if ($reservation->reservation_type === 'room' && !$reservation->is_group_reservation) {
+                $newAdults = (int) ($updateData['adults'] ?? $reservation->adults);
+                $newChildren = (int) ($updateData['children'] ?? $reservation->children);
+                $roomId = $updateData['room_id'] ?? $reservation->room_id;
+                $room = $roomId ? Room::find($roomId) : null;
+                $roomType = $reservation->room_type_id
+                    ? RoomType::find($reservation->room_type_id)
+                    : null;
+                $totalGuests = $newAdults + $newChildren;
+
+                if ($room) {
+                    $capacityCheck = $this->validationService->validateGuestCapacity(
+                        $newAdults,
+                        $newChildren,
+                        $room
+                    );
+                } elseif ($roomType && $totalGuests <= $roomType->getMaxGuestCapacity()) {
+                    $capacityCheck = $this->validationService->validateGuestCapacity(
+                        $newAdults,
+                        $newChildren,
+                        null,
+                        $roomType
+                    );
+                } else {
+                    $capacityCheck = ['valid' => true];
+                }
+
+                if (!$capacityCheck['valid']) {
+                    DB::rollBack();
+                    return response()->json(['message' => $capacityCheck['message']], 422);
+                }
+            }
+
             // No permitir cancelar si está en checked_in o checked_out
             if (isset($updateData['status']) && $updateData['status'] === 'cancelled') {
                 if ($reservation->status === 'checked_in') {
@@ -1653,8 +1698,12 @@ class ReservationController extends Controller
             return $room->isAvailable($checkIn, $checkOut);
         });
 
-        $availableRooms = $allAvailable->filter(function ($room) use ($totalGuests, $getEffectiveCapacity) {
-            return $getEffectiveCapacity($room) >= $totalGuests;
+        $availableRooms = $allAvailable->filter(function ($room) use ($request) {
+            return $room->canAccommodate(
+                (int) $request->adults,
+                (int) ($request->children ?? 0),
+                0
+            );
         });
 
         $multiRoomRequired = false;
@@ -1851,8 +1900,13 @@ class ReservationController extends Controller
 
         // Validar que la nueva habitación pueda alojar a los huéspedes
         if (!$newRoom->canAccommodate($reservation->adults, $reservation->children, $reservation->infants)) {
+            $message = $newRoom->guestCapacityViolationMessage(
+                (int) $reservation->adults,
+                (int) $reservation->children
+            ) ?? 'La habitación seleccionada no tiene capacidad adecuada para los huéspedes de esta reserva';
+
             return response()->json([
-                'message' => 'La habitación seleccionada no tiene capacidad suficiente para los huéspedes de esta reserva'
+                'message' => $message,
             ], 422);
         }
 
@@ -2433,6 +2487,49 @@ class ReservationController extends Controller
                 'error' => $e->getMessage()
             ], 500);
         }
+    }
+
+    /**
+     * Valida huéspedes contra capacidad mínima/máxima cuando aplica una sola habitación.
+     */
+    private function validateRequestedRoomGuestCapacity(Request $request, int $totalGuests): ?\Illuminate\Http\JsonResponse
+    {
+        if (($request->reservation_type ?? 'room') !== 'room') {
+            return null;
+        }
+
+        if ($request->has('selected_room_ids')
+            && is_array($request->selected_room_ids)
+            && count($request->selected_room_ids) > 0) {
+            return null;
+        }
+
+        $adults = (int) $request->adults;
+        $children = (int) ($request->children ?? 0);
+        $room = $request->room_id ? Room::find($request->room_id) : null;
+        $roomType = $request->room_type_id ? RoomType::find($request->room_type_id) : null;
+
+        if ($room) {
+            if ($totalGuests > $room->getMaxGuestCapacity()) {
+                return null;
+            }
+
+            $check = $this->validationService->validateGuestCapacity($adults, $children, $room);
+            if (!$check['valid']) {
+                return response()->json(['message' => $check['message']], 422);
+            }
+
+            return null;
+        }
+
+        if ($roomType && $totalGuests <= $roomType->getMaxGuestCapacity()) {
+            $check = $this->validationService->validateGuestCapacity($adults, $children, null, $roomType);
+            if (!$check['valid']) {
+                return response()->json(['message' => $check['message']], 422);
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -3761,7 +3858,8 @@ class ReservationController extends Controller
 
         // Si no hay información de huéspedes o no se pudieron agrupar familias,
         // usar distribución simple pero mejorada
-        $getRoomCapacity = fn ($room) => (int) ($room->max_capacity ?? $room->capacity);
+        $getRoomMinCapacity = fn ($room) => $room->getMinGuestCapacity();
+        $getRoomMaxCapacity = fn ($room) => $room->getMaxGuestCapacity();
 
         if (empty($familyGroups)) {
             \Log::info('No hay información de huéspedes para agrupar familias, usando distribución simple mejorada');
@@ -3771,8 +3869,15 @@ class ReservationController extends Controller
                     break;
                 }
 
-                $roomCapacity = $getRoomCapacity($room);
-                $guestsForThisRoom = min($remainingGuests, $roomCapacity);
+                $roomMax = $getRoomMaxCapacity($room);
+                $roomMin = $getRoomMinCapacity($room);
+                $guestsForThisRoom = min($remainingGuests, $roomMax);
+                if ($guestsForThisRoom < $roomMin) {
+                    if ($remainingGuests < $roomMin) {
+                        continue;
+                    }
+                    $guestsForThisRoom = $roomMin;
+                }
 
                 // Intentar mantener proporción de adultos/niños/bebés
                 $adultsForRoom = min($remainingAdults, $guestsForThisRoom);
@@ -3813,7 +3918,8 @@ class ReservationController extends Controller
                 // Primero intentar colocar la familia completa en una habitación
                 for ($i = $roomIndex; $i < $availableRooms->count(); $i++) {
                     $room = $availableRooms->values()[$i];
-                    if ($getRoomCapacity($room) >= $family['total']) {
+                    if ($getRoomMaxCapacity($room) >= $family['total']
+                        && $family['total'] >= $getRoomMinCapacity($room)) {
                         // Esta habitación puede alojar a toda la familia
                         $roomsNeeded[] = [
                             'room' => $room,
@@ -3842,7 +3948,7 @@ class ReservationController extends Controller
 
                     for ($i = $roomIndex; $i < $availableRooms->count() && ($familyAdultsRemaining > 0 || $familyChildrenRemaining > 0 || $familyInfantsRemaining > 0); $i++) {
                         $room = $availableRooms->values()[$i];
-                        $roomCapacity = $getRoomCapacity($room);
+                        $roomCapacity = $getRoomMaxCapacity($room);
                         $roomGuests = 0;
                         $roomAdults = 0;
                         $roomChildren = 0;
@@ -3892,8 +3998,15 @@ class ReservationController extends Controller
 
                 for ($i = $roomIndex; $i < $availableRooms->count() && $remainingGuests > 0; $i++) {
                     $room = $availableRooms->values()[$i];
-                    $roomCapacity = $getRoomCapacity($room);
-                    $guestsForThisRoom = min($remainingGuests, $roomCapacity);
+                    $roomMax = $getRoomMaxCapacity($room);
+                    $roomMin = $getRoomMinCapacity($room);
+                    $guestsForThisRoom = min($remainingGuests, $roomMax);
+                    if ($guestsForThisRoom < $roomMin) {
+                        if ($remainingGuests < $roomMin) {
+                            continue;
+                        }
+                        $guestsForThisRoom = $roomMin;
+                    }
 
                     $adultsForRoom = min($remainingAdults, $guestsForThisRoom);
                     $remainingAdults -= $adultsForRoom;

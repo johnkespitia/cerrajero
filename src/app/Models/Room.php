@@ -145,9 +145,39 @@ class Room extends Model
 
     public function canAccommodate($adults, $children = 0, $infants = 0)
     {
-        // Solo contar adultos y niños para la capacidad; los bebés no ocupan cama completa
+        $totalGuests = (int) $adults + (int) $children;
+
+        return $totalGuests >= $this->getMinGuestCapacity()
+            && $totalGuests <= $this->getMaxGuestCapacity();
+    }
+
+    public function getMinGuestCapacity(): int
+    {
+        return max(1, (int) $this->capacity);
+    }
+
+    public function getMaxGuestCapacity(): int
+    {
+        $max = (int) ($this->max_capacity ?? $this->capacity);
+
+        return max($this->getMinGuestCapacity(), $max);
+    }
+
+    public function guestCapacityViolationMessage(int $adults, int $children = 0): ?string
+    {
         $totalGuests = $adults + $children;
-        return $totalGuests <= $this->capacity; // Usar capacity (aforo) en lugar de max_capacity
+        $min = $this->getMinGuestCapacity();
+        $max = $this->getMaxGuestCapacity();
+
+        if ($totalGuests < $min) {
+            return "La habitación {$this->display_name} requiere al menos {$min} huésped(es) (adultos + niños).";
+        }
+
+        if ($totalGuests > $max) {
+            return "La habitación {$this->display_name} admite máximo {$max} huésped(es) (adultos + niños).";
+        }
+
+        return null;
     }
 
     public function inventoryAssignments()
