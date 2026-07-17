@@ -13,6 +13,7 @@ class AdditionalService extends Model
         'name',
         'description',
         'price',
+        'campo_verde_cost',
         'billing_type',
         'applies_to',
         'is_per_guest',
@@ -23,6 +24,7 @@ class AdditionalService extends Model
 
     protected $casts = [
         'price' => 'decimal:2',
+        'campo_verde_cost' => 'decimal:2',
         'is_per_guest' => 'boolean',
         'is_food_service' => 'boolean',
     ];

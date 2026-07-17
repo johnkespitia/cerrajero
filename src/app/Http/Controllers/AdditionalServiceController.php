@@ -41,6 +41,7 @@ class AdditionalServiceController extends Controller
             'name' => 'required|string|max:255',
             'description' => 'nullable|string',
             'price' => 'required|numeric|min:0',
+            'campo_verde_cost' => 'nullable|numeric|min:0',
             'billing_type' => 'required|in:per_day,one_time',
             'applies_to' => 'required|in:room,day_pass,both',
             'status' => 'in:active,inactive',
@@ -53,11 +54,12 @@ class AdditionalServiceController extends Controller
         }
 
         $data = $request->only([
-            'name', 'description', 'price', 'billing_type', 'applies_to', 'status'
+            'name', 'description', 'price', 'campo_verde_cost', 'billing_type', 'applies_to', 'status'
         ]);
         $data['billing_type'] = $request->input('billing_type', 'per_day');
         $data['is_per_guest'] = false;
         $data['status'] = $request->input('status', 'active');
+        $data['campo_verde_cost'] = $request->input('campo_verde_cost', 0);
         $data['is_food_service'] = $request->boolean('is_food_service', false);
         $data['meal_type'] = in_array($request->input('meal_type'), ['breakfast', 'lunch', 'dinner'], true)
             ? $request->meal_type
@@ -73,6 +75,7 @@ class AdditionalServiceController extends Controller
             'name' => 'sometimes|string|max:255',
             'description' => 'nullable|string',
             'price' => 'sometimes|numeric|min:0',
+            'campo_verde_cost' => 'nullable|numeric|min:0',
             'billing_type' => 'sometimes|in:per_day,one_time',
             'applies_to' => 'sometimes|in:room,day_pass,both',
             'status' => 'sometimes|in:active,inactive',
@@ -85,9 +88,12 @@ class AdditionalServiceController extends Controller
         }
 
         $data = $request->only([
-            'name', 'description', 'price', 'billing_type', 'applies_to', 'status'
+            'name', 'description', 'price', 'campo_verde_cost', 'billing_type', 'applies_to', 'status'
         ]);
         $data['is_per_guest'] = false;
+        if ($request->has('campo_verde_cost')) {
+            $data['campo_verde_cost'] = $request->input('campo_verde_cost', 0);
+        }
         if ($request->has('is_food_service')) {
             $data['is_food_service'] = $request->boolean('is_food_service');
         }
