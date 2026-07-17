@@ -141,9 +141,9 @@ final class ReservationEmissionContextBuilder
 
     private function buildLodgingLine(Reservation $reservation, int $sequence): ?array
     {
-        $basePrice = (float) ($reservation->calculated_price ?? $reservation->total_price ?? 0);
-        $discount = (float) ($reservation->discount_amount ?? 0);
-        $lodgingNet = max(0.0, $basePrice - $discount);
+        $breakdown = $reservation->price_breakdown ?? [];
+        $lodgingNet = (float) ($reservation->calculated_price ?? $reservation->total_price ?? 0);
+        $discount = (float) ($breakdown['discount'] ?? 0);
         if ($lodgingNet <= 0) {
             return null;
         }

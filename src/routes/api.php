@@ -541,6 +541,15 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::delete('/service-packages/{servicePackage}', 'destroy')->middleware('permission:reservation.edit,reservas');
     });
 
+    // Códigos promocionales
+    Route::controller(\App\Http\Controllers\PromotionController::class)->group(function () {
+        Route::get('/promotions', 'index')->middleware('permission:reservation.list,reservas');
+        Route::get('/promotions/{promotion}', 'show')->middleware('permission:reservation.list,reservas');
+        Route::post('/promotions', 'store')->middleware('permission:reservation.edit,reservas');
+        Route::put('/promotions/{promotion}', 'update')->middleware('permission:reservation.edit,reservas');
+        Route::delete('/promotions/{promotion}', 'destroy')->middleware('permission:reservation.edit,reservas');
+    });
+
     // =========================
     // Módulo de Inventario de Habitaciones y Zonas Comunes
     // Guard: reservas

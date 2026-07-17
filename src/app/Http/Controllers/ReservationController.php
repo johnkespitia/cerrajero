@@ -1096,7 +1096,7 @@ class ReservationController extends Controller
                 'price_breakdown' => $priceBreakdown,
                 'promotion_code' => $request->promotion_code,
                 'discount_amount' => $request->discount_amount ?? 0,
-                'final_price' => $calculatedPrice - ($request->discount_amount ?? 0),
+                'final_price' => $calculatedPrice,
                 'deposit_amount' => $request->deposit_amount ?? 0,
                 'special_requests' => $request->special_requests,
                 'cancellation_policy_id' => $request->cancellation_policy_id,
@@ -1468,7 +1468,7 @@ class ReservationController extends Controller
                 // Recalcular precio
                 $priceCalculation = $this->priceCalculator->calculatePrice($tempReservation);
                 $newCalculatedPrice = $priceCalculation['calculated_price'];
-                $newFinalPrice = $newCalculatedPrice - ($updateData['discount_amount'] ?? $reservation->discount_amount ?? 0);
+                $newFinalPrice = $newCalculatedPrice;
                 
                 // Actualizar precio en updateData
                 $updateData['calculated_price'] = $newCalculatedPrice;

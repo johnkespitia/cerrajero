@@ -323,11 +323,11 @@ class Reservation extends Model
     }
 
     /**
-     * Recalcula final_price incluyendo alojamiento (calculated_price - discount) + servicios adicionales + cargos del minibar + cargos a habitación (restaurante).
+     * Recalcula final_price incluyendo alojamiento (calculated_price ya incluye descuentos) + servicios adicionales + cargos del minibar + cargos a habitación (restaurante).
      */
     public function recomputeFinalPrice(): void
     {
-        $base = (float) ($this->calculated_price ?? $this->total_price ?? 0) - (float) ($this->discount_amount ?? 0);
+        $base = (float) ($this->calculated_price ?? $this->total_price ?? 0);
         $additionalTotal = $this->additional_services_total;
         $minibarTotal = $this->minibar_charges_total;
         $roomChargesTotal = $this->room_charges_total;
