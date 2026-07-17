@@ -561,6 +561,7 @@ class ReservationController extends Controller
                 'adults' => $mainRoom['adults'],
                 'children' => $mainRoom['children'],
                 'infants' => $mainRoom['infants'],
+                'courtesy_guests' => $request->courtesy_guests ?? 0,
                 'total_price' => $mainRoom['room']->room_price,
                 'deposit_amount' => 0,
                 'special_requests' => $request->special_requests,
@@ -835,6 +836,7 @@ class ReservationController extends Controller
             'adults' => 'required|integer|min:1',
             'children' => 'integer|min:0',
             'infants' => 'integer|min:0',
+            'courtesy_guests' => 'integer|min:0',
             'total_price' => 'nullable|numeric|min:0',
             'deposit_amount' => 'numeric|min:0',
             'payment_status' => 'nullable|in:pending,partial,paid,free,refunded',
@@ -884,6 +886,10 @@ class ReservationController extends Controller
 
         if ($validator->fails()) {
             return response()->json($validator->errors(), 422);
+        }
+
+        if ($response = $this->validateCourtesyGuestsRequest($request)) {
+            return $response;
         }
 
         DB::beginTransaction();
@@ -1056,6 +1062,7 @@ class ReservationController extends Controller
                 'extra_beds' => $request->extra_beds ?? 0,
                 'promotion_code' => $request->promotion_code,
                 'discount_amount' => $request->discount_amount ?? 0,
+                'courtesy_guests' => $request->courtesy_guests ?? 0,
                 'early_check_in' => $request->early_check_in ?? false,
                 'late_check_out' => $request->late_check_out ?? false,
                 'early_check_in_fee' => $request->early_check_in_fee ?? 0,
@@ -1096,6 +1103,7 @@ class ReservationController extends Controller
                 'price_breakdown' => $priceBreakdown,
                 'promotion_code' => $request->promotion_code,
                 'discount_amount' => $request->discount_amount ?? 0,
+                'courtesy_guests' => $request->courtesy_guests ?? 0,
                 'final_price' => $calculatedPrice,
                 'deposit_amount' => $request->deposit_amount ?? 0,
                 'special_requests' => $request->special_requests,
@@ -1235,6 +1243,7 @@ class ReservationController extends Controller
             'adults' => 'sometimes|integer|min:1',
             'children' => 'integer|min:0',
             'infants' => 'integer|min:0',
+            'courtesy_guests' => 'integer|min:0',
             'total_price' => 'sometimes|numeric|min:0',
             'status' => 'sometimes|in:pending,confirmed,checked_in,checked_out,cancelled',
             'payment_status' => 'sometimes|in:pending,partial,paid,free,refunded',
@@ -1261,6 +1270,20 @@ class ReservationController extends Controller
 
         if ($validator->fails()) {
             return response()->json($validator->errors(), 422);
+        }
+
+        $courtesyRequest = clone $request;
+        if (!$courtesyRequest->has('adults')) {
+            $courtesyRequest->merge(['adults' => $reservation->adults]);
+        }
+        if (!$courtesyRequest->has('children')) {
+            $courtesyRequest->merge(['children' => $reservation->children]);
+        }
+        if (!$courtesyRequest->has('courtesy_guests')) {
+            $courtesyRequest->merge(['courtesy_guests' => $reservation->courtesy_guests ?? 0]);
+        }
+        if ($response = $this->validateCourtesyGuestsRequest($courtesyRequest)) {
+            return $response;
         }
 
         DB::beginTransaction();
@@ -1389,6 +1412,7 @@ class ReservationController extends Controller
                 'marketing_notes',
                 'promotion_code',
                 'discount_amount',
+                'courtesy_guests',
                 'early_check_in',
                 'late_check_out',
                 'early_check_in_fee',
@@ -1511,8 +1535,11 @@ class ReservationController extends Controller
             $reservation->update($updateData);
 
             // Recalcular totales de servicios adicionales si cambiaron fechas o huéspedes
+            $reservation->refresh();
             if ($dateOrPeopleChanged && $reservation->additionalServices()->exists()) {
-                $this->additionalServiceCalculator->recalculateReservationAdditionalServices($reservation->fresh());
+                $this->additionalServiceCalculator->recalculateReservationAdditionalServices($reservation);
+            } else {
+                $reservation->recomputeFinalPrice();
             }
 
             // Registrar auditoría de actualización
@@ -4049,6 +4076,24 @@ class ReservationController extends Controller
         ]);
 
         return $roomsNeeded;
+    }
+
+    private function validateCourtesyGuestsRequest(Request $request)
+    {
+        $courtesyGuests = (int) ($request->courtesy_guests ?? 0);
+        if ($courtesyGuests <= 0) {
+            return null;
+        }
+
+        $chargeableGuests = (int) $request->adults + (int) ($request->children ?? 0);
+        if ($courtesyGuests > $chargeableGuests) {
+            return response()->json([
+                'message' => 'Las cortesías no pueden superar la cantidad de adultos + niños.',
+                'courtesy_guests' => ['Las cortesías no pueden superar adultos + niños.'],
+            ], 422);
+        }
+
+        return null;
     }
 
     private function updateCleaningForReservation(Reservation $reservation)

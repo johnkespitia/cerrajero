@@ -23,6 +23,7 @@ class Reservation extends Model
         'adults',
         'children',
         'infants',
+        'courtesy_guests',
         'extra_beds',
         'total_price',
         'calculated_price',
@@ -104,6 +105,7 @@ class Reservation extends Model
         'check_in_reminder_sent_at' => 'datetime',
         'web_payment_receipt_uploaded_at' => 'datetime',
         'manual_price_override' => 'boolean',
+        'courtesy_guests' => 'integer',
         'early_check_in' => 'boolean',
         'late_check_out' => 'boolean',
         'price_breakdown' => 'array',
@@ -323,16 +325,49 @@ class Reservation extends Model
     }
 
     /**
-     * Recalcula final_price incluyendo alojamiento (calculated_price ya incluye descuentos) + servicios adicionales + cargos del minibar + cargos a habitación (restaurante).
+     * Recalcula final_price incluyendo alojamiento (calculated_price ya incluye descuentos) + servicios adicionales + cargos del minibar + cargos a habitación (restaurante), menos cortesías.
      */
     public function recomputeFinalPrice(): void
     {
-        $base = (float) ($this->calculated_price ?? $this->total_price ?? 0);
+        $base = $this->getLodgingBaseForFinalPrice();
         $additionalTotal = $this->additional_services_total;
         $minibarTotal = $this->minibar_charges_total;
         $roomChargesTotal = $this->room_charges_total;
-        $this->final_price = round(max(0, $base + $additionalTotal + $minibarTotal + $roomChargesTotal), 2);
+
+        $courtesy = app(CourtesyGuestDiscountCalculator::class)->calculate($this);
+        $courtesyDiscount = (float) ($courtesy['total'] ?? 0);
+
+        $breakdown = $this->price_breakdown ?? [];
+        $breakdown['courtesy_guests'] = $courtesy['courtesy_guests'] ?? 0;
+        $breakdown['courtesy_discount'] = $courtesyDiscount;
+        $breakdown['courtesy_per_guest'] = $courtesy['per_guest_total'] ?? 0;
+        $breakdown['courtesy_lodging_per_guest'] = $courtesy['lodging_per_guest'] ?? 0;
+        $breakdown['courtesy_services_per_guest'] = $courtesy['services_per_guest'] ?? 0;
+        $this->price_breakdown = $breakdown;
+
+        $this->final_price = round(max(0, $base + $additionalTotal + $minibarTotal + $roomChargesTotal - $courtesyDiscount), 2);
         $this->saveQuietly();
+    }
+
+    /**
+     * Base de hospedaje para el total final (incluye habitaciones hijas en reservas de grupo).
+     */
+    public function getLodgingBaseForFinalPrice(): float
+    {
+        if ($this->parent_reservation_id) {
+            return (float) ($this->calculated_price ?? $this->total_price ?? 0);
+        }
+
+        $base = (float) ($this->calculated_price ?? $this->total_price ?? 0);
+
+        if ($this->is_group_reservation) {
+            $this->loadMissing('childReservations');
+            foreach ($this->childReservations as $child) {
+                $base += (float) ($child->calculated_price ?? $child->total_price ?? 0);
+            }
+        }
+
+        return $base;
     }
 
     /**
