@@ -109,6 +109,10 @@ class GuestImportService
             ];
         }
 
+        if ($extension === 'csv') {
+            return $this->parseCsvFile($file);
+        }
+
         try {
             $spreadsheet = IOFactory::load($file->getRealPath());
         } catch (\Throwable $e) {
@@ -121,6 +125,40 @@ class GuestImportService
         }
 
         $rows = $spreadsheet->getActiveSheet()->toArray(null, true, true, false);
+
+        return $this->parseRows($rows);
+    }
+
+    /**
+     * @return array{guests: array<int, array<string, mixed>>, errors: array<int, array{row: int, message: string}>}
+     */
+    protected function parseCsvFile(UploadedFile $file): array
+    {
+        $handle = fopen($file->getRealPath(), 'r');
+        if ($handle === false) {
+            return [
+                'guests' => [],
+                'errors' => [
+                    ['row' => 0, 'message' => 'No se pudo leer el archivo CSV'],
+                ],
+            ];
+        }
+
+        $rows = [];
+        while (($row = fgetcsv($handle)) !== false) {
+            $rows[] = $row;
+        }
+        fclose($handle);
+
+        return $this->parseRows($rows);
+    }
+
+    /**
+     * @param array<int, array<int, mixed>> $rows
+     * @return array{guests: array<int, array<string, mixed>>, errors: array<int, array{row: int, message: string}>}
+     */
+    protected function parseRows(array $rows): array
+    {
         if (count($rows) < 2) {
             return [
                 'guests' => [],

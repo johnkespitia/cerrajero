@@ -17,13 +17,38 @@ class ReservationGuestController extends Controller
         $this->guestImportService = $guestImportService;
     }
 
-    public function downloadTemplate()
+    public function downloadTemplate(Request $request)
     {
-        try {
-            $path = $this->guestImportService->buildTemplate();
+        $format = strtolower((string) $request->query('format', 'xlsx'));
+        if ($format === 'csv') {
+            $path = resource_path('templates/plantilla-huespedes.csv');
+            if (!is_readable($path)) {
+                return response()->json([
+                    'message' => 'Plantilla CSV no disponible en el servidor.',
+                ], 503);
+            }
 
             return response()->download(
                 $path,
+                'plantilla-huespedes.csv',
+                ['Content-Type' => 'text/csv; charset=UTF-8']
+            );
+        }
+
+        $path = resource_path('templates/plantilla-huespedes.xlsx');
+        if (is_readable($path)) {
+            return response()->download(
+                $path,
+                'plantilla-huespedes.xlsx',
+                ['Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet']
+            );
+        }
+
+        try {
+            $generatedPath = $this->guestImportService->buildTemplate();
+
+            return response()->download(
+                $generatedPath,
                 'plantilla-huespedes.xlsx',
                 ['Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet']
             )->deleteFileAfterSend(true);
