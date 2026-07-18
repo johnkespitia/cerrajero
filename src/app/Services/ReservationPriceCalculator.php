@@ -127,8 +127,24 @@ class ReservationPriceCalculator
 
         $subtotal = $totalNightsPrice + $extraPersonCost + $extraBedCost + $earlyCheckInFee + $lateCheckOutFee;
 
+        $perGuestStayPrice = 0.0;
+        if ($chargeableGuests > 0) {
+            if ($seasonFixedPrice !== null) {
+                $perGuestStayPrice = (float) $seasonFixedPrice * $nights;
+            } else {
+                $perGuestStayPrice = (float) $basePricePerPersonPerNight * $nights * $seasonMultiplier;
+            }
+        }
+
+        $guestBreakdown = [
+            'adults' => $adults,
+            'children' => $children,
+            'adult_price' => $perGuestStayPrice,
+            'child_price' => $perGuestStayPrice,
+        ];
+
         // Aplicar descuentos
-        $discount = $this->calculateDiscount($reservation, $subtotal, $nights);
+        $discount = $this->calculateDiscount($reservation, $subtotal, $nights, $guestBreakdown);
         $finalPrice = max(0, $subtotal - $discount);
 
         $breakdown = [

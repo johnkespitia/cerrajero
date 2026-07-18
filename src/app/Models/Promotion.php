@@ -75,15 +75,17 @@ class Promotion extends Model
 
         switch ($this->type) {
             case 'percentage':
-                if ($applyPerGuest && !empty($guestBreakdown)) {
-                    $rate = (float) $this->value / 100;
-                    $discount = ((float) ($guestBreakdown['adult_price'] ?? 0) * (int) ($guestBreakdown['adults'] ?? 0) * $rate)
-                        + ((float) ($guestBreakdown['child_price'] ?? 0) * (int) ($guestBreakdown['children'] ?? 0) * $rate);
+                $rate = (float) $this->value / 100;
+                if ($applyPerGuest) {
+                    if (!empty($guestBreakdown)) {
+                        $discount = ((float) ($guestBreakdown['adult_price'] ?? 0) * (int) ($guestBreakdown['adults'] ?? 0) * $rate)
+                            + ((float) ($guestBreakdown['child_price'] ?? 0) * (int) ($guestBreakdown['children'] ?? 0) * $rate);
 
-                    return min(round($discount, 2), $basePrice);
+                        return min(round($discount, 2), $basePrice);
+                    }
                 }
 
-                return min(round($basePrice * ((float) $this->value / 100), 2), $basePrice);
+                return min(round($basePrice * $rate, 2), $basePrice);
             case 'fixed':
                 $amount = $applyPerGuest
                     ? (float) $this->value * $guests

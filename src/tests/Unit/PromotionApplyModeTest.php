@@ -61,6 +61,30 @@ class PromotionApplyModeTest extends TestCase
             ]
         );
 
-        $this->assertSame(25000.0, $discount);
+    public function test_percentage_per_guest_uses_lodging_prices_for_room_stay(): void
+    {
+        $promotion = new Promotion([
+            'type' => 'percentage',
+            'value' => 10,
+            'apply_mode' => 'per_guest',
+            'active' => true,
+            'valid_from' => Carbon::today()->subDay(),
+            'valid_until' => Carbon::today()->addDay(),
+        ]);
+
+        $discount = $promotion->calculateDiscount(
+            320000,
+            2,
+            Carbon::today()->format('Y-m-d'),
+            2,
+            [
+                'adults' => 2,
+                'children' => 0,
+                'adult_price' => 100000,
+                'child_price' => 100000,
+            ]
+        );
+
+        $this->assertSame(20000.0, $discount);
     }
 }
