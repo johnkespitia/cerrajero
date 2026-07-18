@@ -3,10 +3,8 @@
 namespace App\Services;
 
 use App\Models\Reservation;
-use App\Models\Room;
-use App\Models\RoomType;
-use App\Models\RoomSeason;
 use App\Models\Promotion;
+use App\Services\CourtesyGuestDiscountCalculator;
 use Carbon\Carbon;
 
 class ReservationPriceCalculator
@@ -47,7 +45,13 @@ class ReservationPriceCalculator
         ];
 
         // Aplicar descuentos
-        $discount = $this->calculateDiscount($reservation, $basePrice);
+        $guestBreakdown = [
+            'adults' => $adults,
+            'children' => $children,
+            'adult_price' => $dayPassCapacity->adult_price,
+            'child_price' => $dayPassCapacity->child_price,
+        ];
+        $discount = $this->calculateDiscount($reservation, $basePrice, 1, $guestBreakdown);
         $finalPrice = max(0, $basePrice - $discount);
 
         $breakdown['discount'] = $discount;
@@ -156,9 +160,17 @@ class ReservationPriceCalculator
         ];
     }
 
-    protected function calculateDiscount(Reservation $reservation, $basePrice, $nights = 1)
-    {
+    protected function calculateDiscount(
+        Reservation $reservation,
+        $basePrice,
+        $nights = 1,
+        array $guestBreakdown = []
+    ) {
         $totalDiscount = 0;
+        $chargeableGuests = app(CourtesyGuestDiscountCalculator::class)->getChargeableGuests($reservation);
+        if ($chargeableGuests <= 0) {
+            $chargeableGuests = max(1, (int) ($reservation->adults ?? 0) + (int) ($reservation->children ?? 0));
+        }
 
         // Descuento por código promocional
         if ($reservation->promotion_code) {
@@ -167,7 +179,9 @@ class ReservationPriceCalculator
                 $discount = $promotion->calculateDiscount(
                     $basePrice,
                     $nights,
-                    $reservation->check_in_date->format('Y-m-d')
+                    $reservation->check_in_date->format('Y-m-d'),
+                    $chargeableGuests,
+                    $guestBreakdown
                 );
                 $totalDiscount += $discount;
             }

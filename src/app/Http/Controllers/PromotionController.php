@@ -82,6 +82,7 @@ class PromotionController extends Controller
             'name' => 'required|string|max:255',
             'type' => 'required|in:percentage,fixed',
             'value' => 'required|numeric|min:0',
+            'apply_mode' => 'nullable|in:total,per_guest',
             'valid_from' => 'required|date',
             'valid_until' => 'required|date|after_or_equal:valid_from',
             'min_nights' => 'nullable|integer|min:1',
@@ -97,6 +98,9 @@ class PromotionController extends Controller
             'name' => trim((string) ($data['name'] ?? '')),
             'type' => $data['type'] ?? 'percentage',
             'value' => $data['value'] ?? 0,
+            'apply_mode' => in_array($data['apply_mode'] ?? 'total', ['total', 'per_guest'], true)
+                ? $data['apply_mode']
+                : 'total',
             'valid_from' => $data['valid_from'],
             'valid_until' => $data['valid_until'],
             'min_nights' => $data['min_nights'] ?? null,
