@@ -511,6 +511,14 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::delete('/room-types/{roomType}', 'destroy')->middleware('permission:room_type.delete,reservas');
     });
 
+    Route::controller(\App\Http\Controllers\RoomSeasonController::class)->group(function () {
+        Route::get('/room-seasons', 'index')->middleware('permission:reservation.list,reservas');
+        Route::get('/room-seasons/{roomSeason}', 'show')->middleware('permission:reservation.list,reservas');
+        Route::post('/room-seasons', 'store')->middleware('permission:reservation.edit,reservas');
+        Route::put('/room-seasons/{roomSeason}', 'update')->middleware('permission:reservation.edit,reservas');
+        Route::delete('/room-seasons/{roomSeason}', 'destroy')->middleware('permission:reservation.edit,reservas');
+    });
+
     // Rutas de aforo de pasadía
     Route::controller(\App\Http\Controllers\DayPassSettingController::class)->group(function () {
         Route::get('/day-pass-settings', 'index')->middleware('permission:reservation.list,reservas');

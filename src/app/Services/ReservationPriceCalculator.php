@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Reservation;
 use App\Models\Promotion;
+use App\Models\RoomSeason;
 use App\Services\CourtesyGuestDiscountCalculator;
 use Carbon\Carbon;
 
@@ -88,18 +89,20 @@ class ReservationPriceCalculator
         // Número de personas que se cobran (adultos + niños, los bebés no se cobran)
         $chargeableGuests = $adults + $children;
         
-        // Aplicar temporada si existe
+        // Aplicar temporada si existe (opcional: sin temporadas registradas se usa precio base)
         $seasonMultiplier = 1.0;
         $seasonFixedPrice = null;
-        if ($roomType) {
+        if ($roomType && $roomType->id) {
             $season = RoomSeason::getSeasonForDate(
                 $roomType->id,
                 $reservation->check_in_date->format('Y-m-d')
             );
-            
+
             if ($season) {
-                $seasonMultiplier = $season->price_multiplier;
-                $seasonFixedPrice = $season->fixed_price;
+                $seasonMultiplier = (float) ($season->price_multiplier ?? 1.0);
+                $seasonFixedPrice = $season->fixed_price !== null
+                    ? (float) $season->fixed_price
+                    : null;
             }
         }
 

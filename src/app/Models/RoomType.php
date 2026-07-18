@@ -34,6 +34,11 @@ class RoomType extends Model
         return $this->hasMany(Room::class);
     }
 
+    public function seasons()
+    {
+        return $this->hasMany(RoomSeason::class);
+    }
+
     public function getMinGuestCapacity(): int
     {
         return max(1, (int) $this->default_capacity);
