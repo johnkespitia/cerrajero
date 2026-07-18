@@ -1907,9 +1907,9 @@ class ReservationController extends Controller
             'rooms' => $rooms->map(function ($room) use ($getEffectiveCapacity) {
                 return [
                     'id' => $room->id,
-                    'room_number' => $room->number ?? $room->name ?? (string) $room->id,
+                    'room_number' => $room->display_name,
                     'name' => $room->name,
-                    'display_name' => $room->display_name ?? $room->name ?? $room->number ?? 'Habitación #' . $room->id,
+                    'display_name' => $room->display_name,
                     'capacity' => $room->capacity,
                     'max_capacity' => $room->max_capacity,
                     'effective_capacity' => $getEffectiveCapacity($room),

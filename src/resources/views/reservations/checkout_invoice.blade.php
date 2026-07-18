@@ -321,7 +321,7 @@
                             @elseif($room)
                                 <div class="info-row">
                                     <div class="info-label">Habitación:</div>
-                                    <div class="info-value">{{ $room->number ?? 'N/A' }}</div>
+                                    <div class="info-value">{{ $room->display_name ?? $room->name ?? $room->number ?? 'N/A' }}</div>
                                 </div>
                             @endif
                             @if($roomType && !($isMultiRoom ?? false))

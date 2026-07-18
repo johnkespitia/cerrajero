@@ -34,6 +34,11 @@ class Room extends Model
         'active' => 'boolean',
     ];
 
+    protected $appends = [
+        'display_name',
+        'room_number',
+    ];
+
     public function roomType()
     {
         return $this->belongsTo(RoomType::class);
@@ -46,7 +51,23 @@ class Room extends Model
 
     public function getDisplayNameAttribute()
     {
-        return $this->number ? "Habitación {$this->number}" : ($this->name ?? "Habitación #{$this->id}");
+        if (!empty($this->name)) {
+            return $this->name;
+        }
+
+        if (!empty($this->number)) {
+            return "Habitación {$this->number}";
+        }
+
+        return "Habitación #{$this->id}";
+    }
+
+    /**
+     * Alias de compatibilidad para APIs y vistas que usan room_number como etiqueta visible.
+     */
+    public function getRoomNumberAttribute()
+    {
+        return $this->display_name;
     }
 
     public function isAvailable($checkIn, $checkOut)
