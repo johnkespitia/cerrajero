@@ -110,13 +110,14 @@ jobs:
           REDIS_PORT=${{ secrets.REDIS_PORT || '6379' }}
 
           MAIL_MAILER=${{ secrets.MAIL_MAILER || 'smtp' }}
-          MAIL_HOST=${{ secrets.MAIL_HOST }}
-          MAIL_PORT=${{ secrets.MAIL_PORT || '587' }}
-          MAIL_USERNAME=${{ secrets.MAIL_USERNAME }}
+          MAIL_HOST=${{ secrets.MAIL_HOST || 'centrovacacionalcampoverde.com' }}
+          MAIL_PORT=${{ secrets.MAIL_PORT || '465' }}
+          MAIL_USERNAME=${{ secrets.MAIL_USERNAME || 'no-reply@centrovacacionalcampoverde.com' }}
           MAIL_PASSWORD=${{ secrets.MAIL_PASSWORD }}
-          MAIL_ENCRYPTION=${{ secrets.MAIL_ENCRYPTION || 'tls' }}
-          MAIL_FROM_ADDRESS=${{ secrets.MAIL_FROM_ADDRESS }}
-          MAIL_FROM_NAME="${{ secrets.MAIL_FROM_NAME || 'Campo Verde' }}"
+          MAIL_ENCRYPTION=${{ secrets.MAIL_ENCRYPTION || 'ssl' }}
+          MAIL_FROM_ADDRESS=${{ secrets.MAIL_FROM_ADDRESS || 'no-reply@centrovacacionalcampoverde.com' }}
+          MAIL_FROM_NAME="${{ secrets.MAIL_FROM_NAME || 'Centro Vacacional Campo Verde' }}"
+          RESERVATION_INTERNAL_EMAIL=${{ secrets.RESERVATION_INTERNAL_EMAIL || secrets.MAIL_FROM_ADDRESS || 'no-reply@centrovacacionalcampoverde.com' }}
 
           AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}
