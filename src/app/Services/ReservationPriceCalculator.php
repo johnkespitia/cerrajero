@@ -38,6 +38,7 @@ class ReservationPriceCalculator
 
         $breakdown = [
             'base_price' => $basePrice,
+            'subtotal' => $basePrice,
             'adults' => $adults,
             'children' => $children,
             'adult_price' => $dayPassCapacity->adult_price,
