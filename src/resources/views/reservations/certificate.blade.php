@@ -410,6 +410,23 @@
                                     @endif
                                 </div>
                             </div>
+                            @if((data_get($priceBreakdown, 'courtesy_guests') ?? $reservation->courtesy_guests ?? 0) > 0)
+                                <div class="info-row">
+                                    <div class="info-label">Huéspedes de cortesía:</div>
+                                    <div class="info-value">{{ data_get($priceBreakdown, 'courtesy_guests') ?? $reservation->courtesy_guests }}</div>
+                                </div>
+                            @endif
+                            @if($reservation->promotion_code)
+                                <div class="info-row">
+                                    <div class="info-label">Cupón aplicado:</div>
+                                    <div class="info-value">
+                                        {{ $reservation->promotion_code }}
+                                        @if($reservation->promotion)
+                                            ({{ $reservation->promotion->name }})
+                                        @endif
+                                    </div>
+                                </div>
+                            @endif
                         </div>
                     </div>
                 </div>
@@ -491,8 +508,10 @@
             </div>
         @endif
 
+        @include('reservations._price_breakdown', ['priceBreakdown' => $priceBreakdown ?? null])
+
         @php
-            $totalPrice = $totalPriceGroup ?? ($reservation->final_price ?? $reservation->total_price);
+            $totalPrice = data_get($priceBreakdown, 'total') ?? ($totalPriceGroup ?? ($reservation->final_price ?? $reservation->total_price));
             $totalPaidAmount = isset($totalPaid) ? $totalPaid : ($payments ? $payments->sum('amount') : 0);
             $balanceDue = isset($remainingBalance) ? $remainingBalance : max(0, $totalPrice - $totalPaidAmount);
         @endphp

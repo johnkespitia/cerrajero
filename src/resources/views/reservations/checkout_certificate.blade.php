@@ -378,6 +378,23 @@
                                     @endif
                                 </div>
                             </div>
+                            @if((data_get($priceBreakdown, 'courtesy_guests') ?? $reservation->courtesy_guests ?? 0) > 0)
+                                <div class="info-row">
+                                    <div class="info-label">Huéspedes de cortesía:</div>
+                                    <div class="info-value">{{ data_get($priceBreakdown, 'courtesy_guests') ?? $reservation->courtesy_guests }}</div>
+                                </div>
+                            @endif
+                            @if($reservation->promotion_code)
+                                <div class="info-row">
+                                    <div class="info-label">Cupón aplicado:</div>
+                                    <div class="info-value">
+                                        {{ $reservation->promotion_code }}
+                                        @if($reservation->promotion)
+                                            ({{ $reservation->promotion->name }})
+                                        @endif
+                                    </div>
+                                </div>
+                            @endif
                         </div>
                     </div>
                 </div>
@@ -588,10 +605,12 @@
             @endforeach
         @endif
 
+        @include('reservations._price_breakdown', ['priceBreakdown' => $priceBreakdown ?? null])
+
         <div class="section">
             <div class="section-title">Resumen de Pagos</div>
             @php
-                $totalPrice = isset($totalPriceGroup) && ($isMultiRoom ?? false) ? $totalPriceGroup : ($reservation->final_price ?? $reservation->total_price);
+                $totalPrice = data_get($priceBreakdown, 'total') ?? (isset($totalPriceGroup) && ($isMultiRoom ?? false) ? $totalPriceGroup : ($reservation->final_price ?? $reservation->total_price));
                 $totalPaid = $payments ? $payments->sum('amount') : 0;
                 $remainingBalance = max(0, $totalPrice - $totalPaid);
             @endphp
@@ -667,54 +686,6 @@
                 @endif
             </div>
         </div>
-
-        @if($creditPayments && $creditPayments->count() > 0)
-        <div class="section">
-            <div class="section-title">Cargos a la Habitación</div>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Fecha</th>
-                        <th>Concepto</th>
-                        <th>Método</th>
-                        <th>Referencia</th>
-                        <th class="text-right">Monto</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @foreach($creditPayments as $payment)
-                        <tr>
-                            <td>{{ \Carbon\Carbon::parse($payment->created_at)->format('d/m/Y H:i') }}</td>
-                            <td>{{ $payment->concept }}</td>
-                            <td>
-                                @if($payment->paymentType)
-                                    {{ $payment->paymentType->name }}
-                                @elseif($payment->payment_method === 'cash')
-                                    Efectivo
-                                @elseif($payment->payment_method === 'card')
-                                    Tarjeta
-                                @elseif($payment->payment_method === 'transfer')
-                                    Transferencia
-                                @elseif($payment->payment_method === 'check')
-                                    Cheque
-                                @else
-                                    Otro
-                                @endif
-                            </td>
-                            <td>{{ $payment->payment_reference ?? '-' }}</td>
-                            <td class="text-right">${{ number_format($payment->amount, 0, ',', '.') }}</td>
-                        </tr>
-                    @endforeach
-                </tbody>
-                <tfoot>
-                    <tr class="total-row">
-                        <td colspan="4" class="text-right"><strong>Total Cargos a la Habitación:</strong></td>
-                        <td class="text-right"><strong>${{ number_format($creditPayments->sum('amount'), 0, ',', '.') }}</strong></td>
-                    </tr>
-                </tfoot>
-            </table>
-        </div>
-        @endif
 
         @if($reservation->special_requests)
             <div class="section">

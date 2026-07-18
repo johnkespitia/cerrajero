@@ -99,6 +99,104 @@ class ReservationCertificateService
     }
 
     /**
+     * Desglose de precio para PDF (hospedaje, cupón, cortesías, servicios y consumos).
+     */
+    private function buildPriceBreakdownData(Reservation $reservation, array $multi, array $options = []): array
+    {
+        $reservation->loadMissing(['promotion', 'additionalServices', 'childReservations']);
+
+        $pb = $reservation->price_breakdown ?? [];
+        $hospedaje = (float) $reservation->getLodgingBaseForFinalPrice();
+        $discount = (float) ($pb['discount'] ?? $reservation->discount_amount ?? 0);
+
+        $subtotalBeforeDiscount = isset($pb['subtotal']) ? (float) $pb['subtotal'] : null;
+        if ($subtotalBeforeDiscount === null && !empty($pb['rooms'])) {
+            $subtotalBeforeDiscount = (float) collect($pb['rooms'])->sum('price');
+        }
+        if ($subtotalBeforeDiscount === null) {
+            $subtotalBeforeDiscount = $hospedaje + $discount;
+        }
+
+        $courtesyGuests = (int) ($pb['courtesy_guests'] ?? $reservation->courtesy_guests ?? 0);
+        $courtesyDiscount = (float) ($pb['courtesy_discount'] ?? 0);
+
+        $additionalServicesTotal = (float) $reservation->additional_services_total;
+        $minibarTotal = (float) ($options['minibar_total'] ?? 0);
+        $roomChargesTotal = (float) ($options['room_charges_total'] ?? 0);
+        $kioskoTotal = (float) ($options['kiosko_total'] ?? 0);
+
+        $total = max(
+            0,
+            $hospedaje + $additionalServicesTotal + $minibarTotal + $roomChargesTotal + $kioskoTotal - $courtesyDiscount
+        );
+
+        return [
+            'hospedaje' => $hospedaje,
+            'subtotal_before_discount' => $subtotalBeforeDiscount,
+            'discount' => $discount,
+            'promotion_code' => $reservation->promotion_code,
+            'promotion_name' => $reservation->promotion?->name,
+            'courtesy_guests' => $courtesyGuests,
+            'courtesy_discount' => $courtesyDiscount,
+            'additional_services_total' => $additionalServicesTotal,
+            'minibar_total' => $minibarTotal,
+            'room_charges_total' => $roomChargesTotal,
+            'kiosko_total' => $kioskoTotal,
+            'total' => $total,
+            'is_multi_room' => $multi['isMultiRoom'] ?? false,
+        ];
+    }
+
+    /**
+     * Totales de consumos del grupo para el desglose de checkout.
+     */
+    private function collectCheckoutConsumptionTotals($reservationsInGroup): array
+    {
+        $minibarTotal = 0.0;
+        $roomChargesTotal = 0.0;
+        $kioskoTotal = 0.0;
+
+        foreach ($reservationsInGroup as $res) {
+            $minibarTotal += (float) ($res->minibar_charges_total ?? 0);
+            $roomChargesTotal += (float) ($res->room_charges_total ?? 0);
+
+            foreach ($res->kioskInvoices ?? collect() as $invoice) {
+                $paymentType = $invoice->payment_type ?? $invoice->paymentType ?? null;
+                $isCredit = $paymentType && ($paymentType->credit === true || $paymentType->credit === 1);
+                if (!$isCredit) {
+                    continue;
+                }
+                foreach ($invoice->details ?? [] as $detail) {
+                    $kioskoTotal += (float) ($detail->price ?? 0);
+                }
+            }
+        }
+
+        return [
+            'minibar_total' => $minibarTotal,
+            'room_charges_total' => $roomChargesTotal,
+            'kiosko_total' => $kioskoTotal,
+        ];
+    }
+
+    /**
+     * Pagos a crédito o cargos a habitación: no deben listarse como pagos en el PDF.
+     */
+    private function isCreditPayment($payment): bool
+    {
+        if ($payment->payment_type_id === null) {
+            return true;
+        }
+
+        $paymentType = $payment->paymentType ?? $payment->payment_type ?? null;
+        if ($paymentType && ($paymentType->credit === true || $paymentType->credit === 1)) {
+            return true;
+        }
+
+        return $payment->concept && str_contains($payment->concept, 'Compra en kiosko (a crédito)');
+    }
+
+    /**
      * Pagos y totales del grupo (reserva principal + hijas en multihabitación).
      */
     private function collectGroupFinancialData(Reservation $reservation): array
@@ -119,10 +217,10 @@ class ReservationCertificateService
             return $r->payments ?? collect();
         });
         $payments = $allPayments->filter(function ($payment) {
-            return !$payment->concept || !str_contains($payment->concept, 'Compra en kiosko (a crédito)');
+            return !$this->isCreditPayment($payment);
         })->sortBy('created_at')->values();
         $creditPayments = $allPayments->filter(function ($payment) {
-            return $payment->concept && str_contains($payment->concept, 'Compra en kiosko (a crédito)');
+            return $this->isCreditPayment($payment);
         })->sortBy('created_at')->values();
 
         $totalPriceGroup = $reservationsInGroup->sum(function ($r) {
@@ -150,10 +248,12 @@ class ReservationCertificateService
 
         $reservation->loadMissing([
             'customer', 'room', 'roomType', 'guests', 'additionalServices.additionalService',
+            'promotion',
             'childReservations.room', 'childReservations.guests',
         ]);
 
         $logoBase64 = $this->getLogoBase64();
+        $priceBreakdown = $this->buildPriceBreakdownData($reservation, $multi);
 
         $data = [
             'reservation' => $reservation,
@@ -173,6 +273,7 @@ class ReservationCertificateService
             'totalPriceGroup' => $financial['totalPriceGroup'],
             'totalPaid' => $financial['totalPaid'],
             'remainingBalance' => $financial['remainingBalance'],
+            'priceBreakdown' => $priceBreakdown,
         ];
 
         $pdf = Pdf::loadView('reservations.certificate', $data);
@@ -208,6 +309,7 @@ class ReservationCertificateService
 
         $reservation->loadMissing([
             'customer', 'room', 'roomType', 'guests', 'payments.paymentType', 'additionalServices.additionalService',
+            'promotion',
             'minibarCharges.product', 'kioskInvoices.details.kiosk_unit.product', 'kioskInvoices.payment_type',
             'childReservations.room', 'childReservations.guests',
             'childReservations.minibarCharges.product',
@@ -243,6 +345,8 @@ class ReservationCertificateService
         });
 
         $logoBase64 = $this->getLogoBase64();
+        $consumptionTotals = $this->collectCheckoutConsumptionTotals($reservationsInGroup);
+        $priceBreakdown = $this->buildPriceBreakdownData($reservation, $multi, $consumptionTotals);
 
         $data = [
             'reservation' => $reservation,
@@ -266,6 +370,7 @@ class ReservationCertificateService
             'totalChildren' => $multi['totalChildren'],
             'totalInfants' => $multi['totalInfants'],
             'isMultiRoom' => $multi['isMultiRoom'],
+            'priceBreakdown' => $priceBreakdown,
         ];
 
         $pdf = Pdf::loadView('reservations.checkout_certificate', $data);
@@ -330,10 +435,10 @@ class ReservationCertificateService
             }
         }
         $normalPayments = $allPayments->filter(function ($payment) {
-            return !$payment->concept || !str_contains($payment->concept, 'Compra en kiosko (a crédito)');
+            return !$this->isCreditPayment($payment);
         });
         $creditPayments = $allPayments->filter(function ($payment) {
-            return $payment->concept && str_contains($payment->concept, 'Compra en kiosko (a crédito)');
+            return $this->isCreditPayment($payment);
         });
 
         $totalPaid = $normalPayments->sum('amount');

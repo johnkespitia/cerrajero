@@ -80,7 +80,7 @@ class PromotionController extends Controller
                 Rule::unique('promotions', 'code')->ignore($promotionId),
             ],
             'name' => 'required|string|max:255',
-            'type' => 'required|in:percentage,fixed,nights_free',
+            'type' => 'required|in:percentage,fixed',
             'value' => 'required|numeric|min:0',
             'valid_from' => 'required|date',
             'valid_until' => 'required|date|after_or_equal:valid_from',

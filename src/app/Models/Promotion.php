@@ -63,9 +63,6 @@ class Promotion extends Model
                 return $basePrice * ($this->value / 100);
             case 'fixed':
                 return min($this->value, $basePrice);
-            case 'nights_free':
-                // Para implementar más adelante
-                return 0;
             default:
                 return 0;
         }
