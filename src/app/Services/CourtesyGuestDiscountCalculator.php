@@ -37,12 +37,12 @@ class CourtesyGuestDiscountCalculator
             return 0.0;
         }
 
-        $total = (float) ($reservation->calculated_price ?? $reservation->total_price ?? 0);
+        $total = $reservation->getEffectiveLodgingPrice();
 
         if ($reservation->is_group_reservation) {
             $reservation->loadMissing('childReservations');
             foreach ($reservation->childReservations as $child) {
-                $total += (float) ($child->calculated_price ?? $child->total_price ?? 0);
+                $total += $child->getEffectiveLodgingPrice();
             }
         }
 

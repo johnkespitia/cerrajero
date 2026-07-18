@@ -142,7 +142,7 @@ final class ReservationEmissionContextBuilder
     private function buildLodgingLine(Reservation $reservation, int $sequence): ?array
     {
         $breakdown = $reservation->price_breakdown ?? [];
-        $lodgingNet = (float) ($reservation->calculated_price ?? $reservation->total_price ?? 0);
+        $lodgingNet = $reservation->getEffectiveLodgingPrice();
         $discount = (float) ($breakdown['discount'] ?? 0);
         if ($lodgingNet <= 0) {
             return null;

@@ -353,18 +353,27 @@ class Reservation extends Model
     /**
      * Base de hospedaje para el total final (incluye habitaciones hijas en reservas de grupo).
      */
+    public function getEffectiveLodgingPrice(): float
+    {
+        if ($this->manual_price_override) {
+            return (float) ($this->total_price ?? 0);
+        }
+
+        return (float) ($this->calculated_price ?? $this->total_price ?? 0);
+    }
+
     public function getLodgingBaseForFinalPrice(): float
     {
         if ($this->parent_reservation_id) {
-            return (float) ($this->calculated_price ?? $this->total_price ?? 0);
+            return $this->getEffectiveLodgingPrice();
         }
 
-        $base = (float) ($this->calculated_price ?? $this->total_price ?? 0);
+        $base = $this->getEffectiveLodgingPrice();
 
         if ($this->is_group_reservation) {
             $this->loadMissing('childReservations');
             foreach ($this->childReservations as $child) {
-                $base += (float) ($child->calculated_price ?? $child->total_price ?? 0);
+                $base += $child->getEffectiveLodgingPrice();
             }
         }
 

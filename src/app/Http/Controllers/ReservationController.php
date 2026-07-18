@@ -845,6 +845,7 @@ class ReservationController extends Controller
             'infants' => 'integer|min:0',
             'courtesy_guests' => 'integer|min:0',
             'total_price' => 'nullable|numeric|min:0',
+            'manual_price_override' => 'nullable|boolean',
             'deposit_amount' => 'numeric|min:0',
             'payment_status' => 'nullable|in:pending,partial,paid,free,refunded',
             'free_reservation_reason' => 'required_if:payment_status,free|nullable|string|max:500',
@@ -1089,8 +1090,9 @@ class ReservationController extends Controller
             $priceBreakdown = $priceCalculation['price_breakdown'];
             
             // Usar precio manual si se proporciona y hay override, sino usar el calculado
-            $totalPrice = ($request->manual_price_override && $request->total_price !== null) 
-                ? $request->total_price 
+            $manualOverride = $this->parseBoolean($request->manual_price_override ?? false);
+            $totalPrice = ($manualOverride && $request->total_price !== null)
+                ? $request->total_price
                 : $calculatedPrice;
 
             $reservation = Reservation::create([
@@ -1106,12 +1108,12 @@ class ReservationController extends Controller
                 'extra_beds' => $request->extra_beds ?? 0,
                 'total_price' => $totalPrice,
                 'calculated_price' => $calculatedPrice,
-                'manual_price_override' => $request->manual_price_override ?? false,
+                'manual_price_override' => $manualOverride,
                 'price_breakdown' => $priceBreakdown,
                 'promotion_code' => $request->promotion_code,
                 'discount_amount' => $request->discount_amount ?? 0,
                 'courtesy_guests' => $request->courtesy_guests ?? 0,
-                'final_price' => $calculatedPrice,
+                'final_price' => $totalPrice,
                 'deposit_amount' => $request->deposit_amount ?? 0,
                 'special_requests' => $request->special_requests,
                 'cancellation_policy_id' => $request->cancellation_policy_id,
@@ -1252,6 +1254,7 @@ class ReservationController extends Controller
             'infants' => 'integer|min:0',
             'courtesy_guests' => 'integer|min:0',
             'total_price' => 'sometimes|numeric|min:0',
+            'manual_price_override' => 'sometimes|boolean',
             'status' => 'sometimes|in:pending,confirmed,checked_in,checked_out,cancelled',
             'payment_status' => 'sometimes|in:pending,partial,paid,free,refunded',
             'free_reservation_reason' => 'required_if:payment_status,free|nullable|string|max:500',
@@ -1292,6 +1295,10 @@ class ReservationController extends Controller
         if ($response = $this->validateCourtesyGuestsRequest($courtesyRequest)) {
             return $response;
         }
+
+        $manualOverride = $request->has('manual_price_override')
+            ? $this->parseBoolean($request->manual_price_override)
+            : (bool) $reservation->manual_price_override;
 
         DB::beginTransaction();
         try {
@@ -1336,8 +1343,11 @@ class ReservationController extends Controller
                     $request->merge(['check_out_date' => $request->check_in_date]);
                 }
                 
-                // Recalcular precio si cambió fecha, adultos o niños
-                if ($request->has('check_in_date') || $request->has('adults') || $request->has('children')) {
+                // Recalcular precio si cambió fecha, adultos o niños (salvo override manual)
+                if (
+                    !$manualOverride
+                    && ($request->has('check_in_date') || $request->has('adults') || $request->has('children'))
+                ) {
                     $updateDate = $request->check_in_date ?? $reservation->check_in_date;
                     $updateAdults = $request->adults ?? $reservation->adults;
                     $updateChildren = $request->children ?? $reservation->children;
@@ -1394,7 +1404,7 @@ class ReservationController extends Controller
             
             // Si cambió fecha o personas y la reserva está pagada, recalcular precio
             $shouldRecalculatePrice = false;
-            if ($dateOrPeopleChanged && $reservation->payment_status === 'paid') {
+            if ($dateOrPeopleChanged && $reservation->payment_status === 'paid' && !$manualOverride) {
                 $shouldRecalculatePrice = true;
             }
             
@@ -1407,6 +1417,7 @@ class ReservationController extends Controller
                 'infants',
                 'extra_beds',
                 'total_price',
+                'manual_price_override',
                 'status',
                 'payment_status',
                 'free_reservation_reason',
@@ -1475,38 +1486,53 @@ class ReservationController extends Controller
                 }
             }
             
-            // Si cambió fecha o personas y está pagada, recalcular precio y ajustar estado de pago
-            if ($shouldRecalculatePrice) {
-                // Crear reserva temporal con los nuevos valores para calcular precio
-                $tempReservation = $reservation->replicate();
-                $tempReservation->check_in_date = $updateData['check_in_date'] ?? $reservation->check_in_date;
-                $tempReservation->check_out_date = $updateData['check_out_date'] ?? $reservation->check_out_date;
-                $tempReservation->adults = $updateData['adults'] ?? $reservation->adults;
-                $tempReservation->children = $updateData['children'] ?? $reservation->children;
-                $tempReservation->infants = $updateData['infants'] ?? $reservation->infants;
-                $tempReservation->extra_beds = $updateData['extra_beds'] ?? $reservation->extra_beds;
-                $tempReservation->room_id = $updateData['room_id'] ?? $reservation->room_id;
-                $tempReservation->room_type_id = $reservation->room_type_id;
-                
-                // Cargar relaciones necesarias
-                if ($tempReservation->room_id) {
-                    $tempReservation->setRelation('room', Room::find($tempReservation->room_id));
+            $updateData['manual_price_override'] = $manualOverride;
+
+            $tempReservation = $reservation->replicate();
+            $tempReservation->check_in_date = $updateData['check_in_date'] ?? $reservation->check_in_date;
+            $tempReservation->check_out_date = $updateData['check_out_date'] ?? $reservation->check_out_date;
+            $tempReservation->adults = $updateData['adults'] ?? $reservation->adults;
+            $tempReservation->children = $updateData['children'] ?? $reservation->children;
+            $tempReservation->infants = $updateData['infants'] ?? $reservation->infants;
+            $tempReservation->extra_beds = $updateData['extra_beds'] ?? $reservation->extra_beds;
+            $tempReservation->room_id = $updateData['room_id'] ?? $reservation->room_id;
+            $tempReservation->room_type_id = $reservation->room_type_id;
+            $tempReservation->reservation_type = $reservation->reservation_type;
+            $tempReservation->promotion_code = $updateData['promotion_code'] ?? $reservation->promotion_code;
+            $tempReservation->discount_amount = $updateData['discount_amount'] ?? $reservation->discount_amount;
+            $tempReservation->courtesy_guests = $updateData['courtesy_guests'] ?? $reservation->courtesy_guests;
+            $tempReservation->early_check_in = $updateData['early_check_in'] ?? $reservation->early_check_in;
+            $tempReservation->late_check_out = $updateData['late_check_out'] ?? $reservation->late_check_out;
+            $tempReservation->early_check_in_fee = $updateData['early_check_in_fee'] ?? $reservation->early_check_in_fee;
+            $tempReservation->late_check_out_fee = $updateData['late_check_out_fee'] ?? $reservation->late_check_out_fee;
+
+            if ($tempReservation->room_id) {
+                $tempReservation->setRelation('room', Room::find($tempReservation->room_id));
+            }
+            if ($tempReservation->room_type_id) {
+                $tempReservation->setRelation('roomType', RoomType::find($tempReservation->room_type_id));
+            }
+
+            $priceCalculation = $this->priceCalculator->calculatePrice($tempReservation, true);
+            $newCalculatedPrice = $priceCalculation['calculated_price'];
+            $updateData['calculated_price'] = $newCalculatedPrice;
+            $updateData['price_breakdown'] = $priceCalculation['price_breakdown'];
+
+            if ($manualOverride) {
+                if ($request->has('total_price') && $request->total_price !== null && $request->total_price !== '') {
+                    $updateData['total_price'] = $request->total_price;
+                } else {
+                    $updateData['total_price'] = $reservation->total_price;
                 }
-                if ($tempReservation->room_type_id) {
-                    $tempReservation->setRelation('roomType', RoomType::find($tempReservation->room_type_id));
-                }
-                
-                // Recalcular precio
-                $priceCalculation = $this->priceCalculator->calculatePrice($tempReservation);
-                $newCalculatedPrice = $priceCalculation['calculated_price'];
-                $newFinalPrice = $newCalculatedPrice;
-                
-                // Actualizar precio en updateData
-                $updateData['calculated_price'] = $newCalculatedPrice;
-                $updateData['price_breakdown'] = $priceCalculation['price_breakdown'];
+            } else {
+                $updateData['manual_price_override'] = false;
                 $updateData['total_price'] = $newCalculatedPrice;
-                $updateData['final_price'] = $newFinalPrice;
-                
+            }
+
+            // Si cambió fecha o personas y está pagada, ajustar estado de pago según el nuevo total
+            if ($shouldRecalculatePrice) {
+                $newFinalPrice = $newCalculatedPrice;
+
                 // Calcular total pagado EXCLUYENDO los pagos a crédito del kiosko (que son deudas pendientes, no pagos reales)
                 $totalPaid = $reservation->payments()
                     ->where(function($query) {
@@ -1514,7 +1540,7 @@ class ReservationController extends Controller
                               ->orWhereNull('concept');
                     })
                     ->sum('amount');
-                
+
                 // Si el nuevo precio es mayor a lo pagado, cambiar estado de pago
                 if ($newFinalPrice > $totalPaid) {
                     if ($totalPaid > 0) {
@@ -3277,10 +3303,13 @@ class ReservationController extends Controller
 
         try {
             $priceCalculation = $this->priceCalculator->calculatePrice($reservation, true);
+            $calculatedPrice = $priceCalculation['calculated_price'];
 
             $reservation->update([
-                'calculated_price' => $priceCalculation['calculated_price'],
+                'calculated_price' => $calculatedPrice,
                 'price_breakdown' => $priceCalculation['price_breakdown'],
+                'total_price' => $calculatedPrice,
+                'manual_price_override' => false,
             ]);
             $reservation->recomputeFinalPrice();
 

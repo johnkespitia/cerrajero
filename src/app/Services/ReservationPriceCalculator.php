@@ -12,9 +12,17 @@ class ReservationPriceCalculator
 {
     public function calculatePrice(Reservation $reservation, $forceRecalculate = false)
     {
-        // Si hay override manual y no se fuerza recálculo, usar precio manual
+        // Si hay override manual y no se fuerza recálculo, conservar el precio manual
         if ($reservation->manual_price_override && !$forceRecalculate) {
-            return $reservation->total_price;
+            $manualPrice = (float) ($reservation->total_price ?? 0);
+            $breakdown = $reservation->price_breakdown ?? [];
+            $breakdown['manual_override'] = true;
+            $breakdown['subtotal'] = $manualPrice;
+
+            return [
+                'calculated_price' => $manualPrice,
+                'price_breakdown' => $breakdown,
+            ];
         }
 
         if ($reservation->reservation_type === 'day_pass') {
