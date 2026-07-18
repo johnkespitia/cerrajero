@@ -16,6 +16,16 @@ class GuestImportServiceTest extends TestCase
         $this->service = new GuestImportService();
     }
 
+    public function test_build_template_creates_xlsx_file(): void
+    {
+        $path = $this->service->buildTemplate();
+
+        $this->assertFileExists($path);
+        $this->assertGreaterThan(1000, filesize($path));
+
+        @unlink($path);
+    }
+
     public function test_parses_csv_guest_rows(): void
     {
         $csv = implode("\n", [

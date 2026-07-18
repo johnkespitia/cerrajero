@@ -68,24 +68,23 @@ class GuestImportService
         $sheet = $spreadsheet->getActiveSheet();
         $sheet->setTitle('Huéspedes');
 
-        foreach (self::TEMPLATE_HEADERS as $index => $header) {
-            $sheet->setCellValueByColumnAndRow($index + 1, 1, $header);
-        }
-
+        $sheet->fromArray([self::TEMPLATE_HEADERS], null, 'A1');
         $sheet->fromArray([
-            'Juan',
-            'Pérez',
-            'CC',
-            '1234567890',
-            '1990-05-15',
-            'Masculino',
-            'Colombiana',
-            'juan@ejemplo.com',
-            '3001234567',
-            '',
-            'Sí',
-            'Sanitas',
-            'Nacional',
+            [
+                'Juan',
+                'Pérez',
+                'CC',
+                '1234567890',
+                '1990-05-15',
+                'Masculino',
+                'Colombiana',
+                'juan@ejemplo.com',
+                '3001234567',
+                '',
+                'Sí',
+                'Sanitas',
+                'Nacional',
+            ],
         ], null, 'A2');
 
         $writer = new Xlsx($spreadsheet);

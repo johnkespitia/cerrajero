@@ -19,13 +19,22 @@ class ReservationGuestController extends Controller
 
     public function downloadTemplate()
     {
-        $path = $this->guestImportService->buildTemplate();
+        try {
+            $path = $this->guestImportService->buildTemplate();
 
-        return response()->download(
-            $path,
-            'plantilla-huespedes.xlsx',
-            ['Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet']
-        )->deleteFileAfterSend(true);
+            return response()->download(
+                $path,
+                'plantilla-huespedes.xlsx',
+                ['Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet']
+            )->deleteFileAfterSend(true);
+        } catch (\Throwable $e) {
+            report($e);
+
+            return response()->json([
+                'message' => 'No se pudo generar la plantilla Excel.',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
     }
 
     public function previewImport(Request $request)
