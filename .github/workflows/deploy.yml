@@ -94,7 +94,7 @@ jobs:
           DB_PORT=${{ secrets.DB_PORT || '3306' }}
           DB_DATABASE=${{ secrets.DB_DATABASE }}
           DB_USERNAME=${{ secrets.DB_USERNAME }}
-          DB_PASSWORD=${{ secrets.DB_PASSWORD }}
+          DB_PASSWORD="${{ secrets.DB_PASSWORD }}"
 
           BROADCAST_DRIVER=${{ secrets.BROADCAST_DRIVER || 'log' }}
           CACHE_DRIVER=${{ secrets.CACHE_DRIVER || 'file' }}
@@ -112,8 +112,8 @@ jobs:
           MAIL_MAILER=${{ secrets.MAIL_MAILER || 'smtp' }}
           MAIL_HOST=${{ secrets.MAIL_HOST || 'centrovacacionalcampoverde.com' }}
           MAIL_PORT=${{ secrets.MAIL_PORT || '465' }}
-          MAIL_USERNAME=${{ secrets.MAIL_USERNAME || 'no-reply@centrovacacionalcampoverde.com' }}
-          MAIL_PASSWORD=${{ secrets.MAIL_PASSWORD }}
+          MAIL_USERNAME="${{ secrets.MAIL_USERNAME || 'no-reply@centrovacacionalcampoverde.com' }}"
+          MAIL_PASSWORD="${{ secrets.MAIL_PASSWORD }}"
           MAIL_ENCRYPTION=${{ secrets.MAIL_ENCRYPTION || 'ssl' }}
           MAIL_FROM_ADDRESS=${{ secrets.MAIL_FROM_ADDRESS || 'no-reply@centrovacacionalcampoverde.com' }}
           MAIL_FROM_NAME="${{ secrets.MAIL_FROM_NAME || 'Centro Vacacional Campo Verde' }}"
