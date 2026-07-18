@@ -223,6 +223,13 @@ class ReservationController extends Controller
             $query->where('check_in_date', '<=', $request->date_to);
         }
 
+        // Reservas activas en una fecha (check-in <= fecha <= check-out)
+        if ($request->has('active_on_date')) {
+            $activeDate = $request->active_on_date;
+            $query->where('check_in_date', '<=', $activeDate)
+                ->where('check_out_date', '>=', $activeDate);
+        }
+
         if ($request->boolean('main_reservations_only')) {
             $query->whereNull('parent_reservation_id');
         }
