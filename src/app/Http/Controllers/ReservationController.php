@@ -3271,6 +3271,18 @@ class ReservationController extends Controller
         }
     }
 
+    protected function parseBoolean($value): bool
+    {
+        if (is_bool($value)) {
+            return $value;
+        }
+        if (is_string($value)) {
+            return in_array(strtolower($value), ['1', 'true', 'yes', 'on'], true);
+        }
+
+        return (bool) $value;
+    }
+
     protected function reservationElectronicEmissionEnabled(): bool
     {
         $value = function_exists('config') ? config('electronic-invoicing.enabled') : false;
