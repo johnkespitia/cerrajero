@@ -52,9 +52,10 @@ class Promotion extends Model
         return true;
     }
 
-    public function calculateDiscount($basePrice, $nights = 1)
+    public function calculateDiscount($basePrice, $nights = 1, $checkInDate = null)
     {
-        if (!$this->isValid(Carbon::now()->format('Y-m-d'), $nights)) {
+        $checkDate = $checkInDate ?? Carbon::now()->format('Y-m-d');
+        if (!$this->isValid($checkDate, $nights)) {
             return 0;
         }
 

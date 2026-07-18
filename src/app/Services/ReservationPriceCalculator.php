@@ -164,7 +164,11 @@ class ReservationPriceCalculator
         if ($reservation->promotion_code) {
             $promotion = Promotion::where('code', $reservation->promotion_code)->first();
             if ($promotion && $promotion->isValid($reservation->check_in_date->format('Y-m-d'), $nights)) {
-                $discount = $promotion->calculateDiscount($basePrice, $nights);
+                $discount = $promotion->calculateDiscount(
+                    $basePrice,
+                    $nights,
+                    $reservation->check_in_date->format('Y-m-d')
+                );
                 $totalDiscount += $discount;
             }
         }
