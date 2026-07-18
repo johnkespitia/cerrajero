@@ -32,6 +32,7 @@ jobs:
       - name: Install Composer dependencies
         working-directory: ./src
         run: |
+          composer validate --no-check-publish
           composer install --no-dev --optimize-autoloader --no-interaction --prefer-dist --no-scripts
 
       - name: Clean and regenerate package cache
