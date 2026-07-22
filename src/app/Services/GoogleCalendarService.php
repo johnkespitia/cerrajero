@@ -197,8 +197,9 @@ class GoogleCalendarService
 
             $service = new Google_Service_Calendar($this->client);
 
+            $typeLabel = $this->isDayPass($reservation) ? 'Pasadía' : 'Habitación';
             $event = new Google_Service_Calendar_Event([
-                'summary' => "Reserva #{$reservation->reservation_number} - {$reservation->customer->display_name}",
+                'summary' => "Reserva #{$reservation->reservation_number} ({$typeLabel}) - {$reservation->customer->display_name}",
                 'description' => $this->buildEventDescription($reservation),
                 'start' => new Google_Service_Calendar_EventDateTime([
                     'dateTime' => $reservation->check_in_date->format('Y-m-d') . 'T' . ($reservation->check_in_time 
@@ -252,7 +253,8 @@ class GoogleCalendarService
             $service = new Google_Service_Calendar($this->client);
             $event = $service->events->get($this->calendarId, $reservation->google_calendar_event_id);
 
-            $event->setSummary("Reserva #{$reservation->reservation_number} - {$reservation->customer->display_name}");
+            $typeLabel = $this->isDayPass($reservation) ? 'Pasadía' : 'Habitación';
+            $event->setSummary("Reserva #{$reservation->reservation_number} ({$typeLabel}) - {$reservation->customer->display_name}");
             $event->setDescription($this->buildEventDescription($reservation));
             
             $startDateTime = $reservation->check_in_date->format('Y-m-d') . 'T' . ($reservation->check_in_time 
@@ -325,8 +327,10 @@ class GoogleCalendarService
     protected function buildEventDescription(Reservation $reservation)
     {
         $reservation = $this->prepareReservationForCalendar($reservation);
+        $isDayPass = $this->isDayPass($reservation);
 
         $description = "Reserva #{$reservation->reservation_number}\n";
+        $description .= "Tipo: " . ($isDayPass ? 'Pasadía' : 'Habitación') . "\n";
         $description .= "Estado: {$this->formatReservationStatus($reservation->status)}\n";
         $description .= "Estado de pago: {$this->formatPaymentStatus($reservation->payment_status)}\n\n";
 
@@ -343,39 +347,47 @@ class GoogleCalendarService
         $description .= "Email: {$customer->email}\n";
         $description .= "Teléfono: {$customer->phone_number}\n\n";
 
-        $description .= "--- ESTANCIA ---\n";
-        if ($reservation->room) {
-            $description .= "Habitación: {$reservation->room->display_name}\n";
-            if ($reservation->roomType) {
-                $description .= "Tipo: {$reservation->roomType->name}\n";
+        if ($isDayPass) {
+            $description .= "--- PASADÍA ---\n";
+            $description .= "Fecha: {$reservation->check_in_date->format('Y-m-d')}";
+            if ($reservation->check_in_time) {
+                $description .= ' ' . Carbon::parse($reservation->check_in_time)->format('H:i');
             }
-        } elseif ($reservation->roomType) {
-            $description .= "Tipo de Habitación: {$reservation->roomType->name}\n";
+            $description .= "\n";
+            $description .= "Personas: {$reservation->adults} adultos, {$reservation->children} niños, {$reservation->infants} bebés";
         } else {
-            $description .= "Tipo: Pasadía\n";
+            $description .= "--- HABITACIÓN ---\n";
+            if ($reservation->room) {
+                $description .= "Habitación: {$reservation->room->display_name}\n";
+            }
+            if ($reservation->roomType) {
+                $description .= "Tipo de habitación: {$reservation->roomType->name}\n";
+            }
+
+            $description .= "Check-in: {$reservation->check_in_date->format('Y-m-d')}";
+            if ($reservation->check_in_time) {
+                $description .= ' ' . Carbon::parse($reservation->check_in_time)->format('H:i');
+            }
+            $description .= "\n";
+
+            $checkOutDate = $reservation->check_out_date ?? $reservation->check_in_date;
+            $description .= "Check-out: {$checkOutDate->format('Y-m-d')}";
+            if ($reservation->check_out_time) {
+                $description .= ' ' . Carbon::parse($reservation->check_out_time)->format('H:i');
+            }
+            $description .= "\n";
+
+            $description .= "Huéspedes: {$reservation->adults} adultos, {$reservation->children} niños, {$reservation->infants} bebés";
         }
 
-        $description .= "Check-in: {$reservation->check_in_date->format('Y-m-d')}";
-        if ($reservation->check_in_time) {
-            $description .= ' ' . Carbon::parse($reservation->check_in_time)->format('H:i');
-        }
-        $description .= "\n";
-
-        $checkOutDate = $reservation->check_out_date ?? $reservation->check_in_date;
-        $description .= "Check-out: {$checkOutDate->format('Y-m-d')}";
-        if ($reservation->check_out_time) {
-            $description .= ' ' . Carbon::parse($reservation->check_out_time)->format('H:i');
-        }
-        $description .= "\n";
-
-        $description .= "Huéspedes: {$reservation->adults} adultos, {$reservation->children} niños, {$reservation->infants} bebés";
         if ((int) $reservation->courtesy_guests > 0) {
             $description .= ", {$reservation->courtesy_guests} cortesía";
         }
         $description .= "\n";
 
         if ($reservation->guests && $reservation->guests->count() > 0) {
-            $description .= "\nHuéspedes registrados:\n";
+            $guestLabel = $isDayPass ? 'Personas registradas' : 'Huéspedes registrados';
+            $description .= "\n{$guestLabel}:\n";
             foreach ($reservation->guests as $guest) {
                 $description .= "- {$guest->full_name}";
                 if ($guest->document_number) {
@@ -401,12 +413,7 @@ class GoogleCalendarService
             foreach ($foodServices as $row) {
                 $service = $row->additionalService;
                 $mealLabel = $this->formatMealType($service->meal_type);
-                $days = $row->service_days ?? $row->quantity;
-                $description .= "- {$service->name} ({$mealLabel}): {$row->quantity} ítems";
-                if ($days) {
-                    $description .= ", {$days} días";
-                }
-                $description .= ', $' . number_format((float) $row->total, 0, '.', ',') . "\n";
+                $description .= "- {$service->name} ({$mealLabel}): " . $this->formatServiceQuantity($row) . "\n";
             }
         }
 
@@ -416,36 +423,17 @@ class GoogleCalendarService
         } else {
             foreach ($additionalServices as $row) {
                 $serviceName = $row->additionalService->name ?? 'Servicio';
-                $days = $row->service_days ?? $row->quantity;
                 $tag = ($row->additionalService && $row->additionalService->is_food_service) ? ' [Alimentación]' : '';
-                $description .= "- {$serviceName}{$tag}: {$row->quantity} ítems";
-                if ($days) {
-                    $description .= ", {$days} días";
-                }
-                $description .= ', $' . number_format((float) $row->total, 0, '.', ',') . "\n";
+                $description .= "- {$serviceName}{$tag}: " . $this->formatServiceQuantity($row) . "\n";
             }
-            $description .= "Subtotal servicios: $" . number_format((float) $additionalServices->sum('total'), 0, '.', ',') . "\n";
         }
 
-        $lodgingBase = (float) ($reservation->manual_price_override
-            ? ($reservation->total_price ?? 0)
-            : ($reservation->calculated_price ?? $reservation->total_price ?? 0));
-        $additionalTotal = (float) $additionalServices->sum('total');
         $finalPrice = (float) ($reservation->final_price ?? $reservation->total_price ?? 0);
         $totalPaid = (float) ($reservation->payments ? $reservation->payments->sum('amount') : 0);
-        $pending = max(0, $finalPrice - $totalPaid);
 
         $description .= "\n--- FINANCIERO ---\n";
-        $description .= "Hospedaje: $" . number_format($lodgingBase, 0, '.', ',') . "\n";
-        $description .= "Servicios adicionales: $" . number_format($additionalTotal, 0, '.', ',') . "\n";
-        if ((float) ($reservation->deposit_amount ?? 0) > 0) {
-            $description .= "Depósito / abono registrado: $" . number_format((float) $reservation->deposit_amount, 0, '.', ',') . "\n";
-        }
-        if ((float) ($reservation->discount_amount ?? 0) > 0) {
-            $description .= "Descuento: $" . number_format((float) $reservation->discount_amount, 0, '.', ',') . "\n";
-        }
-        $description .= "Total final: $" . number_format($finalPrice, 0, '.', ',') . "\n";
-        $description .= "Pagado: $" . number_format($totalPaid, 0, '.', ',') . " | Pendiente: $" . number_format($pending, 0, '.', ',') . "\n";
+        $description .= "Total: $" . number_format($finalPrice, 0, '.', ',') . "\n";
+        $description .= "Pagado: $" . number_format($totalPaid, 0, '.', ',') . "\n";
 
         if ($reservation->payment_status === 'free' && $reservation->free_reservation_reason) {
             $description .= "Reserva gratis: {$reservation->free_reservation_reason}\n";
@@ -466,7 +454,12 @@ class GoogleCalendarService
             }
         }
 
-        if ($reservation->is_group_reservation && $reservation->childReservations && $reservation->childReservations->count() > 0) {
+        if (
+            !$isDayPass
+            && $reservation->is_group_reservation
+            && $reservation->childReservations
+            && $reservation->childReservations->count() > 0
+        ) {
             $description .= "\n--- RESERVA DE GRUPO ---\n";
             $description .= "Habitaciones adicionales:\n";
             foreach ($reservation->childReservations as $child) {
@@ -480,6 +473,27 @@ class GoogleCalendarService
         }
 
         return $description;
+    }
+
+    protected function isDayPass(Reservation $reservation): bool
+    {
+        return $reservation->reservation_type === 'day_pass';
+    }
+
+    protected function formatServiceQuantity($row): string
+    {
+        $quantity = $row->quantity ?? 1;
+        $days = $row->service_days ?? null;
+
+        if ($days && (float) $days !== (float) $quantity) {
+            return "{$quantity} ítems, {$days} días";
+        }
+
+        if ($days) {
+            return "{$quantity} ({$days} días)";
+        }
+
+        return (string) $quantity;
     }
 
     protected function formatReservationStatus(?string $status): string
