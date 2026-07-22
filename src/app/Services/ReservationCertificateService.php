@@ -401,9 +401,11 @@ class ReservationCertificateService
         $reservation->loadMissing([
             'customer', 'room', 'roomType', 'guests', 'payments.paymentType',
             'additionalServices.additionalService',
+            'minibarCharges.product',
             'kioskInvoices.paymentType',
             'kioskInvoices.details.kiosk_unit.product',
             'childReservations.room', 'childReservations.guests',
+            'childReservations.minibarCharges.product',
             'childReservations.kioskInvoices.paymentType',
             'childReservations.kioskInvoices.details.kiosk_unit.product',
             'childReservations.payments.paymentType',
@@ -427,6 +429,14 @@ class ReservationCertificateService
             return $invoice->details->sum('price');
         });
 
+        $minibarCharges = $reservation->minibarCharges;
+        if ($reservation->childReservations->isNotEmpty()) {
+            foreach ($reservation->childReservations as $child) {
+                $minibarCharges = $minibarCharges->merge($child->minibarCharges ?? collect());
+            }
+        }
+        $minibarTotal = $minibarCharges->sum('total');
+
         // Pagos del grupo (principal + hijas) para multihabitaciones
         $allPayments = $reservation->payments;
         if ($reservation->childReservations->isNotEmpty()) {
@@ -440,6 +450,7 @@ class ReservationCertificateService
         $creditPayments = $allPayments->filter(function ($payment) {
             return $this->isCreditPayment($payment);
         });
+        $roomCharges = $creditPayments->filter(fn ($payment) => $payment->payment_type_id === null);
 
         $totalPaid = $normalPayments->sum('amount');
         $totalPending = max(0, ($reservationTotal + $kioskTotal) - $totalPaid);
@@ -453,9 +464,13 @@ class ReservationCertificateService
             'guests' => $multi['guests'],
             'payments' => $normalPayments,
             'creditPayments' => $creditPayments,
+            'roomCharges' => $roomCharges,
+            'minibarCharges' => $minibarCharges,
             'kioskInvoices' => $kioskInvoices,
             'totals' => [
                 'reservation' => $reservationTotal,
+                'minibar' => $minibarTotal,
+                'restaurant' => (float) $roomCharges->sum('amount'),
                 'kiosko' => $kioskTotal,
                 'paid' => $totalPaid,
                 'pending' => $totalPending,

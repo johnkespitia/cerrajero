@@ -457,9 +457,8 @@
                     <thead>
                         <tr>
                             <th>Servicio</th>
-                            <th class="text-center">Ítems</th>
+                            <th class="text-center">Personas / Ítems</th>
                             <th class="text-center">Días</th>
-                            <th class="text-right">Total</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -468,16 +467,9 @@
                                 <td>{{ optional($ras->additionalService)->name ?? 'N/A' }}</td>
                                 <td class="text-center">{{ $ras->quantity }}</td>
                                 <td class="text-center">{{ $ras->service_days ?? $ras->quantity }}</td>
-                                <td class="text-right">${{ number_format($ras->total, 0, ',', '.') }}</td>
                             </tr>
                         @endforeach
                     </tbody>
-                    <tfoot>
-                        <tr class="total-row">
-                            <td colspan="3" class="text-right"><strong>Subtotal servicios:</strong></td>
-                            <td class="text-right"><strong>${{ number_format($reservation->additionalServices->sum('total'), 0, ',', '.') }}</strong></td>
-                        </tr>
-                    </tfoot>
                 </table>
             </div>
         @endif
@@ -605,7 +597,42 @@
             @endforeach
         @endif
 
-        @include('reservations._price_breakdown', ['priceBreakdown' => $priceBreakdown ?? null])
+        @php
+            $roomCharges = isset($creditPayments)
+                ? $creditPayments->filter(fn ($payment) => $payment->payment_type_id === null)
+                : collect();
+        @endphp
+        @if($roomCharges->count() > 0)
+            <div class="section">
+                <div class="section-title">Consumo en Restaurante (cargos a habitación)</div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Fecha</th>
+                            <th>Concepto</th>
+                            <th>Referencia</th>
+                            <th class="text-right">Total</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach($roomCharges as $charge)
+                            <tr>
+                                <td>{{ \Carbon\Carbon::parse($charge->created_at)->format('d/m/Y H:i') }}</td>
+                                <td>{{ $charge->concept ?? 'Consumo en restaurante' }}</td>
+                                <td>{{ $charge->payment_reference ?? ($charge->notes ?? '-') }}</td>
+                                <td class="text-right">${{ number_format($charge->amount, 0, ',', '.') }}</td>
+                            </tr>
+                        @endforeach
+                    </tbody>
+                    <tfoot>
+                        <tr class="total-row">
+                            <td colspan="3" class="text-right"><strong>Subtotal Restaurante:</strong></td>
+                            <td class="text-right"><strong>${{ number_format($roomCharges->sum('amount'), 0, ',', '.') }}</strong></td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+        @endif
 
         <div class="section">
             <div class="section-title">Resumen de Pagos</div>
@@ -666,7 +693,7 @@
 
             <div class="summary-box">
                 <div class="summary-item">
-                    <div class="summary-label">Precio Total de la Reserva (incluye servicios adicionales y minibar):</div>
+                    <div class="summary-label">Precio Total de la Reserva (incluye hospedaje, servicios y consumos):</div>
                     <div class="summary-value">${{ number_format($totalPrice, 0, ',', '.') }}</div>
                 </div>
                 <div class="summary-item">

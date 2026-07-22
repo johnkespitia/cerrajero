@@ -483,9 +483,8 @@
                     <thead>
                         <tr>
                             <th>Servicio</th>
-                            <th class="text-center">Ítems</th>
+                            <th class="text-center">Personas / Ítems</th>
                             <th class="text-center">Días</th>
-                            <th class="text-right">Total</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -494,21 +493,12 @@
                                 <td>{{ optional($ras->additionalService)->name ?? 'N/A' }}</td>
                                 <td class="text-center">{{ $ras->quantity }}</td>
                                 <td class="text-center">{{ $ras->service_days ?? $ras->quantity }}</td>
-                                <td class="text-right">${{ number_format($ras->total, 0, ',', '.') }}</td>
                             </tr>
                         @endforeach
                     </tbody>
-                    <tfoot>
-                        <tr class="total-row">
-                            <td colspan="3" class="text-right"><strong>Subtotal servicios:</strong></td>
-                            <td class="text-right"><strong>${{ number_format($reservation->additionalServices->sum('total'), 0, ',', '.') }}</strong></td>
-                        </tr>
-                    </tfoot>
                 </table>
             </div>
         @endif
-
-        @include('reservations._price_breakdown', ['priceBreakdown' => $priceBreakdown ?? null])
 
         @php
             $totalPrice = data_get($priceBreakdown, 'total') ?? ($totalPriceGroup ?? ($reservation->final_price ?? $reservation->total_price));
@@ -571,7 +561,7 @@
         <!-- Resumen financiero -->
         <div class="summary-box">
             <div class="summary-item">
-                <div class="summary-label">Precio Total de la Reserva:</div>
+                <div class="summary-label">Precio Total de la Reserva (incluye hospedaje y servicios):</div>
                 <div class="summary-value">${{ number_format($totalPrice, 0, ',', '.') }}</div>
             </div>
             <div class="summary-item">
