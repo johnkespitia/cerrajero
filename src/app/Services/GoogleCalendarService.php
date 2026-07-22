@@ -188,6 +188,8 @@ class GoogleCalendarService
         }
 
         try {
+            $reservation = $this->prepareReservationForCalendar($reservation);
+
             // Refrescar token si es necesario (solo para OAuth 2.0)
             if (!$this->isServiceAccount() && $this->config->isTokenExpired()) {
                 $this->refreshAccessToken();
@@ -240,6 +242,8 @@ class GoogleCalendarService
         }
 
         try {
+            $reservation = $this->prepareReservationForCalendar($reservation);
+
             // Refrescar token si es necesario (solo para OAuth 2.0)
             if (!$this->isServiceAccount() && $this->config->isTokenExpired()) {
                 $this->refreshAccessToken();
@@ -305,9 +309,26 @@ class GoogleCalendarService
         }
     }
 
+    protected function prepareReservationForCalendar(Reservation $reservation): Reservation
+    {
+        return $reservation->loadMissing([
+            'customer',
+            'room',
+            'roomType',
+            'guests',
+            'additionalServices.additionalService',
+            'payments.paymentType',
+            'childReservations.room',
+        ]);
+    }
+
     protected function buildEventDescription(Reservation $reservation)
     {
-        $description = "Reserva #{$reservation->reservation_number}\n\n";
+        $reservation = $this->prepareReservationForCalendar($reservation);
+
+        $description = "Reserva #{$reservation->reservation_number}\n";
+        $description .= "Estado: {$this->formatReservationStatus($reservation->status)}\n";
+        $description .= "Estado de pago: {$this->formatPaymentStatus($reservation->payment_status)}\n\n";
 
         $customer = $reservation->customer;
         if ($customer->customer_type === 'company') {
@@ -322,6 +343,7 @@ class GoogleCalendarService
         $description .= "Email: {$customer->email}\n";
         $description .= "Teléfono: {$customer->phone_number}\n\n";
 
+        $description .= "--- ESTANCIA ---\n";
         if ($reservation->room) {
             $description .= "Habitación: {$reservation->room->display_name}\n";
             if ($reservation->roomType) {
@@ -333,10 +355,27 @@ class GoogleCalendarService
             $description .= "Tipo: Pasadía\n";
         }
 
-        $description .= "Huéspedes: {$reservation->adults} adultos, {$reservation->children} niños, {$reservation->infants} bebés\n";
+        $description .= "Check-in: {$reservation->check_in_date->format('Y-m-d')}";
+        if ($reservation->check_in_time) {
+            $description .= ' ' . Carbon::parse($reservation->check_in_time)->format('H:i');
+        }
+        $description .= "\n";
+
+        $checkOutDate = $reservation->check_out_date ?? $reservation->check_in_date;
+        $description .= "Check-out: {$checkOutDate->format('Y-m-d')}";
+        if ($reservation->check_out_time) {
+            $description .= ' ' . Carbon::parse($reservation->check_out_time)->format('H:i');
+        }
+        $description .= "\n";
+
+        $description .= "Huéspedes: {$reservation->adults} adultos, {$reservation->children} niños, {$reservation->infants} bebés";
+        if ((int) $reservation->courtesy_guests > 0) {
+            $description .= ", {$reservation->courtesy_guests} cortesía";
+        }
+        $description .= "\n";
 
         if ($reservation->guests && $reservation->guests->count() > 0) {
-            $description .= "\nHuéspedes Registrados:\n";
+            $description .= "\nHuéspedes registrados:\n";
             foreach ($reservation->guests as $guest) {
                 $description .= "- {$guest->full_name}";
                 if ($guest->document_number) {
@@ -345,24 +384,138 @@ class GoogleCalendarService
                 if ($guest->is_primary_guest) {
                     $description .= " [Principal]";
                 }
-                if ($guest->health_insurance_name) {
-                    $description .= "\n  Aseguradora: {$guest->health_insurance_name}";
-                    if ($guest->health_insurance_type) {
-                        $type = $guest->health_insurance_type === 'national' ? 'Nacional' : 'Internacional';
-                        $description .= " ({$type})";
-                    }
+                $description .= "\n";
+            }
+        }
+
+        $additionalServices = $reservation->additionalServices ?? collect();
+        $foodServices = $additionalServices->filter(function ($row) {
+            return $row->additionalService && $row->additionalService->is_food_service;
+        });
+
+        $description .= "\n--- ALIMENTACIÓN ---\n";
+        if ($foodServices->isEmpty()) {
+            $description .= "Alimentación: NO\n";
+        } else {
+            $description .= "Alimentación: SÍ\n";
+            foreach ($foodServices as $row) {
+                $service = $row->additionalService;
+                $mealLabel = $this->formatMealType($service->meal_type);
+                $days = $row->service_days ?? $row->quantity;
+                $description .= "- {$service->name} ({$mealLabel}): {$row->quantity} ítems";
+                if ($days) {
+                    $description .= ", {$days} días";
+                }
+                $description .= ', $' . number_format((float) $row->total, 0, '.', ',') . "\n";
+            }
+        }
+
+        $description .= "\n--- SERVICIOS ADICIONALES ---\n";
+        if ($additionalServices->isEmpty()) {
+            $description .= "Ninguno\n";
+        } else {
+            foreach ($additionalServices as $row) {
+                $serviceName = $row->additionalService->name ?? 'Servicio';
+                $days = $row->service_days ?? $row->quantity;
+                $tag = ($row->additionalService && $row->additionalService->is_food_service) ? ' [Alimentación]' : '';
+                $description .= "- {$serviceName}{$tag}: {$row->quantity} ítems";
+                if ($days) {
+                    $description .= ", {$days} días";
+                }
+                $description .= ', $' . number_format((float) $row->total, 0, '.', ',') . "\n";
+            }
+            $description .= "Subtotal servicios: $" . number_format((float) $additionalServices->sum('total'), 0, '.', ',') . "\n";
+        }
+
+        $lodgingBase = (float) ($reservation->manual_price_override
+            ? ($reservation->total_price ?? 0)
+            : ($reservation->calculated_price ?? $reservation->total_price ?? 0));
+        $additionalTotal = (float) $additionalServices->sum('total');
+        $finalPrice = (float) ($reservation->final_price ?? $reservation->total_price ?? 0);
+        $totalPaid = (float) ($reservation->payments ? $reservation->payments->sum('amount') : 0);
+        $pending = max(0, $finalPrice - $totalPaid);
+
+        $description .= "\n--- FINANCIERO ---\n";
+        $description .= "Hospedaje: $" . number_format($lodgingBase, 0, '.', ',') . "\n";
+        $description .= "Servicios adicionales: $" . number_format($additionalTotal, 0, '.', ',') . "\n";
+        if ((float) ($reservation->deposit_amount ?? 0) > 0) {
+            $description .= "Depósito / abono registrado: $" . number_format((float) $reservation->deposit_amount, 0, '.', ',') . "\n";
+        }
+        if ((float) ($reservation->discount_amount ?? 0) > 0) {
+            $description .= "Descuento: $" . number_format((float) $reservation->discount_amount, 0, '.', ',') . "\n";
+        }
+        $description .= "Total final: $" . number_format($finalPrice, 0, '.', ',') . "\n";
+        $description .= "Pagado: $" . number_format($totalPaid, 0, '.', ',') . " | Pendiente: $" . number_format($pending, 0, '.', ',') . "\n";
+
+        if ($reservation->payment_status === 'free' && $reservation->free_reservation_reason) {
+            $description .= "Reserva gratis: {$reservation->free_reservation_reason}\n";
+        }
+
+        if ($reservation->payments && $reservation->payments->count() > 0) {
+            $description .= "\nPagos registrados:\n";
+            foreach ($reservation->payments as $payment) {
+                $paymentType = $payment->paymentType->name ?? 'Sin tipo';
+                $concept = $payment->concept ? " — {$payment->concept}" : '';
+                $reference = $payment->payment_reference ? " (Ref: {$payment->payment_reference})" : '';
+                $date = $payment->created_at ? $payment->created_at->format('Y-m-d') : '';
+                $description .= "- $" . number_format((float) $payment->amount, 0, '.', ',') . " — {$paymentType}{$concept}{$reference}";
+                if ($date) {
+                    $description .= " — {$date}";
                 }
                 $description .= "\n";
             }
         }
 
-        $description .= "\nPrecio Total: $" . number_format($reservation->total_price, 2) . "\n";
+        if ($reservation->is_group_reservation && $reservation->childReservations && $reservation->childReservations->count() > 0) {
+            $description .= "\n--- RESERVA DE GRUPO ---\n";
+            $description .= "Habitaciones adicionales:\n";
+            foreach ($reservation->childReservations as $child) {
+                $roomName = $child->room->display_name ?? "Habitación #{$child->room_id}";
+                $description .= "- {$roomName} (seq. {$child->room_sequence})\n";
+            }
+        }
 
         if ($reservation->special_requests) {
-            $description .= "\nSolicitudes Especiales: {$reservation->special_requests}\n";
+            $description .= "\nSolicitudes especiales: {$reservation->special_requests}\n";
         }
 
         return $description;
+    }
+
+    protected function formatReservationStatus(?string $status): string
+    {
+        return match ($status) {
+            'pending' => 'Pendiente',
+            'confirmed' => 'Confirmada',
+            'checked_in' => 'Check-in',
+            'checked_out' => 'Check-out',
+            'cancelled' => 'Cancelada',
+            default => $status ?? 'N/A',
+        };
+    }
+
+    protected function formatPaymentStatus(?string $status): string
+    {
+        return match ($status) {
+            'pending' => 'Pendiente',
+            'partial' => 'Parcial',
+            'paid' => 'Pagado',
+            'free' => 'Gratis',
+            'refunded' => 'Reembolsado',
+            default => $status ?? 'N/A',
+        };
+    }
+
+    protected function formatMealType(?string $mealType): string
+    {
+        return match ($mealType) {
+            'breakfast' => 'Desayuno',
+            'lunch' => 'Almuerzo',
+            'dinner' => 'Cena',
+            'refreshment' => 'Refrigerio',
+            null, '' => 'Alimentación completa',
+            default => $mealType,
+        };
     }
 
     /**

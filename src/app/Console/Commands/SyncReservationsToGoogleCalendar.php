@@ -14,9 +14,10 @@ class SyncReservationsToGoogleCalendar extends Command
                             {--from= : Fecha mínima de check-in (Y-m-d)}
                             {--to= : Fecha máxima de check-in (Y-m-d)}
                             {--id= : Sincronizar una reserva específica por ID}
-                            {--include-cancelled : Incluir reservas canceladas}';
+                            {--include-cancelled : Incluir reservas canceladas}
+                            {--refresh : Actualizar eventos ya sincronizados con la descripción enriquecida}';
 
-    protected $description = 'Crea eventos en Google Calendar para reservas que no tienen google_calendar_event_id';
+    protected $description = 'Crea o actualiza eventos en Google Calendar para reservas del sistema';
 
     public function handle(GoogleCalendarService $calendarService): int
     {
@@ -25,9 +26,16 @@ class SyncReservationsToGoogleCalendar extends Command
             return self::FAILURE;
         }
 
+        $refresh = (bool) $this->option('refresh');
+
         $query = Reservation::query()
-            ->whereNull('google_calendar_event_id')
             ->with(['customer', 'room', 'roomType', 'guests']);
+
+        if ($refresh) {
+            $query->whereNotNull('google_calendar_event_id');
+        } else {
+            $query->whereNull('google_calendar_event_id');
+        }
 
         if (!$this->option('include-cancelled')) {
             $query->where('status', '!=', 'cancelled');
@@ -51,11 +59,13 @@ class SyncReservationsToGoogleCalendar extends Command
             ->get();
 
         if ($reservations->isEmpty()) {
-            $this->info('No hay reservas pendientes de sincronizar.');
+            $this->info($refresh
+                ? 'No hay reservas sincronizadas para actualizar.'
+                : 'No hay reservas pendientes de sincronizar.');
             return self::SUCCESS;
         }
 
-        $this->info("Reservas pendientes: {$reservations->count()}");
+        $this->info(($refresh ? 'Reservas a actualizar' : 'Reservas pendientes') . ": {$reservations->count()}");
 
         if ($this->option('dry-run')) {
             $this->table(
@@ -68,7 +78,9 @@ class SyncReservationsToGoogleCalendar extends Command
                     $r->customer?->display_name ?? '—',
                 ])
             );
-            $this->comment('Ejecuta sin --dry-run para crear los eventos.');
+            $this->comment($refresh
+                ? 'Ejecuta sin --dry-run para actualizar los eventos.'
+                : 'Ejecuta sin --dry-run para crear los eventos.');
             return self::SUCCESS;
         }
 
@@ -80,15 +92,20 @@ class SyncReservationsToGoogleCalendar extends Command
 
         foreach ($reservations as $reservation) {
             try {
-                $calendarService->createEvent($reservation);
-                $reservation->refresh();
-
-                if ($reservation->google_calendar_event_id) {
+                if ($refresh) {
+                    $calendarService->updateEvent($reservation);
                     $created++;
                 } else {
-                    $failed++;
-                    $this->newLine();
-                    $this->warn("Reserva #{$reservation->id} ({$reservation->reservation_number}): no se creó evento (sin error explícito).");
+                    $calendarService->createEvent($reservation);
+                    $reservation->refresh();
+
+                    if ($reservation->google_calendar_event_id) {
+                        $created++;
+                    } else {
+                        $failed++;
+                        $this->newLine();
+                        $this->warn("Reserva #{$reservation->id} ({$reservation->reservation_number}): no se creó evento (sin error explícito).");
+                    }
                 }
             } catch (\Exception $e) {
                 $failed++;
@@ -96,6 +113,7 @@ class SyncReservationsToGoogleCalendar extends Command
                     'reservation_id' => $reservation->id,
                     'reservation_number' => $reservation->reservation_number,
                     'message' => $e->getMessage(),
+                    'refresh' => $refresh,
                 ]);
                 $this->newLine();
                 $this->error("Reserva #{$reservation->id} ({$reservation->reservation_number}): {$e->getMessage()}");
@@ -106,7 +124,7 @@ class SyncReservationsToGoogleCalendar extends Command
 
         $bar->finish();
         $this->newLine(2);
-        $this->info("Sincronización completada: {$created} creados, {$failed} fallidos.");
+        $this->info(($refresh ? 'Actualización' : 'Sincronización') . " completada: {$created} " . ($refresh ? 'actualizados' : 'creados') . ", {$failed} fallidos.");
 
         return $failed > 0 ? self::FAILURE : self::SUCCESS;
     }
