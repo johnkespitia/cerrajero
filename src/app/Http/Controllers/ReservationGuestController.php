@@ -5,16 +5,26 @@ namespace App\Http\Controllers;
 use App\Models\Reservation;
 use App\Models\ReservationGuest;
 use App\Services\GuestImportService;
+use App\Services\GoogleCalendarService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 
 class ReservationGuestController extends Controller
 {
     protected GuestImportService $guestImportService;
+    protected GoogleCalendarService $googleCalendarService;
 
-    public function __construct(GuestImportService $guestImportService)
-    {
+    public function __construct(
+        GuestImportService $guestImportService,
+        GoogleCalendarService $googleCalendarService
+    ) {
         $this->guestImportService = $guestImportService;
+        $this->googleCalendarService = $googleCalendarService;
+    }
+
+    protected function syncReservationToGoogleCalendar(Reservation $reservation): void
+    {
+        $this->googleCalendarService->syncReservation($reservation);
     }
 
     public function downloadTemplate(Request $request)
@@ -185,6 +195,7 @@ class ReservationGuestController extends Controller
         }
 
         $this->normalizePrimaryGuest($reservation);
+        $this->syncReservationToGoogleCalendar($reservation);
 
         return response()->json([
             'message' => "Importación completada: {$created} creado(s), {$updated} actualizado(s).",
@@ -288,6 +299,7 @@ class ReservationGuestController extends Controller
                 }
                 
                 $existingGuest->update($request->all());
+                $this->syncReservationToGoogleCalendar($reservation);
                 return response()->json($existingGuest);
             }
         }
@@ -297,6 +309,7 @@ class ReservationGuestController extends Controller
         }
 
         $guest = $reservation->guests()->create($request->all());
+        $this->syncReservationToGoogleCalendar($reservation);
 
         return response()->json($guest, 201);
     }
@@ -328,6 +341,7 @@ class ReservationGuestController extends Controller
         }
 
         $guest->update($request->all());
+        $this->syncReservationToGoogleCalendar($reservation);
 
         return response()->json($guest);
     }
@@ -335,6 +349,7 @@ class ReservationGuestController extends Controller
     public function destroy(Reservation $reservation, ReservationGuest $guest)
     {
         $guest->delete();
+        $this->syncReservationToGoogleCalendar($reservation);
         return response()->json(null, 204);
     }
 
@@ -373,6 +388,10 @@ class ReservationGuestController extends Controller
         foreach ($duplicates as $duplicate) {
             $duplicate->delete();
             $deletedCount++;
+        }
+
+        if ($deletedCount > 0) {
+            $this->syncReservationToGoogleCalendar($reservation);
         }
 
         return response()->json([

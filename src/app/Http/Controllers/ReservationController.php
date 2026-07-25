@@ -63,6 +63,11 @@ class ReservationController extends Controller
         $this->additionalServiceCalculator = $additionalServiceCalculator;
     }
 
+    protected function syncReservationToGoogleCalendar(Reservation $reservation): void
+    {
+        $this->googleCalendarService->syncReservation($reservation);
+    }
+
     /**
      * Verificar si un cliente tiene reserva activa (para uso desde módulo de kiosko)
      */
@@ -1656,12 +1661,8 @@ class ReservationController extends Controller
                 }
             }
 
-            if ($reservation->google_calendar_event_id) {
-                try {
-                    $this->googleCalendarService->updateEvent($reservation);
-                } catch (\Exception $e) {
-                    \Log::warning('Error updating Google Calendar event: ' . $e->getMessage());
-                }
+            if (!isset($updateData['status']) || $updateData['status'] !== 'cancelled') {
+                $this->syncReservationToGoogleCalendar($reservation);
             }
 
             // Actualizar limpiezas programadas si cambiaron las fechas
@@ -2015,14 +2016,7 @@ class ReservationController extends Controller
                 "Habitación cambiada de " . ($oldRoom->room_number ?? "Habitación #{$oldRoomId}") . " a {$newRoom->room_number}"
             );
 
-            // Actualizar Google Calendar si existe evento
-            if ($reservation->google_calendar_event_id) {
-                try {
-                    $this->googleCalendarService->updateEvent($reservation->fresh());
-                } catch (\Exception $e) {
-                    \Log::warning('Error updating Google Calendar event after room change: ' . $e->getMessage());
-                }
-            }
+            $this->syncReservationToGoogleCalendar($reservation);
 
             DB::commit();
 
@@ -2535,6 +2529,8 @@ class ReservationController extends Controller
 
             DB::commit();
 
+            $this->syncReservationToGoogleCalendar($reservation);
+
             return response()->json([
                 'message' => 'Pago registrado exitosamente',
                 'payment' => $payment->load('paymentType'),
@@ -2668,6 +2664,7 @@ class ReservationController extends Controller
         $ras = $this->additionalServiceCalculator->addServiceToReservation($reservation, $svc, $itemQuantity);
         $reservation->recomputeFinalPrice();
         $reservation->load(['additionalServices.additionalService']);
+        $this->syncReservationToGoogleCalendar($reservation);
 
         return response()->json([
             'message' => 'Servicio agregado.',
@@ -2694,6 +2691,7 @@ class ReservationController extends Controller
         $reservationAdditionalService->delete();
         $reservation->recomputeFinalPrice();
         $reservation->load(['additionalServices.additionalService']);
+        $this->syncReservationToGoogleCalendar($reservation);
 
         return response()->json([
             'message' => 'Servicio quitado.',
@@ -2903,14 +2901,7 @@ class ReservationController extends Controller
                 \Log::warning('Error sending check-in confirmation: ' . $e->getMessage());
             }
 
-            // Actualizar evento en Google Calendar
-            if ($reservation->google_calendar_event_id) {
-                try {
-                    $this->googleCalendarService->updateEvent($reservation);
-                } catch (\Exception $e) {
-                    \Log::warning('Error updating Google Calendar event: ' . $e->getMessage());
-                }
-            }
+            $this->syncReservationToGoogleCalendar($reservation);
 
             DB::commit();
 
@@ -3190,14 +3181,7 @@ class ReservationController extends Controller
                 }
             }
 
-            // Actualizar evento en Google Calendar
-            if ($reservation->google_calendar_event_id) {
-                try {
-                    $this->googleCalendarService->updateEvent($reservation);
-                } catch (\Exception $e) {
-                    \Log::warning('Error updating Google Calendar event: ' . $e->getMessage());
-                }
-            }
+            $this->syncReservationToGoogleCalendar($reservation);
 
             DB::commit();
 
@@ -3329,6 +3313,8 @@ class ReservationController extends Controller
             $this->auditService->log('price_recalculated', $reservation, null, [
                 'calculated_price' => $priceCalculation['calculated_price'],
             ], 'Precio recalculado', auth()->id(), request());
+
+            $this->syncReservationToGoogleCalendar($reservation);
 
             return response()->json([
                 'message' => 'Precio recalculado exitosamente',

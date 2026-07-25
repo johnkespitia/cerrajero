@@ -311,6 +311,35 @@ class GoogleCalendarService
         }
     }
 
+    /**
+     * Sincroniza una reserva con Google Calendar (crea, actualiza o elimina según el estado).
+     */
+    public function syncReservation(Reservation $reservation): void
+    {
+        if (!$this->isConfigured()) {
+            return;
+        }
+
+        $reservation = $reservation->fresh();
+        if (!$reservation) {
+            return;
+        }
+
+        try {
+            if ($reservation->status === 'cancelled') {
+                $this->deleteEvent($reservation);
+                return;
+            }
+
+            $this->updateEvent($reservation);
+        } catch (\Exception $e) {
+            Log::error('Error syncing reservation to Google Calendar: ' . $e->getMessage(), [
+                'reservation_id' => $reservation->id,
+                'reservation_number' => $reservation->reservation_number,
+            ]);
+        }
+    }
+
     protected function prepareReservationForCalendar(Reservation $reservation): Reservation
     {
         return $reservation->loadMissing([
