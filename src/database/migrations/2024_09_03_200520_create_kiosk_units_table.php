@@ -17,7 +17,7 @@ class CreateKioskUnitsTable extends Migration
             $table->id();
             $table->unsignedBigInteger("product_id");
             $table->foreign('product_id')->references('id')->on('kiosk_products');
-            $table->string("code_complement",10);
+            $table->string("code_complement", 50);
             $table->unsignedBigInteger("price");
             $table->date("expiration")->nullable();
             $table->boolean("active")->default(false);
