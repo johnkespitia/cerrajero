@@ -227,5 +227,33 @@ class ReservationValidationService
 
         return $dayPassReservation;
     }
+
+    /**
+     * Valida que adultos + niños estén dentro del rango [capacidad, capacidad máxima].
+     */
+    public function validateGuestCapacity(
+        int $adults,
+        int $children,
+        ?\App\Models\Room $room = null,
+        ?\App\Models\RoomType $roomType = null
+    ): array {
+        if ($room) {
+            $message = $room->guestCapacityViolationMessage($adults, $children);
+            if ($message) {
+                return ['valid' => false, 'message' => $message];
+            }
+
+            return ['valid' => true, 'message' => null];
+        }
+
+        if ($roomType) {
+            $message = $roomType->guestCapacityViolationMessage($adults, $children);
+            if ($message) {
+                return ['valid' => false, 'message' => $message];
+            }
+        }
+
+        return ['valid' => true, 'message' => null];
+    }
 }
 

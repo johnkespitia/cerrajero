@@ -3,19 +3,26 @@
 namespace App\Services;
 
 use App\Models\Reservation;
-use App\Models\Room;
-use App\Models\RoomType;
-use App\Models\RoomSeason;
 use App\Models\Promotion;
+use App\Models\RoomSeason;
+use App\Services\CourtesyGuestDiscountCalculator;
 use Carbon\Carbon;
 
 class ReservationPriceCalculator
 {
     public function calculatePrice(Reservation $reservation, $forceRecalculate = false)
     {
-        // Si hay override manual y no se fuerza recálculo, usar precio manual
+        // Si hay override manual y no se fuerza recálculo, conservar el precio manual
         if ($reservation->manual_price_override && !$forceRecalculate) {
-            return $reservation->total_price;
+            $manualPrice = (float) ($reservation->total_price ?? 0);
+            $breakdown = $reservation->price_breakdown ?? [];
+            $breakdown['manual_override'] = true;
+            $breakdown['subtotal'] = $manualPrice;
+
+            return [
+                'calculated_price' => $manualPrice,
+                'price_breakdown' => $breakdown,
+            ];
         }
 
         if ($reservation->reservation_type === 'day_pass') {
@@ -40,6 +47,7 @@ class ReservationPriceCalculator
 
         $breakdown = [
             'base_price' => $basePrice,
+            'subtotal' => $basePrice,
             'adults' => $adults,
             'children' => $children,
             'adult_price' => $dayPassCapacity->adult_price,
@@ -47,7 +55,13 @@ class ReservationPriceCalculator
         ];
 
         // Aplicar descuentos
-        $discount = $this->calculateDiscount($reservation, $basePrice);
+        $guestBreakdown = [
+            'adults' => $adults,
+            'children' => $children,
+            'adult_price' => $dayPassCapacity->adult_price,
+            'child_price' => $dayPassCapacity->child_price,
+        ];
+        $discount = $this->calculateDiscount($reservation, $basePrice, 1, $guestBreakdown);
         $finalPrice = max(0, $basePrice - $discount);
 
         $breakdown['discount'] = $discount;
@@ -83,18 +97,20 @@ class ReservationPriceCalculator
         // Número de personas que se cobran (adultos + niños, los bebés no se cobran)
         $chargeableGuests = $adults + $children;
         
-        // Aplicar temporada si existe
+        // Aplicar temporada si existe (opcional: sin temporadas registradas se usa precio base)
         $seasonMultiplier = 1.0;
         $seasonFixedPrice = null;
-        if ($roomType) {
+        if ($roomType && $roomType->id) {
             $season = RoomSeason::getSeasonForDate(
                 $roomType->id,
                 $reservation->check_in_date->format('Y-m-d')
             );
-            
+
             if ($season) {
-                $seasonMultiplier = $season->price_multiplier;
-                $seasonFixedPrice = $season->fixed_price;
+                $seasonMultiplier = (float) ($season->price_multiplier ?? 1.0);
+                $seasonFixedPrice = $season->fixed_price !== null
+                    ? (float) $season->fixed_price
+                    : null;
             }
         }
 
@@ -123,8 +139,24 @@ class ReservationPriceCalculator
 
         $subtotal = $totalNightsPrice + $extraPersonCost + $extraBedCost + $earlyCheckInFee + $lateCheckOutFee;
 
+        $perGuestStayPrice = 0.0;
+        if ($chargeableGuests > 0) {
+            if ($seasonFixedPrice !== null) {
+                $perGuestStayPrice = (float) $seasonFixedPrice * $nights;
+            } else {
+                $perGuestStayPrice = (float) $basePricePerPersonPerNight * $nights * $seasonMultiplier;
+            }
+        }
+
+        $guestBreakdown = [
+            'adults' => $adults,
+            'children' => $children,
+            'adult_price' => $perGuestStayPrice,
+            'child_price' => $perGuestStayPrice,
+        ];
+
         // Aplicar descuentos
-        $discount = $this->calculateDiscount($reservation, $subtotal, $nights);
+        $discount = $this->calculateDiscount($reservation, $subtotal, $nights, $guestBreakdown);
         $finalPrice = max(0, $subtotal - $discount);
 
         $breakdown = [
@@ -156,15 +188,29 @@ class ReservationPriceCalculator
         ];
     }
 
-    protected function calculateDiscount(Reservation $reservation, $basePrice, $nights = 1)
-    {
+    protected function calculateDiscount(
+        Reservation $reservation,
+        $basePrice,
+        $nights = 1,
+        array $guestBreakdown = []
+    ) {
         $totalDiscount = 0;
+        $chargeableGuests = app(CourtesyGuestDiscountCalculator::class)->getChargeableGuests($reservation);
+        if ($chargeableGuests <= 0) {
+            $chargeableGuests = max(1, (int) ($reservation->adults ?? 0) + (int) ($reservation->children ?? 0));
+        }
 
         // Descuento por código promocional
         if ($reservation->promotion_code) {
             $promotion = Promotion::where('code', $reservation->promotion_code)->first();
             if ($promotion && $promotion->isValid($reservation->check_in_date->format('Y-m-d'), $nights)) {
-                $discount = $promotion->calculateDiscount($basePrice, $nights);
+                $discount = $promotion->calculateDiscount(
+                    $basePrice,
+                    $nights,
+                    $reservation->check_in_date->format('Y-m-d'),
+                    $chargeableGuests,
+                    $guestBreakdown
+                );
                 $totalDiscount += $discount;
             }
         }

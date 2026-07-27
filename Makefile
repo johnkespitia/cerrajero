@@ -28,8 +28,7 @@ artisan: ## Execute composer commands using c parameter ´c=install´
 	$(RUN_APP) php artisan $(c)
 
 recreate-env:
-	$(RUN_APP) php artisan migrate:rollback \
-	&& $(RUN_APP) php artisan migrate \
-	&& $(RUN_APP) php artisan db:seed --class=PermissionsSeeder  \
-	&& $(RUN_APP) php artisan db:seed --class=RolSeeder \
-	&& $(RUN_APP) php artisan db:seed --class=UserSeeder
+	$(RUN_APP) php artisan db:reset-core --force
+
+reset-core: ## Reset DB: admin, permisos, roles y tablas maestras
+	$(RUN_APP) php artisan db:reset-core --force

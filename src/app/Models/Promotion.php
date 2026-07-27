@@ -15,6 +15,7 @@ class Promotion extends Model
         'name',
         'type',
         'value',
+        'apply_mode',
         'valid_from',
         'valid_until',
         'min_nights',
@@ -52,22 +53,47 @@ class Promotion extends Model
         return true;
     }
 
-    public function calculateDiscount($basePrice, $nights = 1)
-    {
-        if (!$this->isValid(Carbon::now()->format('Y-m-d'), $nights)) {
-            return 0;
+    public function calculateDiscount(
+        $basePrice,
+        $nights = 1,
+        $checkInDate = null,
+        int $chargeableGuests = 1,
+        array $guestBreakdown = []
+    ): float {
+        $checkDate = $checkInDate ?? Carbon::now()->format('Y-m-d');
+        if (!$this->isValid($checkDate, $nights)) {
+            return 0.0;
         }
+
+        $basePrice = (float) $basePrice;
+        if ($basePrice <= 0) {
+            return 0.0;
+        }
+
+        $guests = max(1, $chargeableGuests);
+        $applyPerGuest = ($this->apply_mode ?? 'total') === 'per_guest';
 
         switch ($this->type) {
             case 'percentage':
-                return $basePrice * ($this->value / 100);
+                $rate = (float) $this->value / 100;
+                if ($applyPerGuest) {
+                    if (!empty($guestBreakdown)) {
+                        $discount = ((float) ($guestBreakdown['adult_price'] ?? 0) * (int) ($guestBreakdown['adults'] ?? 0) * $rate)
+                            + ((float) ($guestBreakdown['child_price'] ?? 0) * (int) ($guestBreakdown['children'] ?? 0) * $rate);
+
+                        return min(round($discount, 2), $basePrice);
+                    }
+                }
+
+                return min(round($basePrice * $rate, 2), $basePrice);
             case 'fixed':
-                return min($this->value, $basePrice);
-            case 'nights_free':
-                // Para implementar más adelante
-                return 0;
+                $amount = $applyPerGuest
+                    ? (float) $this->value * $guests
+                    : (float) $this->value;
+
+                return min(round($amount, 2), $basePrice);
             default:
-                return 0;
+                return 0.0;
         }
     }
 

@@ -17,6 +17,10 @@ use App\Services\ReservationValidationService;
 use App\Services\ReservationNotificationService;
 use App\Services\ReservationCancellationService;
 use App\Services\AdditionalServicePriceCalculator;
+use App\Services\ElectronicInvoicing\Exceptions\ReservationEmissionException;
+use App\Services\ElectronicInvoicing\Exceptions\ReservationEmissionInvalidPayloadException;
+use App\Services\ElectronicInvoicing\Exceptions\ReservationEmissionUnavailableException;
+use App\Services\ElectronicInvoicing\ReservationInvoiceEmissionService;
 use App\Models\AdditionalService;
 use App\Models\ServicePackage;
 use App\Models\ReservationAdditionalService;
@@ -57,6 +61,11 @@ class ReservationController extends Controller
         $this->notificationService = $notificationService;
         $this->cancellationService = $cancellationService;
         $this->additionalServiceCalculator = $additionalServiceCalculator;
+    }
+
+    protected function syncReservationToGoogleCalendar(Reservation $reservation): void
+    {
+        $this->googleCalendarService->syncReservation($reservation);
     }
 
     /**
@@ -180,6 +189,17 @@ class ReservationController extends Controller
             $query->where('room_type_id', $request->room_type_id);
         }
 
+        if ($request->has('contact_channel')) {
+            $query->where('contact_channel', $request->contact_channel);
+        }
+
+        if ($request->boolean('web_booking_only')) {
+            $query->where(function ($q) {
+                $q->where('contact_channel', 'website')
+                    ->orWhereNotNull('web_payment_mode');
+            });
+        }
+
         // Filtro por servicio adicional: reservas que tienen ese servicio
         if ($request->has('additional_service_id')) {
             $query->whereHas('additionalServices', function ($q) use ($request) {
@@ -206,6 +226,13 @@ class ReservationController extends Controller
 
         if ($request->has('date_to')) {
             $query->where('check_in_date', '<=', $request->date_to);
+        }
+
+        // Reservas activas en una fecha (check-in <= fecha <= check-out)
+        if ($request->has('active_on_date')) {
+            $activeDate = $request->active_on_date;
+            $query->where('check_in_date', '<=', $activeDate)
+                ->where('check_out_date', '>=', $activeDate);
         }
 
         if ($request->boolean('main_reservations_only')) {
@@ -266,6 +293,8 @@ class ReservationController extends Controller
                           $request->has('payment_status') ||
                           $request->has('reservation_type') || 
                           $request->has('room_type_id') ||
+                          $request->has('contact_channel') ||
+                          $request->boolean('web_booking_only') ||
                           $request->has('search') ||
                           $request->has('customer_name') ||
                           $request->has('reservation_number') ||
@@ -411,18 +440,45 @@ class ReservationController extends Controller
 
             $availableRooms = $selectedRooms->sortByDesc(fn ($r) => (int) ($r->max_capacity ?? $r->capacity));
         } else {
-            // Buscar habitaciones disponibles automáticamente
-            $availableRooms = Room::where('room_type_id', $roomTypeId)
+            // Buscar habitaciones candidatas automáticamente
+            $candidateRooms = Room::where('room_type_id', $roomTypeId)
                 ->where('status', 'available')
                 ->where('active', true)
                 ->orderBy('capacity', 'desc')
-                ->get()
-                ->filter(function ($room) use ($request) {
-                    return $room->isAvailable(
-                        $request->check_in_date,
-                        $request->check_out_date ?? $request->check_in_date
-                    );
-                });
+                ->get();
+
+            if ($candidateRooms->isEmpty()) {
+                \Log::warning('No hay habitaciones candidatas para reserva múltiple', [
+                    'room_type_id' => $roomTypeId,
+                    'total_guests' => $totalGuests,
+                ]);
+                return response()->json([
+                    'message' => 'No hay suficientes habitaciones disponibles para alojar a todos los huéspedes'
+                ], 409);
+            }
+
+            // Guardrail temprano por capacidad total teórica para evitar errores aguas abajo.
+            $candidateCapacity = $candidateRooms->sum(fn ($room) => (int) ($room->max_capacity ?? $room->capacity));
+            if ($candidateCapacity < $totalGuests) {
+                $missingSpaces = $totalGuests - $candidateCapacity;
+                \Log::warning('Capacidad teórica insuficiente para reserva múltiple', [
+                    'room_type_id' => $roomTypeId,
+                    'candidate_capacity' => $candidateCapacity,
+                    'total_guests' => $totalGuests,
+                    'missing_spaces' => $missingSpaces,
+                ]);
+                return response()->json([
+                    'message' => 'No hay suficientes habitaciones disponibles. Faltan ' . $missingSpaces . ' espacios'
+                ], 409);
+            }
+
+            // Filtrar por disponibilidad real en rango de fechas.
+            $availableRooms = $candidateRooms->filter(function ($room) use ($request) {
+                return $room->isAvailable(
+                    $request->check_in_date,
+                    $request->check_out_date ?? $request->check_in_date
+                );
+            });
 
             if ($availableRooms->isEmpty()) {
                 \Log::warning('No hay habitaciones disponibles para reserva múltiple', [
@@ -433,6 +489,21 @@ class ReservationController extends Controller
                     'message' => 'No hay suficientes habitaciones disponibles para alojar a todos los huéspedes'
                 ], 409);
             }
+        }
+
+        // Validación temprana: si ni siquiera la capacidad total disponible alcanza,
+        // devolvemos conflicto antes de intentar distribuir huéspedes.
+        $totalAvailableCapacity = $availableRooms->sum(fn ($room) => (int) ($room->max_capacity ?? $room->capacity));
+        if ($totalAvailableCapacity < $totalGuests) {
+            $missingSpaces = $totalGuests - $totalAvailableCapacity;
+            \Log::warning('Capacidad insuficiente para reserva múltiple', [
+                'total_available_capacity' => $totalAvailableCapacity,
+                'total_guests' => $totalGuests,
+                'missing_spaces' => $missingSpaces,
+            ]);
+            return response()->json([
+                'message' => 'No hay suficientes habitaciones disponibles. Faltan ' . $missingSpaces . ' espacios'
+            ], 409);
         }
 
         // Calcular habitaciones necesarias con distribución inteligente de huéspedes
@@ -502,6 +573,7 @@ class ReservationController extends Controller
                 'adults' => $mainRoom['adults'],
                 'children' => $mainRoom['children'],
                 'infants' => $mainRoom['infants'],
+                'courtesy_guests' => $request->courtesy_guests ?? 0,
                 'total_price' => $mainRoom['room']->room_price,
                 'deposit_amount' => 0,
                 'special_requests' => $request->special_requests,
@@ -634,23 +706,22 @@ class ReservationController extends Controller
             }
             $mainReservation->save();
 
-            // Aplicar servicios adicionales y paquete a la reserva principal con TODOS los huéspedes del grupo
-            $chargeableGuests = $totalGuests;
+            // Aplicar servicios adicionales y paquete a la reserva principal
+            $serviceQuantities = $this->resolveAdditionalServiceQuantities($request, max(1, (int) $totalGuests));
             if ($request->service_package_id) {
                 $package = ServicePackage::find($request->service_package_id);
                 if ($package && $package->status === 'active') {
                     $this->additionalServiceCalculator->applyPackageToReservation(
                         $mainReservation,
                         $package,
-                        $chargeableGuests
+                        $serviceQuantities
                     );
                 }
-            }
-            if ($request->has('additional_service_ids') && is_array($request->additional_service_ids)) {
-                foreach ($request->additional_service_ids as $sid) {
+            } else {
+                foreach ($serviceQuantities as $sid => $qty) {
                     $svc = AdditionalService::find($sid);
                     if ($svc && $svc->status === 'active' && $this->additionalServiceCalculator->serviceAppliesToReservationType($svc, $request->reservation_type ?? 'room')) {
-                        $this->additionalServiceCalculator->addServiceToReservation($mainReservation, $svc, $chargeableGuests);
+                        $this->additionalServiceCalculator->addServiceToReservation($mainReservation, $svc, $qty);
                     }
                 }
             }
@@ -777,7 +848,9 @@ class ReservationController extends Controller
             'adults' => 'required|integer|min:1',
             'children' => 'integer|min:0',
             'infants' => 'integer|min:0',
+            'courtesy_guests' => 'integer|min:0',
             'total_price' => 'nullable|numeric|min:0',
+            'manual_price_override' => 'nullable|boolean',
             'deposit_amount' => 'numeric|min:0',
             'payment_status' => 'nullable|in:pending,partial,paid,free,refunded',
             'free_reservation_reason' => 'required_if:payment_status,free|nullable|string|max:500',
@@ -805,6 +878,11 @@ class ReservationController extends Controller
             'marketing_notes' => 'nullable|string|max:1000',
             'additional_service_ids' => 'nullable|array',
             'additional_service_ids.*' => 'exists:additional_services,id',
+            'additional_service_quantities' => 'nullable|array',
+            'additional_service_quantities.*' => 'integer|min:1',
+            'additional_services' => 'nullable|array',
+            'additional_services.*.additional_service_id' => 'required_with:additional_services|exists:additional_services,id',
+            'additional_services.*.quantity' => 'nullable|integer|min:1',
             'service_package_id' => 'nullable|exists:service_packages,id',
         ];
 
@@ -821,6 +899,10 @@ class ReservationController extends Controller
 
         if ($validator->fails()) {
             return response()->json($validator->errors(), 422);
+        }
+
+        if ($response = $this->validateCourtesyGuestsRequest($request)) {
+            return $response;
         }
 
         DB::beginTransaction();
@@ -843,6 +925,11 @@ class ReservationController extends Controller
                 }
             } elseif ($request->reservation_type === 'room') {
                 $totalGuests = (int) $request->adults + (int) ($request->children ?? 0);
+                $capacityError = $this->validateRequestedRoomGuestCapacity($request, $totalGuests);
+                if ($capacityError) {
+                    DB::rollBack();
+                    return $capacityError;
+                }
                 $hasSelectedRooms = $request->has('selected_room_ids')
                     && is_array($request->selected_room_ids)
                     && count($request->selected_room_ids) > 0;
@@ -875,6 +962,26 @@ class ReservationController extends Controller
                         });
 
                     if ($availableRooms->isEmpty()) {
+                        $roomsForDates = Room::where('room_type_id', $request->room_type_id)
+                            ->where('status', 'available')
+                            ->where('active', true)
+                            ->get()
+                            ->filter(function ($room) use ($request) {
+                                return $room->isAvailable(
+                                    $request->check_in_date,
+                                    $request->check_out_date ?? $request->check_in_date
+                                );
+                            });
+
+                        if ($roomsForDates->isNotEmpty()) {
+                            DB::rollBack();
+                            return $this->createMultiRoomReservation(
+                                $request,
+                                (int) $request->room_type_id,
+                                $totalGuests
+                            );
+                        }
+
                         return response()->json([
                             'message' => 'No hay habitaciones disponibles del tipo seleccionado para las fechas y número de huéspedes'
                         ], 409);
@@ -919,6 +1026,13 @@ class ReservationController extends Controller
                         $request->children ?? 0,
                         0
                     )) {
+                        $capacityMessage = $room->guestCapacityViolationMessage(
+                            (int) $request->adults,
+                            (int) ($request->children ?? 0)
+                        );
+                        if ($capacityMessage && $totalGuests <= $room->getMaxGuestCapacity()) {
+                            return response()->json(['message' => $capacityMessage], 422);
+                        }
                         return $this->createMultiRoomReservation($request, $room->room_type_id, $totalGuests);
                     }
                 } elseif ($request->room_type_id) {
@@ -961,6 +1075,7 @@ class ReservationController extends Controller
                 'extra_beds' => $request->extra_beds ?? 0,
                 'promotion_code' => $request->promotion_code,
                 'discount_amount' => $request->discount_amount ?? 0,
+                'courtesy_guests' => $request->courtesy_guests ?? 0,
                 'early_check_in' => $request->early_check_in ?? false,
                 'late_check_out' => $request->late_check_out ?? false,
                 'early_check_in_fee' => $request->early_check_in_fee ?? 0,
@@ -980,8 +1095,9 @@ class ReservationController extends Controller
             $priceBreakdown = $priceCalculation['price_breakdown'];
             
             // Usar precio manual si se proporciona y hay override, sino usar el calculado
-            $totalPrice = ($request->manual_price_override && $request->total_price !== null) 
-                ? $request->total_price 
+            $manualOverride = $this->parseBoolean($request->manual_price_override ?? false);
+            $totalPrice = ($manualOverride && $request->total_price !== null)
+                ? $request->total_price
                 : $calculatedPrice;
 
             $reservation = Reservation::create([
@@ -997,11 +1113,12 @@ class ReservationController extends Controller
                 'extra_beds' => $request->extra_beds ?? 0,
                 'total_price' => $totalPrice,
                 'calculated_price' => $calculatedPrice,
-                'manual_price_override' => $request->manual_price_override ?? false,
+                'manual_price_override' => $manualOverride,
                 'price_breakdown' => $priceBreakdown,
                 'promotion_code' => $request->promotion_code,
                 'discount_amount' => $request->discount_amount ?? 0,
-                'final_price' => $calculatedPrice - ($request->discount_amount ?? 0),
+                'courtesy_guests' => $request->courtesy_guests ?? 0,
+                'final_price' => $totalPrice,
                 'deposit_amount' => $request->deposit_amount ?? 0,
                 'special_requests' => $request->special_requests,
                 'cancellation_policy_id' => $request->cancellation_policy_id,
@@ -1058,21 +1175,24 @@ class ReservationController extends Controller
             }
 
             // Aplicar paquete de servicios o servicios adicionales individuales
+            $serviceQuantities = $this->resolveAdditionalServiceQuantities(
+                $request,
+                max(1, (int) ($request->adults + ($request->children ?? 0)))
+            );
             if ($request->service_package_id) {
                 $package = ServicePackage::find($request->service_package_id);
                 if ($package && $package->status === 'active') {
                     $this->additionalServiceCalculator->applyPackageToReservation(
                         $reservation,
                         $package,
-                        $chargeableGuests
+                        $serviceQuantities
                     );
                 }
-            }
-            if ($request->has('additional_service_ids') && is_array($request->additional_service_ids)) {
-                foreach ($request->additional_service_ids as $sid) {
+            } else {
+                foreach ($serviceQuantities as $sid => $qty) {
                     $svc = AdditionalService::find($sid);
                     if ($svc && $svc->status === 'active' && $this->additionalServiceCalculator->serviceAppliesToReservationType($svc, $request->reservation_type)) {
-                        $this->additionalServiceCalculator->addServiceToReservation($reservation, $svc, $chargeableGuests);
+                        $this->additionalServiceCalculator->addServiceToReservation($reservation, $svc, $qty);
                     }
                 }
             }
@@ -1137,7 +1257,9 @@ class ReservationController extends Controller
             'adults' => 'sometimes|integer|min:1',
             'children' => 'integer|min:0',
             'infants' => 'integer|min:0',
+            'courtesy_guests' => 'integer|min:0',
             'total_price' => 'sometimes|numeric|min:0',
+            'manual_price_override' => 'sometimes|boolean',
             'status' => 'sometimes|in:pending,confirmed,checked_in,checked_out,cancelled',
             'payment_status' => 'sometimes|in:pending,partial,paid,free,refunded',
             'free_reservation_reason' => 'required_if:payment_status,free|nullable|string|max:500',
@@ -1164,6 +1286,24 @@ class ReservationController extends Controller
         if ($validator->fails()) {
             return response()->json($validator->errors(), 422);
         }
+
+        $courtesyRequest = clone $request;
+        if (!$courtesyRequest->has('adults')) {
+            $courtesyRequest->merge(['adults' => $reservation->adults]);
+        }
+        if (!$courtesyRequest->has('children')) {
+            $courtesyRequest->merge(['children' => $reservation->children]);
+        }
+        if (!$courtesyRequest->has('courtesy_guests')) {
+            $courtesyRequest->merge(['courtesy_guests' => $reservation->courtesy_guests ?? 0]);
+        }
+        if ($response = $this->validateCourtesyGuestsRequest($courtesyRequest)) {
+            return $response;
+        }
+
+        $manualOverride = $request->has('manual_price_override')
+            ? $this->parseBoolean($request->manual_price_override)
+            : (bool) $reservation->manual_price_override;
 
         DB::beginTransaction();
         try {
@@ -1208,8 +1348,11 @@ class ReservationController extends Controller
                     $request->merge(['check_out_date' => $request->check_in_date]);
                 }
                 
-                // Recalcular precio si cambió fecha, adultos o niños
-                if ($request->has('check_in_date') || $request->has('adults') || $request->has('children')) {
+                // Recalcular precio si cambió fecha, adultos o niños (salvo override manual)
+                if (
+                    !$manualOverride
+                    && ($request->has('check_in_date') || $request->has('adults') || $request->has('children'))
+                ) {
                     $updateDate = $request->check_in_date ?? $reservation->check_in_date;
                     $updateAdults = $request->adults ?? $reservation->adults;
                     $updateChildren = $request->children ?? $reservation->children;
@@ -1266,7 +1409,7 @@ class ReservationController extends Controller
             
             // Si cambió fecha o personas y la reserva está pagada, recalcular precio
             $shouldRecalculatePrice = false;
-            if ($dateOrPeopleChanged && $reservation->payment_status === 'paid') {
+            if ($dateOrPeopleChanged && $reservation->payment_status === 'paid' && !$manualOverride) {
                 $shouldRecalculatePrice = true;
             }
             
@@ -1279,6 +1422,7 @@ class ReservationController extends Controller
                 'infants',
                 'extra_beds',
                 'total_price',
+                'manual_price_override',
                 'status',
                 'payment_status',
                 'free_reservation_reason',
@@ -1291,11 +1435,45 @@ class ReservationController extends Controller
                 'marketing_notes',
                 'promotion_code',
                 'discount_amount',
+                'courtesy_guests',
                 'early_check_in',
                 'late_check_out',
                 'early_check_in_fee',
                 'late_check_out_fee',
             ]);
+
+            if ($reservation->reservation_type === 'room' && !$reservation->is_group_reservation) {
+                $newAdults = (int) ($updateData['adults'] ?? $reservation->adults);
+                $newChildren = (int) ($updateData['children'] ?? $reservation->children);
+                $roomId = $updateData['room_id'] ?? $reservation->room_id;
+                $room = $roomId ? Room::find($roomId) : null;
+                $roomType = $reservation->room_type_id
+                    ? RoomType::find($reservation->room_type_id)
+                    : null;
+                $totalGuests = $newAdults + $newChildren;
+
+                if ($room) {
+                    $capacityCheck = $this->validationService->validateGuestCapacity(
+                        $newAdults,
+                        $newChildren,
+                        $room
+                    );
+                } elseif ($roomType && $totalGuests <= $roomType->getMaxGuestCapacity()) {
+                    $capacityCheck = $this->validationService->validateGuestCapacity(
+                        $newAdults,
+                        $newChildren,
+                        null,
+                        $roomType
+                    );
+                } else {
+                    $capacityCheck = ['valid' => true];
+                }
+
+                if (!$capacityCheck['valid']) {
+                    DB::rollBack();
+                    return response()->json(['message' => $capacityCheck['message']], 422);
+                }
+            }
 
             // No permitir cancelar si está en checked_in o checked_out
             if (isset($updateData['status']) && $updateData['status'] === 'cancelled') {
@@ -1313,38 +1491,53 @@ class ReservationController extends Controller
                 }
             }
             
-            // Si cambió fecha o personas y está pagada, recalcular precio y ajustar estado de pago
-            if ($shouldRecalculatePrice) {
-                // Crear reserva temporal con los nuevos valores para calcular precio
-                $tempReservation = $reservation->replicate();
-                $tempReservation->check_in_date = $updateData['check_in_date'] ?? $reservation->check_in_date;
-                $tempReservation->check_out_date = $updateData['check_out_date'] ?? $reservation->check_out_date;
-                $tempReservation->adults = $updateData['adults'] ?? $reservation->adults;
-                $tempReservation->children = $updateData['children'] ?? $reservation->children;
-                $tempReservation->infants = $updateData['infants'] ?? $reservation->infants;
-                $tempReservation->extra_beds = $updateData['extra_beds'] ?? $reservation->extra_beds;
-                $tempReservation->room_id = $updateData['room_id'] ?? $reservation->room_id;
-                $tempReservation->room_type_id = $reservation->room_type_id;
-                
-                // Cargar relaciones necesarias
-                if ($tempReservation->room_id) {
-                    $tempReservation->setRelation('room', Room::find($tempReservation->room_id));
+            $updateData['manual_price_override'] = $manualOverride;
+
+            $tempReservation = $reservation->replicate();
+            $tempReservation->check_in_date = $updateData['check_in_date'] ?? $reservation->check_in_date;
+            $tempReservation->check_out_date = $updateData['check_out_date'] ?? $reservation->check_out_date;
+            $tempReservation->adults = $updateData['adults'] ?? $reservation->adults;
+            $tempReservation->children = $updateData['children'] ?? $reservation->children;
+            $tempReservation->infants = $updateData['infants'] ?? $reservation->infants;
+            $tempReservation->extra_beds = $updateData['extra_beds'] ?? $reservation->extra_beds;
+            $tempReservation->room_id = $updateData['room_id'] ?? $reservation->room_id;
+            $tempReservation->room_type_id = $reservation->room_type_id;
+            $tempReservation->reservation_type = $reservation->reservation_type;
+            $tempReservation->promotion_code = $updateData['promotion_code'] ?? $reservation->promotion_code;
+            $tempReservation->discount_amount = $updateData['discount_amount'] ?? $reservation->discount_amount;
+            $tempReservation->courtesy_guests = $updateData['courtesy_guests'] ?? $reservation->courtesy_guests;
+            $tempReservation->early_check_in = $updateData['early_check_in'] ?? $reservation->early_check_in;
+            $tempReservation->late_check_out = $updateData['late_check_out'] ?? $reservation->late_check_out;
+            $tempReservation->early_check_in_fee = $updateData['early_check_in_fee'] ?? $reservation->early_check_in_fee;
+            $tempReservation->late_check_out_fee = $updateData['late_check_out_fee'] ?? $reservation->late_check_out_fee;
+
+            if ($tempReservation->room_id) {
+                $tempReservation->setRelation('room', Room::find($tempReservation->room_id));
+            }
+            if ($tempReservation->room_type_id) {
+                $tempReservation->setRelation('roomType', RoomType::find($tempReservation->room_type_id));
+            }
+
+            $priceCalculation = $this->priceCalculator->calculatePrice($tempReservation, true);
+            $newCalculatedPrice = $priceCalculation['calculated_price'];
+            $updateData['calculated_price'] = $newCalculatedPrice;
+            $updateData['price_breakdown'] = $priceCalculation['price_breakdown'];
+
+            if ($manualOverride) {
+                if ($request->has('total_price') && $request->total_price !== null && $request->total_price !== '') {
+                    $updateData['total_price'] = $request->total_price;
+                } else {
+                    $updateData['total_price'] = $reservation->total_price;
                 }
-                if ($tempReservation->room_type_id) {
-                    $tempReservation->setRelation('roomType', RoomType::find($tempReservation->room_type_id));
-                }
-                
-                // Recalcular precio
-                $priceCalculation = $this->priceCalculator->calculatePrice($tempReservation);
-                $newCalculatedPrice = $priceCalculation['calculated_price'];
-                $newFinalPrice = $newCalculatedPrice - ($updateData['discount_amount'] ?? $reservation->discount_amount ?? 0);
-                
-                // Actualizar precio en updateData
-                $updateData['calculated_price'] = $newCalculatedPrice;
-                $updateData['price_breakdown'] = $priceCalculation['price_breakdown'];
+            } else {
+                $updateData['manual_price_override'] = false;
                 $updateData['total_price'] = $newCalculatedPrice;
-                $updateData['final_price'] = $newFinalPrice;
-                
+            }
+
+            // Si cambió fecha o personas y está pagada, ajustar estado de pago según el nuevo total
+            if ($shouldRecalculatePrice) {
+                $newFinalPrice = $newCalculatedPrice;
+
                 // Calcular total pagado EXCLUYENDO los pagos a crédito del kiosko (que son deudas pendientes, no pagos reales)
                 $totalPaid = $reservation->payments()
                     ->where(function($query) {
@@ -1352,7 +1545,7 @@ class ReservationController extends Controller
                               ->orWhereNull('concept');
                     })
                     ->sum('amount');
-                
+
                 // Si el nuevo precio es mayor a lo pagado, cambiar estado de pago
                 if ($newFinalPrice > $totalPaid) {
                     if ($totalPaid > 0) {
@@ -1380,8 +1573,11 @@ class ReservationController extends Controller
             $reservation->update($updateData);
 
             // Recalcular totales de servicios adicionales si cambiaron fechas o huéspedes
+            $reservation->refresh();
             if ($dateOrPeopleChanged && $reservation->additionalServices()->exists()) {
-                $this->additionalServiceCalculator->recalculateReservationAdditionalServices($reservation->fresh());
+                $this->additionalServiceCalculator->recalculateReservationAdditionalServices($reservation);
+            } else {
+                $reservation->recomputeFinalPrice();
             }
 
             // Registrar auditoría de actualización
@@ -1465,12 +1661,8 @@ class ReservationController extends Controller
                 }
             }
 
-            if ($reservation->google_calendar_event_id) {
-                try {
-                    $this->googleCalendarService->updateEvent($reservation);
-                } catch (\Exception $e) {
-                    \Log::warning('Error updating Google Calendar event: ' . $e->getMessage());
-                }
+            if (!isset($updateData['status']) || $updateData['status'] !== 'cancelled') {
+                $this->syncReservationToGoogleCalendar($reservation);
             }
 
             // Actualizar limpiezas programadas si cambiaron las fechas
@@ -1567,8 +1759,12 @@ class ReservationController extends Controller
             return $room->isAvailable($checkIn, $checkOut);
         });
 
-        $availableRooms = $allAvailable->filter(function ($room) use ($totalGuests, $getEffectiveCapacity) {
-            return $getEffectiveCapacity($room) >= $totalGuests;
+        $availableRooms = $allAvailable->filter(function ($room) use ($request) {
+            return $room->canAccommodate(
+                (int) $request->adults,
+                (int) ($request->children ?? 0),
+                0
+            );
         });
 
         $multiRoomRequired = false;
@@ -1712,9 +1908,9 @@ class ReservationController extends Controller
             'rooms' => $rooms->map(function ($room) use ($getEffectiveCapacity) {
                 return [
                     'id' => $room->id,
-                    'room_number' => $room->number ?? $room->name ?? (string) $room->id,
+                    'room_number' => $room->display_name,
                     'name' => $room->name,
-                    'display_name' => $room->display_name ?? $room->name ?? $room->number ?? 'Habitación #' . $room->id,
+                    'display_name' => $room->display_name,
                     'capacity' => $room->capacity,
                     'max_capacity' => $room->max_capacity,
                     'effective_capacity' => $getEffectiveCapacity($room),
@@ -1765,8 +1961,13 @@ class ReservationController extends Controller
 
         // Validar que la nueva habitación pueda alojar a los huéspedes
         if (!$newRoom->canAccommodate($reservation->adults, $reservation->children, $reservation->infants)) {
+            $message = $newRoom->guestCapacityViolationMessage(
+                (int) $reservation->adults,
+                (int) $reservation->children
+            ) ?? 'La habitación seleccionada no tiene capacidad adecuada para los huéspedes de esta reserva';
+
             return response()->json([
-                'message' => 'La habitación seleccionada no tiene capacidad suficiente para los huéspedes de esta reserva'
+                'message' => $message,
             ], 422);
         }
 
@@ -1815,14 +2016,7 @@ class ReservationController extends Controller
                 "Habitación cambiada de " . ($oldRoom->room_number ?? "Habitación #{$oldRoomId}") . " a {$newRoom->room_number}"
             );
 
-            // Actualizar Google Calendar si existe evento
-            if ($reservation->google_calendar_event_id) {
-                try {
-                    $this->googleCalendarService->updateEvent($reservation->fresh());
-                } catch (\Exception $e) {
-                    \Log::warning('Error updating Google Calendar event after room change: ' . $e->getMessage());
-                }
-            }
+            $this->syncReservationToGoogleCalendar($reservation);
 
             DB::commit();
 
@@ -1874,12 +2068,8 @@ class ReservationController extends Controller
 
     public function downloadCertificate(Reservation $reservation)
     {
+        $this->certificateService->generateCertificate($reservation);
         $path = $this->certificateService->getCertificatePath($reservation);
-
-        if (!\Storage::exists($path)) {
-            $this->certificateService->generateCertificate($reservation);
-        }
-
         $filename = "reserva-{$reservation->reservation_number}.pdf";
         
         return \Storage::download($path, $filename);
@@ -1890,13 +2080,8 @@ class ReservationController extends Controller
      */
     public function downloadCheckoutCertificate(Reservation $reservation)
     {
+        $this->certificateService->generateCheckoutCertificate($reservation);
         $path = $this->certificateService->getCheckoutCertificatePath($reservation);
-
-        if (!\Storage::exists($path)) {
-            $this->certificateService->generateCheckoutCertificate($reservation);
-            $path = $this->certificateService->getCheckoutCertificatePath($reservation);
-        }
-
         $filename = "checkout-{$reservation->reservation_number}.pdf";
         
         return \Storage::download($path, $filename);
@@ -2298,6 +2483,10 @@ class ReservationController extends Controller
                 }
             }
 
+            if ($reservation->status === 'pending' && $newTotalPaid > 0) {
+                $reservation->status = 'confirmed';
+            }
+
             $reservation->save();
 
             // Obtener el nombre del método de pago para la auditoría
@@ -2340,6 +2529,8 @@ class ReservationController extends Controller
 
             DB::commit();
 
+            $this->syncReservationToGoogleCalendar($reservation);
+
             return response()->json([
                 'message' => 'Pago registrado exitosamente',
                 'payment' => $payment->load('paymentType'),
@@ -2355,6 +2546,89 @@ class ReservationController extends Controller
     }
 
     /**
+     * Valida huéspedes contra capacidad mínima/máxima cuando aplica una sola habitación.
+     */
+    private function validateRequestedRoomGuestCapacity(Request $request, int $totalGuests): ?\Illuminate\Http\JsonResponse
+    {
+        if (($request->reservation_type ?? 'room') !== 'room') {
+            return null;
+        }
+
+        if ($request->has('selected_room_ids')
+            && is_array($request->selected_room_ids)
+            && count($request->selected_room_ids) > 0) {
+            return null;
+        }
+
+        $adults = (int) $request->adults;
+        $children = (int) ($request->children ?? 0);
+        $room = $request->room_id ? Room::find($request->room_id) : null;
+        $roomType = $request->room_type_id ? RoomType::find($request->room_type_id) : null;
+
+        if ($room) {
+            if ($totalGuests > $room->getMaxGuestCapacity()) {
+                return null;
+            }
+
+            $check = $this->validationService->validateGuestCapacity($adults, $children, $room);
+            if (!$check['valid']) {
+                return response()->json(['message' => $check['message']], 422);
+            }
+
+            return null;
+        }
+
+        if ($roomType && $totalGuests <= $roomType->getMaxGuestCapacity()) {
+            $check = $this->validationService->validateGuestCapacity($adults, $children, null, $roomType);
+            if (!$check['valid']) {
+                return response()->json(['message' => $check['message']], 422);
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Resuelve cantidades de ítems por servicio adicional desde la petición.
+     *
+     * @return array<int, int> [additional_service_id => quantity]
+     */
+    private function resolveAdditionalServiceQuantities(Request $request, int $defaultQuantity = 1): array
+    {
+        $quantities = [];
+        $defaultQuantity = max(1, $defaultQuantity);
+
+        if ($request->has('additional_services') && is_array($request->additional_services)) {
+            foreach ($request->additional_services as $entry) {
+                if (!is_array($entry)) {
+                    continue;
+                }
+                $id = (int) ($entry['additional_service_id'] ?? $entry['id'] ?? 0);
+                if ($id > 0) {
+                    $quantities[$id] = max(1, (int) ($entry['quantity'] ?? $defaultQuantity));
+                }
+            }
+        }
+
+        if ($request->has('additional_service_quantities') && is_array($request->additional_service_quantities)) {
+            foreach ($request->additional_service_quantities as $id => $qty) {
+                $quantities[(int) $id] = max(1, (int) $qty);
+            }
+        }
+
+        if ($request->has('additional_service_ids') && is_array($request->additional_service_ids)) {
+            foreach ($request->additional_service_ids as $sid) {
+                $id = (int) $sid;
+                if ($id > 0 && !isset($quantities[$id])) {
+                    $quantities[$id] = $defaultQuantity;
+                }
+            }
+        }
+
+        return $quantities;
+    }
+
+    /**
      * Agregar servicio adicional a una reserva
      */
     public function addAdditionalService(Request $request, Reservation $reservation)
@@ -2367,6 +2641,7 @@ class ReservationController extends Controller
 
         $validator = Validator::make($request->all(), [
             'additional_service_id' => 'required|exists:additional_services,id',
+            'quantity' => 'nullable|integer|min:1',
         ]);
         if ($validator->fails()) {
             return response()->json($validator->errors(), 422);
@@ -2383,18 +2658,13 @@ class ReservationController extends Controller
             return response()->json(['message' => 'Este servicio ya está agregado a la reserva.'], 422);
         }
 
-        // Para reservas con varias habitaciones, usar el total de huéspedes del grupo
-        $chargeableGuests = null;
-        if ($reservation->is_group_reservation && !$reservation->parent_reservation_id) {
-            $reservation->loadMissing(['childReservations']);
-            $chargeableGuests = $reservation->adults + $reservation->children
-                + $reservation->childReservations->sum(fn ($r) => $r->adults + $r->children);
-            $chargeableGuests = max(1, (int) $chargeableGuests);
-        }
-
-        $ras = $this->additionalServiceCalculator->addServiceToReservation($reservation, $svc, $chargeableGuests);
+        $itemQuantity = $request->filled('quantity')
+            ? max(1, (int) $request->input('quantity'))
+            : $this->additionalServiceCalculator->getDefaultItemQuantity($reservation);
+        $ras = $this->additionalServiceCalculator->addServiceToReservation($reservation, $svc, $itemQuantity);
         $reservation->recomputeFinalPrice();
         $reservation->load(['additionalServices.additionalService']);
+        $this->syncReservationToGoogleCalendar($reservation);
 
         return response()->json([
             'message' => 'Servicio agregado.',
@@ -2421,6 +2691,7 @@ class ReservationController extends Controller
         $reservationAdditionalService->delete();
         $reservation->recomputeFinalPrice();
         $reservation->load(['additionalServices.additionalService']);
+        $this->syncReservationToGoogleCalendar($reservation);
 
         return response()->json([
             'message' => 'Servicio quitado.',
@@ -2630,14 +2901,7 @@ class ReservationController extends Controller
                 \Log::warning('Error sending check-in confirmation: ' . $e->getMessage());
             }
 
-            // Actualizar evento en Google Calendar
-            if ($reservation->google_calendar_event_id) {
-                try {
-                    $this->googleCalendarService->updateEvent($reservation);
-                } catch (\Exception $e) {
-                    \Log::warning('Error updating Google Calendar event: ' . $e->getMessage());
-                }
-            }
+            $this->syncReservationToGoogleCalendar($reservation);
 
             DB::commit();
 
@@ -2677,6 +2941,24 @@ class ReservationController extends Controller
         if ($reservation->status !== 'checked_in') {
             return response()->json([
                 'message' => 'Solo se puede hacer check-out de reservas con check-in realizado. Estado actual: ' . $reservation->status
+            ], 422);
+        }
+
+        // Validación temprana de electronic_invoice / acquirer (sólo cuando EI activo).
+        // Mantiene el contrato: el FEV de reserva exige adquiriente fiscal antes de
+        // tocar la BD; sin acquirer devolvemos 422 sin consumir resolución DIAN.
+        if ($this->reservationElectronicEmissionEnabled()
+            && $request->boolean('electronic_invoice', true)
+            && empty($request->input('acquirer'))) {
+            return response()->json([
+                'message' => 'electronic_invoice=true requiere los datos fiscales del adquiriente para emitir la FEV de la reserva.',
+                'errors' => [
+                    'acquirer' => ['Debe enviar el bloque acquirer cuando electronic_invoice es true.'],
+                ],
+                'electronic_document_error' => [
+                    'code' => ReservationEmissionInvalidPayloadException::CODE_MISSING_ACQUIRER,
+                    'message' => 'Reservation checkout with electronic_invoice=true requires an acquirer block.',
+                ],
             ], 422);
         }
 
@@ -2863,6 +3145,33 @@ class ReservationController extends Controller
                 \Log::warning('Error generating checkout invoice: ' . $e->getMessage());
             }
 
+            // Emisión electrónica DIAN (FEV) — local, sin red.
+            // Si EI activo: se ejecuta dentro de la transacción de checkout.
+            // - InvalidPayload => 422 con rollback (acquirer inválido).
+            // - Unavailable    => commit del checkout + electronic_document_error.
+            $electronicEnvelope = [];
+            if ($this->reservationElectronicEmissionEnabled()
+                && $request->boolean('electronic_invoice', true)) {
+                try {
+                    $electronicEnvelope = $this->attemptReservationElectronicEmission(
+                        $reservation,
+                        $request->input('acquirer')
+                    );
+                } catch (ReservationEmissionInvalidPayloadException $re) {
+                    DB::rollBack();
+                    return response()->json([
+                        'message' => $re->getMessage(),
+                        'errors' => [
+                            'acquirer' => [$re->getMessage()],
+                        ],
+                        'electronic_document_error' => [
+                            'code' => $re->emissionCode(),
+                            'message' => $re->getMessage(),
+                        ],
+                    ], 422);
+                }
+            }
+
             // Enviar email con PDF de checkout y factura consolidada
             if ($checkoutCertificate) {
                 try {
@@ -2872,24 +3181,21 @@ class ReservationController extends Controller
                 }
             }
 
-            // Actualizar evento en Google Calendar
-            if ($reservation->google_calendar_event_id) {
-                try {
-                    $this->googleCalendarService->updateEvent($reservation);
-                } catch (\Exception $e) {
-                    \Log::warning('Error updating Google Calendar event: ' . $e->getMessage());
-                }
-            }
+            $this->syncReservationToGoogleCalendar($reservation);
 
             DB::commit();
 
             $reservation->load(['customer', 'room', 'room.roomType', 'guests', 'payments']);
 
-            return response()->json([
+            $responseBody = [
                 'message' => 'Check-out realizado exitosamente',
                 'reservation' => $reservation,
-                'certificate' => $checkoutCertificate
-            ]);
+                'certificate' => $checkoutCertificate,
+            ];
+            if (!empty($electronicEnvelope)) {
+                $responseBody = array_merge($responseBody, $electronicEnvelope);
+            }
+            return response()->json($responseBody);
         } catch (\Exception $e) {
             DB::rollBack();
             return response()->json([
@@ -2897,6 +3203,80 @@ class ReservationController extends Controller
                 'error' => $e->getMessage()
             ], 500);
         }
+    }
+
+    /**
+     * Run the FEV emission flow for this reservation and return the JSON
+     * envelope keys to merge into the response (`electronic_document` or
+     * `electronic_document_error`).
+     *
+     * Throws `ReservationEmissionInvalidPayloadException` for 422 cases.
+     * Configuration gaps (Unavailable) are swallowed and reported as a
+     * structured `electronic_document_error` so the checkout commits.
+     */
+    protected function attemptReservationElectronicEmission(Reservation $reservation, ?array $acquirerPayload): array
+    {
+        /** @var ReservationInvoiceEmissionService $service */
+        $service = app(ReservationInvoiceEmissionService::class);
+        try {
+            $document = $service->emitForReservation($reservation, $acquirerPayload);
+            return ['electronic_document' => $service->summarise($document)];
+        } catch (ReservationEmissionInvalidPayloadException $e) {
+            throw $e;
+        } catch (ReservationEmissionUnavailableException $e) {
+            \Log::warning('Reservation electronic emission unavailable', [
+                'reservation_id' => $reservation->id,
+                'code' => $e->emissionCode(),
+            ]);
+            return [
+                'electronic_document_error' => [
+                    'code' => $e->emissionCode(),
+                    'message' => $e->getMessage(),
+                ],
+            ];
+        } catch (ReservationEmissionException $e) {
+            return [
+                'electronic_document_error' => [
+                    'code' => $e->emissionCode(),
+                    'message' => $e->getMessage(),
+                ],
+            ];
+        } catch (\Throwable $e) {
+            \Log::warning('Reservation electronic emission threw unexpected exception', [
+                'reservation_id' => $reservation->id,
+                'error' => $e->getMessage(),
+            ]);
+            return [
+                'electronic_document_error' => [
+                    'code' => ReservationEmissionUnavailableException::CODE_EMITTER_FAILURE,
+                    'message' => 'Unexpected error while building the electronic document.',
+                ],
+            ];
+        }
+    }
+
+    protected function parseBoolean($value): bool
+    {
+        if (is_bool($value)) {
+            return $value;
+        }
+        if (is_string($value)) {
+            return in_array(strtolower($value), ['1', 'true', 'yes', 'on'], true);
+        }
+
+        return (bool) $value;
+    }
+
+    protected function reservationElectronicEmissionEnabled(): bool
+    {
+        $value = function_exists('config') ? config('electronic-invoicing.enabled') : false;
+        if (is_bool($value)) {
+            return $value;
+        }
+        if (is_string($value)) {
+            return in_array(strtolower($value), ['1', 'true', 'yes', 'on'], true);
+        }
+        return (bool) $value;
     }
 
     /**
@@ -2919,10 +3299,13 @@ class ReservationController extends Controller
 
         try {
             $priceCalculation = $this->priceCalculator->calculatePrice($reservation, true);
+            $calculatedPrice = $priceCalculation['calculated_price'];
 
             $reservation->update([
-                'calculated_price' => $priceCalculation['calculated_price'],
+                'calculated_price' => $calculatedPrice,
                 'price_breakdown' => $priceCalculation['price_breakdown'],
+                'total_price' => $calculatedPrice,
+                'manual_price_override' => false,
             ]);
             $reservation->recomputeFinalPrice();
 
@@ -2930,6 +3313,8 @@ class ReservationController extends Controller
             $this->auditService->log('price_recalculated', $reservation, null, [
                 'calculated_price' => $priceCalculation['calculated_price'],
             ], 'Precio recalculado', auth()->id(), request());
+
+            $this->syncReservationToGoogleCalendar($reservation);
 
             return response()->json([
                 'message' => 'Precio recalculado exitosamente',
@@ -3400,6 +3785,11 @@ class ReservationController extends Controller
                         'id' => $reservation->customer->id,
                         'name' => $reservation->customer->name,
                     ] : null,
+                    'status' => $reservation->status,
+                    'check_in_date' => $reservation->check_in_date,
+                    'check_out_date' => $reservation->check_out_date,
+                    'check_in_time' => $reservation->check_in_time,
+                    'check_out_time' => $reservation->check_out_time,
                     'adults' => $reservation->adults,
                     'children' => $reservation->children,
                     'infants' => $reservation->infants,
@@ -3529,7 +3919,8 @@ class ReservationController extends Controller
 
         // Si no hay información de huéspedes o no se pudieron agrupar familias,
         // usar distribución simple pero mejorada
-        $getRoomCapacity = fn ($room) => (int) ($room->max_capacity ?? $room->capacity);
+        $getRoomMinCapacity = fn ($room) => $room->getMinGuestCapacity();
+        $getRoomMaxCapacity = fn ($room) => $room->getMaxGuestCapacity();
 
         if (empty($familyGroups)) {
             \Log::info('No hay información de huéspedes para agrupar familias, usando distribución simple mejorada');
@@ -3539,8 +3930,15 @@ class ReservationController extends Controller
                     break;
                 }
 
-                $roomCapacity = $getRoomCapacity($room);
-                $guestsForThisRoom = min($remainingGuests, $roomCapacity);
+                $roomMax = $getRoomMaxCapacity($room);
+                $roomMin = $getRoomMinCapacity($room);
+                $guestsForThisRoom = min($remainingGuests, $roomMax);
+                if ($guestsForThisRoom < $roomMin) {
+                    if ($remainingGuests < $roomMin) {
+                        continue;
+                    }
+                    $guestsForThisRoom = $roomMin;
+                }
 
                 // Intentar mantener proporción de adultos/niños/bebés
                 $adultsForRoom = min($remainingAdults, $guestsForThisRoom);
@@ -3581,7 +3979,8 @@ class ReservationController extends Controller
                 // Primero intentar colocar la familia completa en una habitación
                 for ($i = $roomIndex; $i < $availableRooms->count(); $i++) {
                     $room = $availableRooms->values()[$i];
-                    if ($getRoomCapacity($room) >= $family['total']) {
+                    if ($getRoomMaxCapacity($room) >= $family['total']
+                        && $family['total'] >= $getRoomMinCapacity($room)) {
                         // Esta habitación puede alojar a toda la familia
                         $roomsNeeded[] = [
                             'room' => $room,
@@ -3610,7 +4009,7 @@ class ReservationController extends Controller
 
                     for ($i = $roomIndex; $i < $availableRooms->count() && ($familyAdultsRemaining > 0 || $familyChildrenRemaining > 0 || $familyInfantsRemaining > 0); $i++) {
                         $room = $availableRooms->values()[$i];
-                        $roomCapacity = $getRoomCapacity($room);
+                        $roomCapacity = $getRoomMaxCapacity($room);
                         $roomGuests = 0;
                         $roomAdults = 0;
                         $roomChildren = 0;
@@ -3660,8 +4059,15 @@ class ReservationController extends Controller
 
                 for ($i = $roomIndex; $i < $availableRooms->count() && $remainingGuests > 0; $i++) {
                     $room = $availableRooms->values()[$i];
-                    $roomCapacity = $getRoomCapacity($room);
-                    $guestsForThisRoom = min($remainingGuests, $roomCapacity);
+                    $roomMax = $getRoomMaxCapacity($room);
+                    $roomMin = $getRoomMinCapacity($room);
+                    $guestsForThisRoom = min($remainingGuests, $roomMax);
+                    if ($guestsForThisRoom < $roomMin) {
+                        if ($remainingGuests < $roomMin) {
+                            continue;
+                        }
+                        $guestsForThisRoom = $roomMin;
+                    }
 
                     $adultsForRoom = min($remainingAdults, $guestsForThisRoom);
                     $remainingAdults -= $adultsForRoom;
@@ -3704,6 +4110,24 @@ class ReservationController extends Controller
         ]);
 
         return $roomsNeeded;
+    }
+
+    private function validateCourtesyGuestsRequest(Request $request)
+    {
+        $courtesyGuests = (int) ($request->courtesy_guests ?? 0);
+        if ($courtesyGuests <= 0) {
+            return null;
+        }
+
+        $chargeableGuests = (int) $request->adults + (int) ($request->children ?? 0);
+        if ($courtesyGuests > $chargeableGuests) {
+            return response()->json([
+                'message' => 'Las cortesías no pueden superar la cantidad de adultos + niños.',
+                'courtesy_guests' => ['Las cortesías no pueden superar adultos + niños.'],
+            ], 422);
+        }
+
+        return null;
     }
 
     private function updateCleaningForReservation(Reservation $reservation)

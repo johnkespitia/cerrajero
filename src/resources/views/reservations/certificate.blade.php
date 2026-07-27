@@ -410,6 +410,23 @@
                                     @endif
                                 </div>
                             </div>
+                            @if((data_get($priceBreakdown, 'courtesy_guests') ?? $reservation->courtesy_guests ?? 0) > 0)
+                                <div class="info-row">
+                                    <div class="info-label">Huéspedes de cortesía:</div>
+                                    <div class="info-value">{{ data_get($priceBreakdown, 'courtesy_guests') ?? $reservation->courtesy_guests }}</div>
+                                </div>
+                            @endif
+                            @if($reservation->promotion_code)
+                                <div class="info-row">
+                                    <div class="info-label">Cupón aplicado:</div>
+                                    <div class="info-value">
+                                        {{ $reservation->promotion_code }}
+                                        @if($reservation->promotion)
+                                            ({{ $reservation->promotion->name }})
+                                        @endif
+                                    </div>
+                                </div>
+                            @endif
                         </div>
                     </div>
                 </div>
@@ -466,9 +483,8 @@
                     <thead>
                         <tr>
                             <th>Servicio</th>
-                            <th class="text-center">Cantidad</th>
-                            <th class="text-center">Huéspedes</th>
-                            <th class="text-right">Total</th>
+                            <th class="text-center">Personas / Ítems</th>
+                            <th class="text-center">Días</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -476,27 +492,88 @@
                             <tr>
                                 <td>{{ optional($ras->additionalService)->name ?? 'N/A' }}</td>
                                 <td class="text-center">{{ $ras->quantity }}</td>
-                                <td class="text-center">{{ $ras->guests_count }}</td>
-                                <td class="text-right">${{ number_format($ras->total, 0, ',', '.') }}</td>
+                                <td class="text-center">{{ $ras->service_days ?? $ras->quantity }}</td>
+                            </tr>
+                        @endforeach
+                    </tbody>
+                </table>
+            </div>
+        @endif
+
+        @php
+            $totalPrice = data_get($priceBreakdown, 'total') ?? ($totalPriceGroup ?? ($reservation->final_price ?? $reservation->total_price));
+            $totalPaidAmount = isset($totalPaid) ? $totalPaid : ($payments ? $payments->sum('amount') : 0);
+            $balanceDue = isset($remainingBalance) ? $remainingBalance : max(0, $totalPrice - $totalPaidAmount);
+        @endphp
+
+        <div class="section">
+            <div class="section-title">Pagos Registrados</div>
+            @if(isset($payments) && $payments->count() > 0)
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Fecha</th>
+                            <th>Concepto</th>
+                            <th>Método</th>
+                            <th>Referencia</th>
+                            <th class="text-right">Monto</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach($payments as $payment)
+                            <tr>
+                                <td>{{ \Carbon\Carbon::parse($payment->created_at)->format('d/m/Y H:i') }}</td>
+                                <td>{{ $payment->concept ?? 'Pago' }}</td>
+                                <td>
+                                    @if($payment->paymentType)
+                                        {{ $payment->paymentType->name }}
+                                    @elseif($payment->payment_method === 'cash')
+                                        Efectivo
+                                    @elseif($payment->payment_method === 'card')
+                                        Tarjeta
+                                    @elseif($payment->payment_method === 'transfer')
+                                        Transferencia
+                                    @elseif($payment->payment_method === 'check')
+                                        Cheque
+                                    @else
+                                        Otro
+                                    @endif
+                                </td>
+                                <td>{{ $payment->payment_reference ?? '-' }}</td>
+                                <td class="text-right">${{ number_format($payment->amount, 0, ',', '.') }}</td>
                             </tr>
                         @endforeach
                     </tbody>
                     <tfoot>
                         <tr class="total-row">
-                            <td colspan="3" class="text-right"><strong>Subtotal servicios:</strong></td>
-                            <td class="text-right"><strong>${{ number_format($reservation->additionalServices->sum('total'), 0, ',', '.') }}</strong></td>
+                            <td colspan="4" class="text-right"><strong>Total pagado:</strong></td>
+                            <td class="text-right"><strong>${{ number_format($totalPaidAmount, 0, ',', '.') }}</strong></td>
                         </tr>
                     </tfoot>
                 </table>
-            </div>
-        @endif
+            @else
+                <div class="info-block" style="background-color: #F9F9F9;">
+                    No se registraron pagos para esta reserva.
+                </div>
+            @endif
+        </div>
 
         <!-- Resumen financiero -->
         <div class="summary-box">
             <div class="summary-item">
-                <div class="summary-label">Precio Total:</div>
-                <div class="summary-value">${{ number_format($reservation->final_price ?? $reservation->total_price, 0, ',', '.') }}</div>
+                <div class="summary-label">Precio Total de la Reserva (incluye hospedaje y servicios):</div>
+                <div class="summary-value">${{ number_format($totalPrice, 0, ',', '.') }}</div>
             </div>
+            <div class="summary-item">
+                <div class="summary-label">Total Pagado:</div>
+                <div class="summary-value">${{ number_format($totalPaidAmount, 0, ',', '.') }}</div>
+            </div>
+            @if($balanceDue > 0)
+                <div class="summary-item">
+                    <div class="summary-label">Saldo Pendiente:</div>
+                    <div class="summary-value">${{ number_format($balanceDue, 0, ',', '.') }}</div>
+                </div>
+            @endif
             <div class="summary-item">
                 <div class="summary-label">Estado:</div>
                 <div class="summary-value">

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Services\DayPassSettingsService;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
@@ -95,18 +96,20 @@ class DayPassCapacity extends Model
      */
     public static function getOrCreateForDate($date, $defaultMaxCapacity = 0, $defaultAdultPrice = 0, $defaultChildPrice = 0)
     {
+        $defaults = app(DayPassSettingsService::class)->defaults();
+
         // Usar valores por defecto configurables si no se pasan explícitamente
         $maxCapacity = $defaultMaxCapacity > 0
             ? $defaultMaxCapacity
-            : config('day_pass.default_capacity', 200);
+            : $defaults['default_capacity'];
 
         $adultPrice = $defaultAdultPrice > 0
             ? $defaultAdultPrice
-            : config('day_pass.default_adult_price', 20000);
+            : $defaults['default_adult_price'];
 
         $childPrice = $defaultChildPrice > 0
             ? $defaultChildPrice
-            : config('day_pass.default_child_price', 5000);
+            : $defaults['default_child_price'];
 
         return static::firstOrCreate(
             ['date' => $date],

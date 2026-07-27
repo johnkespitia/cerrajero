@@ -41,12 +41,12 @@ class AdditionalServiceController extends Controller
             'name' => 'required|string|max:255',
             'description' => 'nullable|string',
             'price' => 'required|numeric|min:0',
+            'campo_verde_cost' => 'nullable|numeric|min:0',
             'billing_type' => 'required|in:per_day,one_time',
             'applies_to' => 'required|in:room,day_pass,both',
-            'is_per_guest' => 'boolean',
             'status' => 'in:active,inactive',
             'is_food_service' => 'boolean',
-            'meal_type' => 'nullable|in:breakfast,lunch,dinner',
+            'meal_type' => 'nullable|in:breakfast,lunch,dinner,refreshment',
         ]);
 
         if ($validator->fails()) {
@@ -54,12 +54,14 @@ class AdditionalServiceController extends Controller
         }
 
         $data = $request->only([
-            'name', 'description', 'price', 'billing_type', 'applies_to', 'is_per_guest', 'status'
+            'name', 'description', 'price', 'campo_verde_cost', 'billing_type', 'applies_to', 'status'
         ]);
-        $data['is_per_guest'] = $request->boolean('is_per_guest', true);
+        $data['billing_type'] = $request->input('billing_type', 'per_day');
+        $data['is_per_guest'] = false;
         $data['status'] = $request->input('status', 'active');
+        $data['campo_verde_cost'] = $request->input('campo_verde_cost', 0);
         $data['is_food_service'] = $request->boolean('is_food_service', false);
-        $data['meal_type'] = in_array($request->input('meal_type'), ['breakfast', 'lunch', 'dinner'], true)
+        $data['meal_type'] = in_array($request->input('meal_type'), ['breakfast', 'lunch', 'dinner', 'refreshment'], true)
             ? $request->meal_type
             : null;
 
@@ -73,12 +75,12 @@ class AdditionalServiceController extends Controller
             'name' => 'sometimes|string|max:255',
             'description' => 'nullable|string',
             'price' => 'sometimes|numeric|min:0',
+            'campo_verde_cost' => 'nullable|numeric|min:0',
             'billing_type' => 'sometimes|in:per_day,one_time',
             'applies_to' => 'sometimes|in:room,day_pass,both',
-            'is_per_guest' => 'boolean',
             'status' => 'sometimes|in:active,inactive',
             'is_food_service' => 'boolean',
-            'meal_type' => 'nullable|in:breakfast,lunch,dinner',
+            'meal_type' => 'nullable|in:breakfast,lunch,dinner,refreshment',
         ]);
 
         if ($validator->fails()) {
@@ -86,17 +88,18 @@ class AdditionalServiceController extends Controller
         }
 
         $data = $request->only([
-            'name', 'description', 'price', 'billing_type', 'applies_to', 'is_per_guest', 'status'
+            'name', 'description', 'price', 'campo_verde_cost', 'billing_type', 'applies_to', 'status'
         ]);
-        if ($request->has('is_per_guest')) {
-            $data['is_per_guest'] = $request->boolean('is_per_guest');
+        $data['is_per_guest'] = false;
+        if ($request->has('campo_verde_cost')) {
+            $data['campo_verde_cost'] = $request->input('campo_verde_cost', 0);
         }
         if ($request->has('is_food_service')) {
             $data['is_food_service'] = $request->boolean('is_food_service');
         }
         // Persistir meal_type siempre que venga en la petición (evita fallos si only() no lo incluye)
         if ($request->has('meal_type')) {
-            $data['meal_type'] = in_array($request->meal_type, ['breakfast', 'lunch', 'dinner'], true)
+            $data['meal_type'] = in_array($request->meal_type, ['breakfast', 'lunch', 'dinner', 'refreshment'], true)
                 ? $request->meal_type
                 : null;
         }

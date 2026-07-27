@@ -78,6 +78,14 @@ class MinibarProductController extends Controller
             'image_url' => 'nullable|string|max:500',
             'stock_alert_threshold' => 'nullable|integer|min:0',
             'active' => 'boolean',
+        ], [
+            'name.required' => 'El nombre es obligatorio.',
+            'category_id.required' => 'La categoría es obligatoria.',
+            'category_id.exists' => 'La categoría seleccionada no es válida. Elige otra opción.',
+            'unit.required' => 'La unidad es obligatoria.',
+            'barcode.unique' => 'El código de barras ya está registrado. Usa uno diferente para continuar.',
+            'sale_price.min' => 'El precio de venta no puede ser negativo.',
+            'purchase_price.min' => 'El precio de compra no puede ser negativo.',
         ]);
 
         if ($validation->fails()) {
@@ -127,6 +135,14 @@ class MinibarProductController extends Controller
             'image_url' => 'nullable|string|max:500',
             'stock_alert_threshold' => 'nullable|integer|min:0',
             'active' => 'boolean',
+        ], [
+            'name.required' => 'El nombre es obligatorio.',
+            'category_id.required' => 'La categoría es obligatoria.',
+            'category_id.exists' => 'La categoría seleccionada no es válida. Elige otra opción.',
+            'unit.required' => 'La unidad es obligatoria.',
+            'barcode.unique' => 'El código de barras ya está registrado. Usa uno diferente para continuar.',
+            'sale_price.min' => 'El precio de venta no puede ser negativo.',
+            'purchase_price.min' => 'El precio de compra no puede ser negativo.',
         ]);
 
         if ($validation->fails()) {

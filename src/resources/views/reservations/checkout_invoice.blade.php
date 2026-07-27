@@ -321,7 +321,7 @@
                             @elseif($room)
                                 <div class="info-row">
                                     <div class="info-label">Habitación:</div>
-                                    <div class="info-value">{{ $room->number ?? 'N/A' }}</div>
+                                    <div class="info-value">{{ $room->display_name ?? $room->name ?? $room->number ?? 'N/A' }}</div>
                                 </div>
                             @endif
                             @if($roomType && !($isMultiRoom ?? false))
@@ -345,11 +345,6 @@
         </div>
 
         <!-- Detalle de Reserva y Servicios -->
-        @php
-            $additionalTotal = $reservation->additionalServices ? $reservation->additionalServices->sum('total') : 0;
-            $nights = max(1, $reservation->check_in_date->diffInDays($reservation->check_out_date ?? $reservation->check_in_date));
-            $baseAlojamiento = $totals['reservation'] - $additionalTotal;
-        @endphp
         <div class="section">
             <div class="section-title">Detalle de Reserva y Servicios</div>
             <table>
@@ -357,30 +352,56 @@
                     <tr>
                         <th>Concepto</th>
                         <th class="text-right">Cantidad</th>
-                        <th class="text-right">Precio Unitario</th>
-                        <th class="text-right">Total</th>
                     </tr>
                 </thead>
                 <tbody>
                     <tr>
                         <td>Alojamiento {{ $reservation->reservation_type === 'day_pass' ? 'Pasadía' : (($isMultiRoom ?? false) ? (isset($allRooms) && $allRooms->count() > 1 ? $allRooms->count() . ' habitaciones' : ($roomType->name ?? 'Habitación')) : ($roomType->name ?? 'Habitación')) }} - {{ $reservation->check_in_date->format('d/m/Y') }} a {{ $reservation->check_out_date ? $reservation->check_out_date->format('d/m/Y') : $reservation->check_in_date->format('d/m/Y') }}</td>
                         <td class="text-right">{{ isset($totalAdults) || isset($totalChildren) || isset($totalInfants) ? (($totalAdults ?? 0) + ($totalChildren ?? 0) + ($totalInfants ?? 0)) : ($reservation->adults + $reservation->children + $reservation->infants) }} huésped(es)</td>
-                        <td class="text-right">${{ number_format($baseAlojamiento / $nights, 0, ',', '.') }}</td>
-                        <td class="text-right">${{ number_format($baseAlojamiento, 0, ',', '.') }}</td>
                     </tr>
                     @if($reservation->additionalServices && $reservation->additionalServices->count() > 0)
                         @foreach($reservation->additionalServices as $ras)
                             <tr>
                                 <td>{{ optional($ras->additionalService)->name ?? 'N/A' }}</td>
-                                <td class="text-right">{{ $ras->quantity }} {{ $ras->quantity == 1 ? 'unidad' : 'unid.' }}</td>
-                                <td class="text-right">${{ number_format($ras->unit_price, 0, ',', '.') }}</td>
-                                <td class="text-right">${{ number_format($ras->total, 0, ',', '.') }}</td>
+                                <td class="text-right">{{ $ras->quantity }} {{ $ras->quantity == 1 ? 'persona' : 'personas' }}</td>
                             </tr>
                         @endforeach
                     @endif
                 </tbody>
             </table>
         </div>
+
+        @if(isset($minibarCharges) && $minibarCharges->count() > 0)
+        <div class="section">
+            <div class="section-title">Consumo de Minibar</div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Producto</th>
+                        <th class="text-right">Cantidad</th>
+                        <th class="text-right">Precio Unitario</th>
+                        <th class="text-right">Total</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach($minibarCharges as $charge)
+                        <tr>
+                            <td>{{ optional($charge->product)->name ?? 'N/A' }}</td>
+                            <td class="text-right">{{ $charge->quantity }}</td>
+                            <td class="text-right">${{ number_format($charge->unit_price ?? 0, 0, ',', '.') }}</td>
+                            <td class="text-right">${{ number_format($charge->total ?? 0, 0, ',', '.') }}</td>
+                        </tr>
+                    @endforeach
+                </tbody>
+                <tfoot>
+                    <tr class="total-row">
+                        <td colspan="3" class="text-right"><strong>Subtotal Minibar:</strong></td>
+                        <td class="text-right"><strong>${{ number_format($minibarCharges->sum('total'), 0, ',', '.') }}</strong></td>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
+        @endif
 
         <!-- Consumos del Kiosko -->
         @if($kioskInvoices->count() > 0)
@@ -411,6 +432,44 @@
                         @endforeach
                     @endforeach
                 </tbody>
+                <tfoot>
+                    <tr class="total-row">
+                        <td colspan="5" class="text-right"><strong>Subtotal Kiosko:</strong></td>
+                        <td class="text-right"><strong>${{ number_format($totals['kiosko'], 0, ',', '.') }}</strong></td>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
+        @endif
+
+        @if(isset($roomCharges) && $roomCharges->count() > 0)
+        <div class="section">
+            <div class="section-title">Consumo en Restaurante (cargos a habitación)</div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Fecha</th>
+                        <th>Concepto</th>
+                        <th>Referencia</th>
+                        <th class="text-right">Total</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach($roomCharges as $charge)
+                        <tr>
+                            <td>{{ $charge->created_at->format('d/m/Y H:i') }}</td>
+                            <td>{{ $charge->concept ?? 'Consumo en restaurante' }}</td>
+                            <td>{{ $charge->payment_reference ?? ($charge->notes ?? '-') }}</td>
+                            <td class="text-right">${{ number_format($charge->amount, 0, ',', '.') }}</td>
+                        </tr>
+                    @endforeach
+                </tbody>
+                <tfoot>
+                    <tr class="total-row">
+                        <td colspan="3" class="text-right"><strong>Subtotal Restaurante:</strong></td>
+                        <td class="text-right"><strong>${{ number_format($totals['restaurant'] ?? $roomCharges->sum('amount'), 0, ',', '.') }}</strong></td>
+                    </tr>
+                </tfoot>
             </table>
         </div>
         @endif
@@ -442,45 +501,8 @@
         </div>
         @endif
 
-        <!-- Cargos a la Habitación -->
-        @if($creditPayments->count() > 0)
-        <div class="section">
-            <div class="section-title">Cargos a la Habitación</div>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Fecha</th>
-                        <th>Concepto</th>
-                        <th>Método de Pago</th>
-                        <th class="text-right">Monto</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @foreach($creditPayments as $payment)
-                        <tr>
-                            <td>{{ $payment->created_at->format('d/m/Y H:i') }}</td>
-                            <td>{{ $payment->concept }}</td>
-                            <td>{{ $payment->paymentType->name ?? 'N/A' }}</td>
-                            <td class="text-right">${{ number_format($payment->amount, 0, ',', '.') }}</td>
-                        </tr>
-                    @endforeach
-                </tbody>
-            </table>
-        </div>
-        @endif
-
         <!-- Totales -->
         <div class="totals">
-            <div class="total-item">
-                <div class="total-label"><strong>Subtotal Reserva:</strong></div>
-                <div class="total-value"><strong>${{ number_format($totals['reservation'], 0, ',', '.') }}</strong></div>
-            </div>
-            @if($totals['kiosko'] > 0)
-            <div class="total-item">
-                <div class="total-label"><strong>Subtotal Consumos Kiosko:</strong></div>
-                <div class="total-value"><strong>${{ number_format($totals['kiosko'], 0, ',', '.') }}</strong></div>
-            </div>
-            @endif
             <div class="total-item grand-total">
                 <div class="total-label">TOTAL GENERAL:</div>
                 <div class="total-value">${{ number_format($totals['grand_total'], 0, ',', '.') }}</div>

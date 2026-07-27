@@ -110,6 +110,12 @@ return [
             'handler' => NullHandler::class,
         ],
 
+        'electronic-invoicing' => [
+            'driver' => 'single',
+            'path' => storage_path('logs/electronic-invoicing.log'),
+            'level' => env('ELECTRONIC_INVOICING_LOG_LEVEL', 'info'),
+        ],
+
         'emergency' => [
             'path' => storage_path('logs/laravel.log'),
         ],

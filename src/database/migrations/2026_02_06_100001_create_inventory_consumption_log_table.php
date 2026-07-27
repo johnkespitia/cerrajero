@@ -15,7 +15,9 @@ class CreateInventoryConsumptionLogTable extends Migration
     {
         Schema::create('inventory_consumption_log', function (Blueprint $table) {
             $table->id();
-            $table->unsignedBigInteger('order_item_id');
+            // Este registro también se usa para consumos de comidas de empleados,
+            // donde no existe un order_item_id asociado.
+            $table->unsignedBigInteger('order_item_id')->nullable();
             $table->unsignedBigInteger('inventory_batch_id');
             $table->unsignedBigInteger('input_id');
             $table->decimal('quantity_consumed', 12, 4)->comment('Cantidad descontada en la medida del lote');

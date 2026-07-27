@@ -33,6 +33,11 @@ class RoomSeason extends Model
         return $this->belongsTo(RoomType::class);
     }
 
+    public function scopeActive($query)
+    {
+        return $query->where('active', true);
+    }
+
     public function isActiveForDate($date)
     {
         if (!$this->active) {
@@ -45,10 +50,15 @@ class RoomSeason extends Model
 
     public static function getSeasonForDate($roomTypeId, $date)
     {
+        if (!$roomTypeId || !$date) {
+            return null;
+        }
+
         return self::where('room_type_id', $roomTypeId)
             ->where('active', true)
             ->where('start_date', '<=', $date)
             ->where('end_date', '>=', $date)
+            ->orderBy('start_date')
             ->first();
     }
 }

@@ -20,10 +20,133 @@ Route::get("/greating", function() {
 
 Route::post('/login', [\App\Http\Controllers\UserController::class, 'apiLogin']);
 
+// Reservas web públicas (sin autenticación)
+Route::prefix('public/booking')->middleware('throttle:60,1')->group(function () {
+    Route::controller(\App\Http\Controllers\PublicBookingController::class)->group(function () {
+        Route::get('/config', 'config');
+        Route::get('/room-types', 'roomTypes');
+        Route::get('/plans', 'plans');
+        Route::get('/availability', 'availability');
+        Route::get('/calendar', 'calendar');
+        Route::post('/reservations', 'store');
+        Route::post('/reservations/{reservation}/payment-receipt', 'uploadPaymentReceipt');
+    });
+});
+
+Route::prefix('public/site')->middleware('throttle:60,1')->group(function () {
+    Route::get('/content', [\App\Http\Controllers\PublicSiteController::class, 'content']);
+});
+
+// Mantenimiento de deploy (solo si DEPLOY_MIGRATE_TOKEN está configurado en .env)
+Route::get('/public/deploy/migrate', function (Request $request) {
+    $expected = (string) env('DEPLOY_MIGRATE_TOKEN', '');
+    $token = (string) $request->query('token', '');
+
+    if ($expected === '' || ! hash_equals($expected, $token)) {
+        abort(403, 'Forbidden');
+    }
+
+    \Illuminate\Support\Facades\Artisan::call('migrate', ['--force' => true]);
+    $migrateOutput = \Illuminate\Support\Facades\Artisan::output();
+
+    try {
+        \Illuminate\Support\Facades\Artisan::call('storage:link');
+        $storageOutput = \Illuminate\Support\Facades\Artisan::output();
+    } catch (\Throwable $e) {
+        $storageOutput = $e->getMessage();
+    }
+
+    return response("Migrations:\n{$migrateOutput}\n\nStorage link:\n{$storageOutput}\n", 200)
+        ->header('Content-Type', 'text/plain; charset=utf-8');
+})->middleware('throttle:6,1');
+
 // Callback público de Google Calendar OAuth (sin autenticación)
 Route::get('/google-calendar/callback', [\App\Http\Controllers\GoogleCalendarConfigController::class, 'handleCallback']);
 
 Route::middleware(['auth:sanctum'])->group(function () {
+    // ============================================
+    // Módulo de Facturación Electrónica DIAN (Admin)
+    // ============================================
+    Route::prefix('electronic-invoicing')->group(function () {
+        Route::controller(\App\Http\Controllers\ElectronicInvoicing\CompanyProfileController::class)->group(function () {
+            Route::get('/company-profile', 'show')->name('fiscal-admin.company.show')
+                ->middleware('permission:electronic_invoicing.admin,cerrajero');
+            Route::put('/company-profile', 'update')->name('fiscal-admin.company.update')
+                ->middleware('permission:electronic_invoicing.admin,cerrajero');
+        });
+        Route::controller(\App\Http\Controllers\ElectronicInvoicing\SoftwareCredentialController::class)->group(function () {
+            Route::get('/software-credentials', 'show')->name('fiscal-admin.credential.show')
+                ->middleware('permission:electronic_invoicing.admin,cerrajero');
+            Route::put('/software-credentials', 'update')->name('fiscal-admin.credential.update')
+                ->middleware('permission:electronic_invoicing.admin,cerrajero');
+        });
+        Route::controller(\App\Http\Controllers\ElectronicInvoicing\ResolutionController::class)->group(function () {
+            Route::get('/resolutions', 'index')->name('fiscal-admin.resolutions.index')
+                ->middleware('permission:electronic_invoicing.admin,cerrajero');
+            Route::post('/resolutions', 'store')->name('fiscal-admin.resolutions.store')
+                ->middleware('permission:electronic_invoicing.admin,cerrajero');
+            Route::put('/resolutions/{id}', 'update')->name('fiscal-admin.resolutions.update')
+                ->middleware('permission:electronic_invoicing.admin,cerrajero');
+            Route::delete('/resolutions/{id}', 'destroy')->name('fiscal-admin.resolutions.destroy')
+                ->middleware('permission:electronic_invoicing.admin,cerrajero');
+        });
+        Route::controller(\App\Http\Controllers\ElectronicInvoicing\HealthcheckController::class)->group(function () {
+            Route::get('/healthcheck', 'show')->name('fiscal-admin.healthcheck')
+                ->middleware('permission:electronic_invoicing.list,cerrajero');
+        });
+        Route::controller(\App\Http\Controllers\ElectronicInvoicing\DocumentLookupController::class)->group(function () {
+            Route::get('/documents', 'index')->name('fiscal.documents.index')
+                ->middleware('permission:electronic_invoicing.list,cerrajero');
+            Route::get('/documents/{id}', 'show')->name('fiscal.documents.show')
+                ->middleware('permission:electronic_invoicing.list,cerrajero');
+        });
+        Route::controller(\App\Http\Controllers\ElectronicInvoicing\DocumentDownloadController::class)
+            ->middleware('permission:electronic_invoicing.list,cerrajero')
+            ->group(function () {
+                Route::get('/documents/{id}/xml-unsigned', 'xmlUnsigned')->name('fiscal.documents.xml-unsigned');
+                Route::get('/documents/{id}/xml-signed', 'xmlSigned')->name('fiscal.documents.xml-signed');
+                Route::get('/documents/{id}/attached-document', 'attachedDocument')->name('fiscal.documents.attached-document');
+                Route::get('/documents/{id}/pdf', 'pdf')->name('fiscal.documents.pdf');
+                Route::get('/documents/{id}/events', 'events')->name('fiscal.documents.events');
+            });
+        Route::controller(\App\Http\Controllers\ElectronicInvoicing\CreditDebitNoteController::class)->group(function () {
+            Route::post('/documents/{id}/credit-note', 'storeCreditNote')->name('fiscal.documents.credit-note')
+                ->middleware(['permission:electronic_invoicing.create,cerrajero', 'fiscal.environment']);
+            Route::post('/documents/{id}/debit-note', 'storeDebitNote')->name('fiscal.documents.debit-note')
+                ->middleware(['permission:electronic_invoicing.create,cerrajero', 'fiscal.environment']);
+        });
+        Route::controller(\App\Http\Controllers\ElectronicInvoicing\LegacyPtImportController::class)->group(function () {
+            Route::post('/legacy-pt/import', 'store')->name('fiscal.legacy-pt.import')
+                ->middleware('permission:electronic_invoicing.admin,cerrajero');
+        });
+        Route::controller(\App\Http\Controllers\ElectronicInvoicing\CertificateController::class)
+            ->middleware('permission:electronic_invoicing.admin,cerrajero')
+            ->group(function () {
+                Route::get('/admin/certificates', 'index')->name('fiscal.certificates.index');
+                Route::post('/admin/certificates', 'store')->name('fiscal.certificates.store');
+                Route::post('/admin/certificates/{id}/activate', 'activate')->name('fiscal.certificates.activate');
+                Route::delete('/admin/certificates/{id}', 'destroy')->name('fiscal.certificates.destroy');
+            });
+        Route::controller(\App\Http\Controllers\ElectronicInvoicing\RadianEventController::class)->group(function () {
+            Route::get('/documents/{id}/radian', 'index')->name('fiscal.documents.radian.index')
+                ->middleware('permission:electronic_invoicing.list,cerrajero');
+            Route::post('/documents/{id}/radian/{event}', 'store')->name('fiscal.documents.radian.store')
+                ->middleware(['permission:electronic_invoicing.radian,cerrajero', 'fiscal.environment']);
+        });
+        Route::controller(\App\Http\Controllers\ElectronicInvoicing\HabilitacionController::class)
+            ->middleware('permission:electronic_invoicing.admin,cerrajero')
+            ->group(function () {
+                Route::post('/habilitacion/run-test-set', 'runTestSet')->name('fiscal.habilitacion.run-test-set')
+                    ->middleware('fiscal.environment');
+                Route::get('/habilitacion/latest-report', 'latestReport')->name('fiscal.habilitacion.latest-report');
+            });
+        Route::controller(\App\Http\Controllers\ElectronicInvoicing\CutoverReadinessController::class)
+            ->middleware('permission:electronic_invoicing.admin,cerrajero')
+            ->group(function () {
+                Route::get('/cutover/readiness', 'show')->name('fiscal.cutover.readiness');
+            });
+    });
+
     // ============================================
     // Módulo de Gestión de Usuarios y Permisos
     // ============================================
@@ -330,6 +453,14 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::put('/reservation-settings', 'update')->middleware('permission:reservation.edit,reservas');
     });
 
+    Route::controller(\App\Http\Controllers\SiteContentController::class)->group(function () {
+        Route::get('/site-content', 'show')->middleware('permission:reservation.edit,reservas');
+        Route::put('/site-content', 'update')->middleware('permission:reservation.edit,reservas');
+    });
+
+    Route::post('/site-media', [\App\Http\Controllers\SiteMediaController::class, 'store'])
+        ->middleware('permission:reservation.edit,reservas');
+
     Route::controller(\App\Http\Controllers\CancellationPolicyController::class)->group(function () {
         Route::get('/cancellation-policies', 'index')->middleware('permission:reservation.edit,reservas');
         Route::get('/cancellation-policies/applicable', 'getApplicablePolicy')->middleware('permission:reservation.list,reservas');
@@ -351,8 +482,11 @@ Route::middleware(['auth:sanctum'])->group(function () {
     });
 
     Route::controller(\App\Http\Controllers\ReservationGuestController::class)->group(function () {
+        Route::get('/guests/import/template', 'downloadTemplate')->middleware('permission:reservation.list,reservas');
+        Route::post('/guests/import/preview', 'previewImport')->middleware('permission:reservation.edit,reservas');
         Route::get('/reservations/{reservation}/guests', 'index')->middleware('permission:reservation.list,reservas');
         Route::post('/reservations/{reservation}/guests', 'store')->middleware('permission:reservation.edit,reservas');
+        Route::post('/reservations/{reservation}/guests/import', 'import')->middleware('permission:reservation.edit,reservas');
         Route::put('/reservations/{reservation}/guests/{guest}', 'update')->middleware('permission:reservation.edit,reservas');
         Route::delete('/reservations/{reservation}/guests/{guest}', 'destroy')->middleware('permission:reservation.edit,reservas');
         Route::post('/reservations/{reservation}/guests/remove-duplicates', 'removeDuplicates')->middleware('permission:reservation.edit,reservas');
@@ -377,7 +511,20 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::delete('/room-types/{roomType}', 'destroy')->middleware('permission:room_type.delete,reservas');
     });
 
+    Route::controller(\App\Http\Controllers\RoomSeasonController::class)->group(function () {
+        Route::get('/room-seasons', 'index')->middleware('permission:reservation.list,reservas');
+        Route::get('/room-seasons/{roomSeason}', 'show')->middleware('permission:reservation.list,reservas');
+        Route::post('/room-seasons', 'store')->middleware('permission:reservation.edit,reservas');
+        Route::put('/room-seasons/{roomSeason}', 'update')->middleware('permission:reservation.edit,reservas');
+        Route::delete('/room-seasons/{roomSeason}', 'destroy')->middleware('permission:reservation.edit,reservas');
+    });
+
     // Rutas de aforo de pasadía
+    Route::controller(\App\Http\Controllers\DayPassSettingController::class)->group(function () {
+        Route::get('/day-pass-settings', 'index')->middleware('permission:reservation.list,reservas');
+        Route::put('/day-pass-settings', 'update')->middleware('permission:reservation.edit,reservas');
+    });
+
     Route::controller(\App\Http\Controllers\DayPassCapacityController::class)->group(function () {
         Route::get('/day-pass-capacities', 'index')->middleware('permission:reservation.list,reservas');
         Route::get('/day-pass-capacities/availability', 'checkAvailability')->middleware('permission:reservation.list,reservas');
@@ -403,6 +550,15 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::post('/service-packages', 'store')->middleware('permission:reservation.edit,reservas');
         Route::put('/service-packages/{servicePackage}', 'update')->middleware('permission:reservation.edit,reservas');
         Route::delete('/service-packages/{servicePackage}', 'destroy')->middleware('permission:reservation.edit,reservas');
+    });
+
+    // Códigos promocionales
+    Route::controller(\App\Http\Controllers\PromotionController::class)->group(function () {
+        Route::get('/promotions', 'index')->middleware('permission:reservation.list,reservas');
+        Route::get('/promotions/{promotion}', 'show')->middleware('permission:reservation.list,reservas');
+        Route::post('/promotions', 'store')->middleware('permission:reservation.edit,reservas');
+        Route::put('/promotions/{promotion}', 'update')->middleware('permission:reservation.edit,reservas');
+        Route::delete('/promotions/{promotion}', 'destroy')->middleware('permission:reservation.edit,reservas');
     });
 
     // =========================

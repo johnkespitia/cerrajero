@@ -12,16 +12,18 @@ use Illuminate\Support\Facades\Validator;
 class KioskUnitController extends Controller
 {
     /**
-     * Display a listing of the resource.
-     * Optimización: Solo devolver unidades disponibles para la venta por defecto.
+     * Listado de unidades kiosko.
+     *
+     * Orden estable: product_id → id.
+     * Query: include_all=1 devuelve todas las unidades (admin); por defecto solo disponibles para venta.
      */
     public function index(Request $request)
     {
         $query = KioskUnit::query();
 
-        // Si se solicita explícitamente ver todo (ej. para reportes)
+        // Si se solicita explícitamente ver todo (ej. administración de inventario / reportes)
         if ($request->boolean('include_all')) {
-            return $query->all();
+            return $query->orderBy('product_id')->orderBy('id')->get();
         }
 
         // Por defecto: solo unidades activas y NO vendidas
@@ -31,6 +33,8 @@ class KioskUnitController extends Controller
                 $q->whereNull('expiration')
                   ->orWhere('expiration', '>=', now()->toDateString());
             })
+            ->orderBy('product_id')
+            ->orderBy('id')
             ->get();
     }
 
@@ -41,12 +45,26 @@ class KioskUnitController extends Controller
     {
         try{
             $request->validate([
-                'code_complement' => 'required',
+                'code_complement' => [
+                    'required',
+                    'string',
+                    'max:40',
+                    function ($attribute, $value, $fail) use ($request) {
+                        $quantity = (int) $request->get('quantity', 0);
+                        if ($quantity < 1) {
+                            return;
+                        }
+                        $maxGenerated = strlen($value) + 1 + strlen((string) ($quantity - 1));
+                        if ($maxGenerated > 50) {
+                            $fail('El código complementario es demasiado largo para la cantidad indicada.');
+                        }
+                    },
+                ],
                 'price' => 'required|numeric|min:0',
                 'expiration' => 'date',
                 'active' => 'boolean',
                 'product_id' => 'required|exists:kiosk_products,id',
-                'quantity' => 'required|numeric'
+                'quantity' => 'required|numeric|min:1'
             ]);
             $units = [];
             for ($i=0; $i < $request->get("quantity"); $i++) {
@@ -84,12 +102,12 @@ class KioskUnitController extends Controller
     public function update(Request $request, KioskUnit $kioskUnit)
     {
         $request->validate([
-            'code_complement' => 'sometimes',
+            'code_complement' => 'sometimes|string|max:40',
             'price' => 'numeric|min:0',
             'expiration' => 'date',
             'active' => 'boolean',
             'product_id' => 'exists:kiosk_products,id',
-            'quantity' => 'numeric:min:0',
+            'quantity' => 'numeric|min:0',
         ]);
         $existsUnits = KioskUnit::where("expiration","=", $kioskUnit->expiration)->where("price","=",$kioskUnit->price)->where("active","=",$kioskUnit->active)->where("sold","=",$kioskUnit->sold)->get();
         $totalQty = 0;

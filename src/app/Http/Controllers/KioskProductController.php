@@ -4,21 +4,29 @@ namespace App\Http\Controllers;
 
 use App\Models\KioskProduct;
 use Illuminate\Http\Request;
-use App\Http\Controllers\Controller;
+use Illuminate\Support\Facades\Storage;
 
 
 class KioskProductController extends Controller
 {
     /**
-     * Display a listing of the resource.
-     * Optimización: Solo devolver productos activos por defecto.
+     * Listado de productos kiosko.
+     *
+     * Orden estable (spec kiosk-inventory-presentation): categoría (nombre) → producto (nombre) → id.
+     * Query: include_inactive=1 incluye inactivos (p. ej. administración).
      */
     public function index(Request $request)
     {
-        $query = KioskProduct::with('category')->with('tax');
+        $query = KioskProduct::query()
+            ->with(['category', 'tax'])
+            ->leftJoin('kiosk_categories', 'kiosk_products.category_id', '=', 'kiosk_categories.id')
+            ->orderBy('kiosk_categories.name')
+            ->orderBy('kiosk_products.name')
+            ->orderBy('kiosk_products.id')
+            ->select('kiosk_products.*');
 
         if (!$request->boolean('include_inactive')) {
-            $query->where('active', true);
+            $query->where('kiosk_products.active', true);
         }
 
         return $query->get();
@@ -38,6 +46,18 @@ class KioskProductController extends Controller
             'active' => 'boolean',
             'category_id' => 'required|exists:kiosk_categories,id',
             'tax_id' => 'required|exists:taxes,id',
+        ], [
+            'name.required' => 'El nombre es obligatorio.',
+            'code.required' => 'El código es obligatorio.',
+            'code.unique' => 'El código ya está registrado. Usa uno diferente para continuar.',
+            'sale_price.required' => 'El precio de venta es obligatorio.',
+            'sale_price.min' => 'El precio de venta no puede ser negativo.',
+            'image.image' => 'La imagen debe ser un archivo de imagen válido.',
+            'image.max' => 'La imagen no debe superar los 2 MB.',
+            'category_id.required' => 'La categoría es obligatoria.',
+            'category_id.exists' => 'La categoría seleccionada no es válida. Elige otra opción.',
+            'tax_id.required' => 'El impuesto es obligatorio.',
+            'tax_id.exists' => 'El impuesto seleccionado no es válido. Elige otra opción.',
         ]);
 
         $kioskProduct = KioskProduct::create($request->all());
@@ -70,6 +90,18 @@ class KioskProductController extends Controller
             'category_id' => 'required|exists:kiosk_categories,id',
             'tax_id' => 'required|exists:taxes,id',
             'sale_price' => 'required|min:0',
+        ], [
+            'name.required' => 'El nombre es obligatorio.',
+            'code.required' => 'El código es obligatorio.',
+            'code.unique' => 'El código ya está registrado. Usa uno diferente para continuar.',
+            'sale_price.required' => 'El precio de venta es obligatorio.',
+            'sale_price.min' => 'El precio de venta no puede ser negativo.',
+            'image.image' => 'La imagen debe ser un archivo de imagen válido.',
+            'image.max' => 'La imagen no debe superar los 2 MB.',
+            'category_id.required' => 'La categoría es obligatoria.',
+            'category_id.exists' => 'La categoría seleccionada no es válida. Elige otra opción.',
+            'tax_id.required' => 'El impuesto es obligatorio.',
+            'tax_id.exists' => 'El impuesto seleccionado no es válido. Elige otra opción.',
         ]);
 
         if ($request->hasFile('image')) {
