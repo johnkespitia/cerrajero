@@ -46,6 +46,18 @@ class KioskProductController extends Controller
             'active' => 'boolean',
             'category_id' => 'required|exists:kiosk_categories,id',
             'tax_id' => 'required|exists:taxes,id',
+        ], [
+            'name.required' => 'El nombre es obligatorio.',
+            'code.required' => 'El código es obligatorio.',
+            'code.unique' => 'El código ya está registrado. Usa uno diferente para continuar.',
+            'sale_price.required' => 'El precio de venta es obligatorio.',
+            'sale_price.min' => 'El precio de venta no puede ser negativo.',
+            'image.image' => 'La imagen debe ser un archivo de imagen válido.',
+            'image.max' => 'La imagen no debe superar los 2 MB.',
+            'category_id.required' => 'La categoría es obligatoria.',
+            'category_id.exists' => 'La categoría seleccionada no es válida. Elige otra opción.',
+            'tax_id.required' => 'El impuesto es obligatorio.',
+            'tax_id.exists' => 'El impuesto seleccionado no es válido. Elige otra opción.',
         ]);
 
         $kioskProduct = KioskProduct::create($request->all());
@@ -78,6 +90,18 @@ class KioskProductController extends Controller
             'category_id' => 'required|exists:kiosk_categories,id',
             'tax_id' => 'required|exists:taxes,id',
             'sale_price' => 'required|min:0',
+        ], [
+            'name.required' => 'El nombre es obligatorio.',
+            'code.required' => 'El código es obligatorio.',
+            'code.unique' => 'El código ya está registrado. Usa uno diferente para continuar.',
+            'sale_price.required' => 'El precio de venta es obligatorio.',
+            'sale_price.min' => 'El precio de venta no puede ser negativo.',
+            'image.image' => 'La imagen debe ser un archivo de imagen válido.',
+            'image.max' => 'La imagen no debe superar los 2 MB.',
+            'category_id.required' => 'La categoría es obligatoria.',
+            'category_id.exists' => 'La categoría seleccionada no es válida. Elige otra opción.',
+            'tax_id.required' => 'El impuesto es obligatorio.',
+            'tax_id.exists' => 'El impuesto seleccionado no es válido. Elige otra opción.',
         ]);
 
         if ($request->hasFile('image')) {

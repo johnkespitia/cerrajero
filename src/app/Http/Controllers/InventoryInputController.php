@@ -36,8 +36,17 @@ class InventoryInputController extends Controller
             'measure_id' => 'required|exists:inventory_measures,id',
             'min_inventory' => 'required|min:0',
         ], [
-            'required' => 'The :attribute is required',
-            'unique' => 'The :attribute exists in the database',
+            'name.required' => 'El nombre es obligatorio.',
+            'name.unique' => 'El nombre ya está registrado. Usa uno diferente para continuar.',
+            'serial.required' => 'El código serial es obligatorio.',
+            'serial.unique' => 'El código serial ya está registrado. Usa uno diferente para continuar.',
+            'active.required' => 'El estado activo es obligatorio.',
+            'category_id.required' => 'La categoría es obligatoria.',
+            'category_id.exists' => 'La categoría seleccionada no es válida. Elige otra opción.',
+            'measure_id.required' => 'La unidad de medida es obligatoria.',
+            'measure_id.exists' => 'La unidad de medida seleccionada no es válida. Elige otra opción.',
+            'min_inventory.required' => 'El inventario mínimo es obligatorio.',
+            'min_inventory.min' => 'El inventario mínimo no puede ser negativo.',
         ]);
         if ($validation->fails()) {
             return response($validation->errors()->toArray(), Response::HTTP_UNPROCESSABLE_ENTITY);
@@ -89,8 +98,11 @@ class InventoryInputController extends Controller
             'measure_id' => 'sometimes|exists:inventory_measures,id',
             'min_inventory' => 'sometimes|min:0',
         ], [
-            'required' => 'The :attribute is required',
-            'unique' => 'The :attribute exists in the database',
+            'name.unique' => 'El nombre ya está registrado. Usa uno diferente para continuar.',
+            'serial.unique' => 'El código serial ya está registrado. Usa uno diferente para continuar.',
+            'category_id.exists' => 'La categoría seleccionada no es válida. Elige otra opción.',
+            'measure_id.exists' => 'La unidad de medida seleccionada no es válida. Elige otra opción.',
+            'min_inventory.min' => 'El inventario mínimo no puede ser negativo.',
         ]);
         if ($validation->fails()) {
             return response($validation->errors()->toArray(), Response::HTTP_UNPROCESSABLE_ENTITY);
