@@ -846,6 +846,9 @@ class ReservationController extends Controller
             $request->merge(['check_out_date' => $request->check_in_date]);
         }
 
+        // Campos numéricos vacíos llegan como null (ConvertEmptyStringsToNull)
+        $this->normalizeOptionalGuestCounts($request);
+
         $rules = [
             'customer_id' => 'required|exists:customers,id',
             'room_id' => 'nullable|exists:rooms,id',
@@ -853,9 +856,9 @@ class ReservationController extends Controller
             'reservation_type' => 'required|in:room,day_pass',
             'check_in_date' => 'required|date',
             'adults' => 'required|integer|min:1',
-            'children' => 'integer|min:0',
-            'infants' => 'integer|min:0',
-            'courtesy_guests' => 'integer|min:0',
+            'children' => 'nullable|integer|min:0',
+            'infants' => 'nullable|integer|min:0',
+            'courtesy_guests' => 'nullable|integer|min:0',
             'total_price' => 'nullable|numeric|min:0',
             'manual_price_override' => 'nullable|boolean',
             'deposit_amount' => 'numeric|min:0',
@@ -1258,13 +1261,16 @@ class ReservationController extends Controller
             $request->merge(['check_out_date' => $request->check_in_date]);
         }
 
+        // Campos numéricos vacíos llegan como null (ConvertEmptyStringsToNull)
+        $this->normalizeOptionalGuestCounts($request);
+
         $rules = [
             'room_id' => 'nullable|exists:rooms,id',
             'check_in_date' => 'sometimes|date',
             'adults' => 'sometimes|integer|min:1',
-            'children' => 'integer|min:0',
-            'infants' => 'integer|min:0',
-            'courtesy_guests' => 'integer|min:0',
+            'children' => 'nullable|integer|min:0',
+            'infants' => 'nullable|integer|min:0',
+            'courtesy_guests' => 'nullable|integer|min:0',
             'total_price' => 'sometimes|numeric|min:0',
             'manual_price_override' => 'sometimes|boolean',
             'status' => 'sometimes|in:pending,confirmed,checked_in,checked_out,cancelled',
@@ -1700,12 +1706,15 @@ class ReservationController extends Controller
         }
         $request->replace($input);
 
+        // Campos numéricos vacíos llegan como null (ConvertEmptyStringsToNull)
+        $this->normalizeOptionalGuestCounts($request);
+
         $validator = Validator::make($request->all(), [
             'check_in_date' => 'required|date',
             'check_out_date' => 'nullable|date|after:check_in_date',
             'adults' => 'required|integer|min:1',
-            'children' => 'integer|min:0',
-            'infants' => 'integer|min:0',
+            'children' => 'nullable|integer|min:0',
+            'infants' => 'nullable|integer|min:0',
             'room_type_id' => 'nullable|exists:room_types,id',
             'reservation_type' => 'nullable|in:room,day_pass',
         ]);
@@ -4117,6 +4126,26 @@ class ReservationController extends Controller
         ]);
 
         return $roomsNeeded;
+    }
+
+    /**
+     * Convierte conteos de huéspedes opcionales vacíos/null a 0.
+     * Evita fallos de la regla "integer" cuando el input number se deja vacío.
+     */
+    private function normalizeOptionalGuestCounts(Request $request): void
+    {
+        $fields = ['children', 'infants', 'courtesy_guests', 'extra_beds'];
+        $normalized = [];
+
+        foreach ($fields as $field) {
+            if ($request->exists($field) && $request->input($field) === null) {
+                $normalized[$field] = 0;
+            }
+        }
+
+        if (!empty($normalized)) {
+            $request->merge($normalized);
+        }
     }
 
     private function validateCourtesyGuestsRequest(Request $request)
