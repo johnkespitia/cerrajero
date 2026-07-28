@@ -134,6 +134,7 @@ jobs:
           MIX_PUSHER_APP_CLUSTER=${{ secrets.MIX_PUSHER_APP_CLUSTER || 'mt1' }}
 
           DEPLOY_MIGRATE_TOKEN=${{ secrets.DEPLOY_MIGRATE_TOKEN }}
+          PUBLIC_SITE_URL=${{ secrets.PUBLIC_SITE_URL || 'https://centrovacacionalcampoverde.com' }}
           EOF
 
       - name: Create update-env.php script

@@ -70,6 +70,14 @@ class Reservation extends Model
         'campaign_name',
         'tracking_code',
         'marketing_notes',
+        // Portal público de huéspedes (OTP)
+        'guest_portal_token',
+        'guest_portal_otp_hash',
+        'guest_portal_otp_expires_at',
+        'guest_portal_otp_attempts',
+        'guest_portal_session_hash',
+        'guest_portal_session_expires_at',
+        'guest_portal_enabled_at',
         // Campos para reservas agrupadas (múltiples habitaciones)
         'parent_reservation_id',
         'is_group_reservation',
@@ -111,6 +119,15 @@ class Reservation extends Model
         'late_check_out' => 'boolean',
         'price_breakdown' => 'array',
         'fiscal_due_date' => 'date',
+        'guest_portal_otp_expires_at' => 'datetime',
+        'guest_portal_otp_attempts' => 'integer',
+        'guest_portal_session_expires_at' => 'datetime',
+        'guest_portal_enabled_at' => 'datetime',
+    ];
+
+    protected $hidden = [
+        'guest_portal_otp_hash',
+        'guest_portal_session_hash',
     ];
 
     public function electronicDocument()
@@ -390,6 +407,7 @@ class Reservation extends Model
                 $query->where('credit', true);
             })
             ->where('payed', false)
+            ->whereNull('cancelled_at')
             ->with(['payment_type', 'details.kiosk_unit.product'])
             ->get();
     }

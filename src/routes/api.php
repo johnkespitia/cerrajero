@@ -37,6 +37,19 @@ Route::prefix('public/site')->middleware('throttle:60,1')->group(function () {
     Route::get('/content', [\App\Http\Controllers\PublicSiteController::class, 'content']);
 });
 
+// Portal público de huéspedes (OTP, sin crear usuarios)
+Route::prefix('public/guest-portal')->group(function () {
+    Route::controller(\App\Http\Controllers\GuestPortalController::class)->group(function () {
+        Route::get('/{token}', 'show')->middleware('throttle:60,1');
+        Route::post('/{token}/otp/request', 'requestOtp')->middleware('throttle:12,1');
+        Route::post('/{token}/otp/verify', 'verifyOtp')->middleware('throttle:20,1');
+        Route::get('/{token}/guests', 'guests')->middleware('throttle:60,1');
+        Route::post('/{token}/guests', 'storeGuest')->middleware('throttle:30,1');
+        Route::put('/{token}/guests/{guest}', 'updateGuest')->middleware('throttle:30,1');
+        Route::delete('/{token}/guests/{guest}', 'destroyGuest')->middleware('throttle:30,1');
+    });
+});
+
 // Mantenimiento de deploy (solo si DEPLOY_MIGRATE_TOKEN está configurado en .env)
 Route::get('/public/deploy/migrate', function (Request $request) {
     $expected = (string) env('DEPLOY_MIGRATE_TOKEN', '');
@@ -370,6 +383,9 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::post('/kiosk/invoice/{kioskInvoice}/verify-otp', 'verifyOtpAndComplete')->name('verifyOtpAndComplete')->middleware('permission:compras.create,kioskcaja');
         Route::post('/kiosk/invoice', 'store')->name('store')->middleware('permission:compras.create,kioskcaja');
         Route::get('/kiosk/invoice/{kioskInvoice}', 'show')->name('show')->middleware('permission:compras.list,kioskcaja');
+        Route::put('/kiosk/invoice/{kioskInvoice}/details', 'syncDetails')->name('syncDetails')->middleware('permission:compras.edit,kioskcaja');
+        Route::post('/kiosk/invoice/{kioskInvoice}/pay', 'pay')->name('pay')->middleware('permission:compras.edit,kioskcaja');
+        Route::post('/kiosk/invoice/{kioskInvoice}/cancel', 'cancel')->name('cancel')->middleware('permission:compras.edit,kioskcaja');
         Route::put('/kiosk/invoice/{kioskInvoice}', 'update')->name('update')->middleware('permission:compras.edit,kioskcaja');
         Route::delete('/kiosk/invoice/{kioskInvoice}', 'destroy')->name('destroy')->middleware('permission:compras.edit,kioskcaja');
     });
@@ -479,6 +495,11 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::post('/google-calendar/test-connection', 'testConnection')->middleware('permission:reservation.edit,reservas');
         Route::put('/google-calendar/toggle-active', 'toggleActive')->middleware('permission:reservation.edit,reservas');
         Route::delete('/google-calendar/config/{id}', 'destroy')->middleware('permission:reservation.edit,reservas');
+    });
+
+    Route::controller(\App\Http\Controllers\ReservationGuestPortalController::class)->group(function () {
+        Route::get('/reservations/{reservation}/guest-portal/link', 'show')->middleware('permission:reservation.list,reservas');
+        Route::post('/reservations/{reservation}/guest-portal/link', 'store')->middleware('permission:reservation.edit,reservas');
     });
 
     Route::controller(\App\Http\Controllers\ReservationGuestController::class)->group(function () {
