@@ -6,29 +6,30 @@ use App\Models\KioskInvoice;
 use App\Models\PaymentType;
 use App\Models\KioskUnit;
 use App\Models\KioskInvoiceDetail;
-use App\Models\CashRegisterClosure;
 use App\Models\Reservation;
 use App\Models\ReservationPayment;
 use App\Services\ElectronicInvoicing\Exceptions\KioskEmissionInvalidPayloadException;
 use App\Services\ElectronicInvoicing\Exceptions\KioskEmissionUnavailableException;
 use App\Services\ElectronicInvoicing\KioskFiscalSnapshotBuilder;
 use App\Services\ElectronicInvoicing\KioskInvoiceEmissionService;
+use App\Services\CashRegisterClosureService;
 use App\Services\KioskOtpService;
 use Illuminate\Http\Request;
 use App\Http\Controllers\Controller;
 use Illuminate\Validation\ValidationException;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\DB;
-use Carbon\Carbon;
 
 
 class KioskInvoiceController extends Controller
 {
     protected $otpService;
+    protected CashRegisterClosureService $closureService;
 
-    public function __construct(KioskOtpService $otpService)
+    public function __construct(KioskOtpService $otpService, CashRegisterClosureService $closureService)
     {
         $this->otpService = $otpService;
+        $this->closureService = $closureService;
     }
 
     /**
@@ -180,17 +181,8 @@ class KioskInvoiceController extends Controller
                 ]);
             }
 
-            // Asignar a cierre de caja
-            $user = $request->user();
-            $today = Carbon::today();
-            $closure = CashRegisterClosure::where('user_id', $user->id)
-                ->whereDate('closure_date', $today)
-                ->where('closed', false)
-                ->first();
-            if ($closure) {
-                $kioskInvoice->closure_id = $closure->id;
-                $kioskInvoice->save();
-            }
+            // Asignar a cierre de caja (crea cierre abierto del día si aún no existe)
+            $this->closureService->assignInvoice($kioskInvoice, $request->user()->id);
 
             $electronicEnvelope = [];
             if ($this->electronicEmissionEnabled()) {
@@ -279,18 +271,19 @@ class KioskInvoiceController extends Controller
     {
         DB::beginTransaction();
         try{
-            $request->validate([
+            $isPendingWalkIn = $request->boolean('pending');
+
+            $rules = [
                 'customer_id' => 'required|exists:customers,id',
-                'reservation_id' => 'nullable|exists:reservations,id', // Permitir especificar reserva
-                'payment_code' => 'required',
-                'payment_type_id' => 'required|exists:payment_types,id',
+                'reservation_id' => 'nullable|exists:reservations,id',
                 'units'=> 'required|array',
                 'units.*.kiosk_units_id' => 'required|exists:kiosk_units,id',
                 'units.*.price' => 'required|numeric|min:0',
                 'electronic_invoice' => 'required|boolean',
                 'payed_value' => 'numeric',
-                'temp_invoice_id' => 'nullable|exists:kiosk_invoices,id', // ID de factura temporal con OTP
-                'otp_code' => 'nullable|string|size:6', // OTP para compras a crédito
+                'pending' => 'nullable|boolean',
+                'temp_invoice_id' => 'nullable|exists:kiosk_invoices,id',
+                'otp_code' => 'nullable|string|size:6',
                 'acquirer' => 'nullable|array',
                 'acquirer.document_type' => 'required_with:acquirer|string|max:30',
                 'acquirer.document_number' => 'required_with:acquirer|string|max:30',
@@ -302,7 +295,17 @@ class KioskInvoiceController extends Controller
                 'acquirer.country_code' => 'nullable|string|size:2',
                 'acquirer.tax_regime_code' => 'nullable|string|max:4',
                 'acquirer.tax_responsibilities' => 'nullable|array',
-            ]);
+            ];
+
+            if ($isPendingWalkIn) {
+                $rules['payment_code'] = 'nullable|string|max:50';
+                $rules['payment_type_id'] = 'nullable|exists:payment_types,id';
+            } else {
+                $rules['payment_code'] = 'required';
+                $rules['payment_type_id'] = 'required|exists:payment_types,id';
+            }
+
+            $request->validate($rules);
 
             if ($this->electronicEmissionEnabled()
                 && $request->boolean('electronic_invoice')
@@ -329,6 +332,51 @@ class KioskInvoiceController extends Controller
                     'message' => 'La reserva especificada no existe, no pertenece al cliente o no está en estado checked_in.',
                     'errors' => ['reservation_id' => ['Reserva inválida o no disponible']]
                 ], 422);
+            }
+
+            // Pendiente walk-in: no usa rama crédito/OTP
+            if ($isPendingWalkIn) {
+                if ($request->filled('payment_type_id')) {
+                    $pendingPaymentType = PaymentType::find($request->payment_type_id);
+                    if ($pendingPaymentType && $pendingPaymentType->credit) {
+                        DB::rollBack();
+                        return response()->json([
+                            'message' => 'Para cargo a habitación use el flujo de crédito con OTP, no "dejar pendiente".',
+                            'errors' => ['pending' => ['El pendiente walk-in no aplica a métodos a crédito.']]
+                        ], 422);
+                    }
+                }
+
+                $kioskInvoice = KioskInvoice::create([
+                    'customer_id' => $request->customer_id,
+                    'reservation_id' => $activeReservation?->id,
+                    'payment_code' => $request->payment_code,
+                    'payment_type_id' => $request->payment_type_id,
+                    'payed' => false,
+                    'electronic_invoice' => $request->boolean('electronic_invoice'),
+                ]);
+
+                $units = $request->get('units');
+                $total_invoice = 0;
+                $snapshotBuilder = new KioskFiscalSnapshotBuilder();
+                foreach ($units as $unit) {
+                    $unitModel = KioskUnit::with('product.tax')->find($unit['kiosk_units_id']);
+                    $snapshot = $snapshotBuilder->buildForUnit($unitModel, $unit['price'] ?? 0);
+                    KioskInvoiceDetail::create(array_merge([
+                        'kiosk_invoices_id' => $kioskInvoice->id,
+                        'kiosk_units_id' => $unit['kiosk_units_id'],
+                        'price' => $unit['price'],
+                    ], $snapshot));
+                    $unitModel->sold = true;
+                    $unitModel->save();
+                    $total_invoice += $unit['price'];
+                }
+
+                $this->closureService->assignInvoice($kioskInvoice, $request->user()->id);
+
+                DB::commit();
+                $kioskInvoice->load(['details.kiosk_unit.product', 'payment_type', 'customer', 'reservation']);
+                return response()->json($kioskInvoice, 201);
             }
 
             // Obtener el tipo de pago
@@ -482,6 +530,7 @@ class KioskInvoiceController extends Controller
                             $query->where('credit', true);
                         })
                         ->where('payed', false)
+                        ->whereNull('cancelled_at')
                         ->with('details')
                         ->get();
 
@@ -501,19 +550,8 @@ class KioskInvoiceController extends Controller
                 }
             }
 
-            // Asignar a cierre de caja abierto del día
-            $user = $request->user();
-            $today = Carbon::today();
-
-            $closure = CashRegisterClosure::where('user_id', $user->id)
-                ->whereDate('closure_date', $today)
-                ->where('closed', false)
-                ->first();
-
-            if ($closure) {
-                $kioskInvoice->closure_id = $closure->id;
-                $kioskInvoice->save();
-            }
+            // Asignar a cierre de caja (crea cierre abierto del día si aún no existe)
+            $this->closureService->assignInvoice($kioskInvoice, $request->user()->id);
 
             $electronicEnvelope = [];
             if ($this->electronicEmissionEnabled()) {
@@ -612,7 +650,290 @@ class KioskInvoiceController extends Controller
      */
     public function show(KioskInvoice $kioskInvoice)
     {
+        $kioskInvoice->load([
+            'customer',
+            'payment_type',
+            'reservation',
+            'details.kiosk_unit.product.tax',
+            'details.kiosk_unit.product.category',
+        ]);
+
         return $kioskInvoice;
+    }
+
+    /**
+     * Sincronizar líneas de una factura pendiente (agregar/quitar productos).
+     */
+    public function syncDetails(Request $request, KioskInvoice $kioskInvoice)
+    {
+        if (!$kioskInvoice->isPending()) {
+            return response()->json([
+                'message' => 'Solo se pueden editar facturas pendientes.',
+                'errors' => ['invoice' => ['La factura no está pendiente']]
+            ], 422);
+        }
+
+        $request->validate([
+            'units' => 'required|array|min:1',
+            'units.*.kiosk_units_id' => 'required|exists:kiosk_units,id',
+            'units.*.price' => 'required|numeric|min:0',
+        ]);
+
+        DB::beginTransaction();
+        try {
+            $kioskInvoice->load('details');
+            $newUnitIds = collect($request->units)->pluck('kiosk_units_id')->map(fn ($id) => (int) $id)->all();
+            $existingByUnitId = $kioskInvoice->details->keyBy('kiosk_units_id');
+
+            // Quitar unidades que ya no están
+            foreach ($kioskInvoice->details as $detail) {
+                if (!in_array((int) $detail->kiosk_units_id, $newUnitIds, true)) {
+                    $unitModel = KioskUnit::find($detail->kiosk_units_id);
+                    if ($unitModel) {
+                        $unitModel->sold = false;
+                        $unitModel->save();
+                    }
+                    $detail->delete();
+                }
+            }
+
+            $snapshotBuilder = new KioskFiscalSnapshotBuilder();
+            foreach ($request->units as $unit) {
+                $unitId = (int) $unit['kiosk_units_id'];
+                if ($existingByUnitId->has($unitId)) {
+                    $detail = $existingByUnitId->get($unitId);
+                    $detail->price = $unit['price'];
+                    $detail->save();
+                    continue;
+                }
+
+                $unitModel = KioskUnit::with('product.tax')->find($unitId);
+                if (!$unitModel) {
+                    continue;
+                }
+                if ($unitModel->sold) {
+                    // Ya vendida en otra factura
+                    $ownedByThis = $kioskInvoice->details()->where('kiosk_units_id', $unitId)->exists();
+                    if (!$ownedByThis) {
+                        DB::rollBack();
+                        return response()->json([
+                            'message' => "La unidad #{$unitId} ya está vendida.",
+                            'errors' => ['units' => ["La unidad #{$unitId} no está disponible"]]
+                        ], 422);
+                    }
+                }
+
+                $snapshot = $snapshotBuilder->buildForUnit($unitModel, $unit['price']);
+                KioskInvoiceDetail::create(array_merge([
+                    'kiosk_invoices_id' => $kioskInvoice->id,
+                    'kiosk_units_id' => $unitId,
+                    'price' => $unit['price'],
+                ], $snapshot));
+                $unitModel->sold = true;
+                $unitModel->save();
+            }
+
+            $kioskInvoice->load('details');
+            $totalInvoice = $kioskInvoice->details->sum('price');
+
+            if ($kioskInvoice->isRoomCredit()) {
+                $creditPayment = $this->findCreditReservationPayment($kioskInvoice);
+                if ($creditPayment) {
+                    $creditPayment->amount = $totalInvoice;
+                    $creditPayment->save();
+                }
+            }
+
+            DB::commit();
+
+            $kioskInvoice->load([
+                'details.kiosk_unit.product.tax',
+                'details.kiosk_unit.product.category',
+                'payment_type',
+                'customer',
+                'reservation',
+            ]);
+
+            return response()->json($kioskInvoice, 200);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('Error sincronizando detalles de factura kiosko: ' . $e->getMessage());
+            return response()->json([
+                'message' => 'Error al actualizar los productos de la factura',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Cobrar una factura pendiente walk-in (pago real, no crédito).
+     */
+    public function pay(Request $request, KioskInvoice $kioskInvoice)
+    {
+        if (!$kioskInvoice->isPending()) {
+            return response()->json([
+                'message' => 'Solo se pueden cobrar facturas pendientes.',
+            ], 422);
+        }
+
+        if ($kioskInvoice->isRoomCredit()) {
+            return response()->json([
+                'message' => 'Esta factura es cargo a habitación. Debe liquidarse en la reserva / checkout.',
+                'errors' => ['payment_type_id' => ['Use el cobro por reserva para crédito a habitación']]
+            ], 422);
+        }
+
+        $request->validate([
+            'payment_type_id' => 'required|exists:payment_types,id',
+            'payment_code' => 'required|string|max:50',
+            'payed_value' => 'nullable|numeric',
+            'electronic_invoice' => 'nullable|boolean',
+            'acquirer' => 'nullable|array',
+        ]);
+
+        $paymentType = PaymentType::find($request->payment_type_id);
+        if ($paymentType->credit) {
+            return response()->json([
+                'message' => 'El cobro en caja requiere un método de pago real (no crédito).',
+                'errors' => ['payment_type_id' => ['No se admite método a crédito en este endpoint']]
+            ], 422);
+        }
+
+        DB::beginTransaction();
+        try {
+            $totalInvoice = $kioskInvoice->details()->sum('price');
+
+            $kioskInvoice->payment_type_id = $paymentType->id;
+            $kioskInvoice->payment_code = $request->payment_code;
+            $kioskInvoice->payed = true;
+            if ($request->has('electronic_invoice')) {
+                $kioskInvoice->electronic_invoice = $request->boolean('electronic_invoice');
+            }
+            if ($request->filled('payed_value') && $request->payed_value > 0) {
+                $kioskInvoice->payed_value = $request->payed_value;
+                $kioskInvoice->remain_money = $request->payed_value - $totalInvoice;
+            }
+            $kioskInvoice->save();
+
+            $this->closureService->assignInvoice($kioskInvoice, $request->user()->id);
+            if ($kioskInvoice->closure_id) {
+                $this->closureService->refreshTotals($kioskInvoice->closure);
+            }
+
+            $electronicEnvelope = [];
+            if ($this->electronicEmissionEnabled() && $kioskInvoice->electronic_invoice) {
+                try {
+                    $electronicEnvelope = $this->attemptElectronicEmission(
+                        $kioskInvoice,
+                        $request->input('acquirer')
+                    );
+                } catch (KioskEmissionInvalidPayloadException $ke) {
+                    DB::rollBack();
+                    return response()->json([
+                        'message' => $ke->getMessage(),
+                        'errors' => ['acquirer' => [$ke->getMessage()]],
+                        'electronic_document_error' => [
+                            'code' => $ke->emissionCode(),
+                            'message' => $ke->getMessage(),
+                        ],
+                    ], 422);
+                }
+            }
+
+            DB::commit();
+
+            $kioskInvoice->load([
+                'details.kiosk_unit.product',
+                'payment_type',
+                'customer',
+                'reservation',
+            ]);
+
+            $payload = $kioskInvoice->toArray();
+            foreach ($electronicEnvelope as $key => $value) {
+                $payload[$key] = $value;
+            }
+            return response()->json($payload, 200);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('Error cobrando factura kiosko: ' . $e->getMessage());
+            return response()->json([
+                'message' => 'Error al cobrar la factura',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Cancelar factura pendiente: restaura unidades y la excluye del cierre.
+     */
+    public function cancel(Request $request, KioskInvoice $kioskInvoice)
+    {
+        if (!$kioskInvoice->isPending()) {
+            return response()->json([
+                'message' => 'Solo se pueden cancelar facturas pendientes.',
+            ], 422);
+        }
+
+        DB::beginTransaction();
+        try {
+            $kioskInvoice->load('details');
+
+            foreach ($kioskInvoice->details as $detail) {
+                $unitModel = KioskUnit::find($detail->kiosk_units_id);
+                if ($unitModel) {
+                    $unitModel->sold = false;
+                    $unitModel->save();
+                }
+            }
+
+            $creditPayment = $this->findCreditReservationPayment($kioskInvoice);
+            if ($creditPayment) {
+                $creditPayment->delete();
+            }
+
+            $closureId = $kioskInvoice->closure_id;
+            $kioskInvoice->cancelled_at = now();
+            $kioskInvoice->closure_id = null;
+            $kioskInvoice->save();
+
+            if ($closureId) {
+                $closure = \App\Models\CashRegisterClosure::find($closureId);
+                if ($closure && !$closure->closed) {
+                    $this->closureService->refreshTotals($closure);
+                }
+            }
+
+            DB::commit();
+
+            $kioskInvoice->load(['details', 'payment_type', 'customer', 'reservation']);
+            return response()->json([
+                'message' => 'Factura cancelada. Las unidades fueron restauradas.',
+                'invoice' => $kioskInvoice,
+            ], 200);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('Error cancelando factura kiosko: ' . $e->getMessage());
+            return response()->json([
+                'message' => 'Error al cancelar la factura',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    protected function findCreditReservationPayment(KioskInvoice $kioskInvoice): ?ReservationPayment
+    {
+        if (!$kioskInvoice->reservation_id) {
+            return null;
+        }
+
+        return ReservationPayment::where('reservation_id', $kioskInvoice->reservation_id)
+            ->where('concept', 'Compra en kiosko (a crédito)')
+            ->where(function ($query) use ($kioskInvoice) {
+                $query->where('notes', 'like', "%Factura kiosko #{$kioskInvoice->id}%")
+                    ->orWhere('payment_reference', $kioskInvoice->payment_code);
+            })
+            ->first();
     }
 
     /**
@@ -620,6 +941,12 @@ class KioskInvoiceController extends Controller
      */
     public function update(Request $request, KioskInvoice $kioskInvoice)
     {
+        if ($kioskInvoice->isPaid() || $kioskInvoice->isCancelled()) {
+            return response()->json([
+                'message' => 'No se puede editar una factura pagada o cancelada.',
+            ], 422);
+        }
+
         $request->validate([
             'customer_id' => 'required|exists:customers,id',
             'payed' => 'required|boolean',
@@ -627,7 +954,15 @@ class KioskInvoiceController extends Controller
             'payment_type_id' => 'required|exists:payment_types,id',
         ]);
 
-        $kioskInvoice->update($request->all());
+        $kioskInvoice->update($request->only([
+            'customer_id',
+            'payed',
+            'payment_code',
+            'payment_type_id',
+            'payed_value',
+            'remain_money',
+            'electronic_invoice',
+        ]));
         return response()->json($kioskInvoice, 200);
     }
 
@@ -636,7 +971,12 @@ class KioskInvoiceController extends Controller
      */
     public function destroy(KioskInvoice $kioskInvoice)
     {
-        $kioskInvoice->delete();
-        return response()->json(null, 204);
+        if ($kioskInvoice->isPaid() || $kioskInvoice->isCancelled()) {
+            return response()->json([
+                'message' => 'No se puede eliminar una factura pagada o cancelada. Use cancelar si está pendiente.',
+            ], 422);
+        }
+
+        return $this->cancel(request(), $kioskInvoice);
     }
 }

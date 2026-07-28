@@ -2371,6 +2371,7 @@ class ReservationController extends Controller
                     $query->where('credit', true);
                 })
                 ->where('payed', false)
+                ->whereNull('cancelled_at')
                 ->with('details')
                 ->get();
 
@@ -2468,6 +2469,7 @@ class ReservationController extends Controller
                     $query->where('credit', true);
                 })
                 ->where('payed', false)
+                ->whereNull('cancelled_at')
                 ->with('details')
                 ->get();
 
@@ -3030,6 +3032,7 @@ class ReservationController extends Controller
                 $query->where('credit', true);
             })
             ->where('payed', false)
+            ->whereNull('cancelled_at')
             ->with(['details.kiosk_unit.product'])
             ->get();
 

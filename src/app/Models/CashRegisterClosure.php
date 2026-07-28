@@ -93,68 +93,81 @@ class CashRegisterClosure extends Model
      * Calcular totales de las facturas
      * Separa las compras por medio de pago y solo cuenta el efectivo para el balance esperado
      * Los servicios a crédito se registran en total_credit pero NO se suman al balance esperado
+     * Canceladas y pendientes walk-in (sin crédito / sin pagar) no entran a los buckets de dinero
      */
     public function calculateTotals()
     {
-        // Cargar facturas con la relación payment_type para acceder al campo credit
-        $invoices = $this->invoices()->with('payment_type')->get();
-        
+        // Solo facturas no canceladas con impacto en caja: pagadas o crédito a habitación pendiente
+        $invoices = $this->invoices()
+            ->whereNull('cancelled_at')
+            ->with(['payment_type', 'details'])
+            ->get()
+            ->filter(function ($invoice) {
+                if ($invoice->payed) {
+                    return true;
+                }
+                // Crédito a habitación pendiente → total_credit
+                return $invoice->payment_type
+                    && ($invoice->payment_type->credit === true || $invoice->payment_type->credit === 1);
+            });
+
         $this->total_invoices = $invoices->count();
-        $this->total_sales = $invoices->sum(function($invoice) {
+        $this->total_sales = $invoices->sum(function ($invoice) {
             return $invoice->details->sum('price');
         });
 
-        // Inicializar totales en 0
         $this->total_cash = 0;
         $this->total_card = 0;
         $this->total_credit = 0;
         $this->total_transfer = 0;
 
-        // Agrupar por tipo de pago y sumar los totales
         $paymentTypes = $invoices->groupBy('payment_type_id');
 
         foreach ($paymentTypes as $paymentTypeId => $typeInvoices) {
             $paymentType = PaymentType::find($paymentTypeId);
-            if (!$paymentType) continue;
+            if (!$paymentType) {
+                continue;
+            }
 
-            // Calcular el total de este tipo de pago sumando todas las facturas
-            $total = $typeInvoices->sum(function($invoice) {
+            $total = $typeInvoices->sum(function ($invoice) {
                 return $invoice->details->sum('price');
             });
 
-            // PRIORIDAD 1: Si el PaymentType tiene credit = true, es un servicio a crédito
-            // Los servicios a crédito NO se suman al balance esperado (solo efectivo)
-            if ($paymentType->credit === true || $paymentType->credit === 1) {
-                $this->total_credit += $total;
-                continue; // No clasificar por nombre si es crédito
+            // PRIORIDAD 1: crédito a habitación pendiente → solo total_credit
+            if (($paymentType->credit === true || $paymentType->credit === 1) && !$typeInvoices->first()->payed) {
+                $creditTotal = $typeInvoices->filter(fn ($inv) => !$inv->payed)->sum(function ($invoice) {
+                    return $invoice->details->sum('price');
+                });
+                $this->total_credit += $creditTotal;
+                continue;
             }
 
-            // PRIORIDAD 2: Si no es crédito, clasificar por nombre del tipo de pago
+            // Solo facturas pagadas (no crédito) entran a cash/card/transfer
+            $paidTotal = $typeInvoices->filter(fn ($inv) => (bool) $inv->payed)->sum(function ($invoice) {
+                return $invoice->details->sum('price');
+            });
+            if ($paidTotal <= 0) {
+                continue;
+            }
+
+            if ($paymentType->credit === true || $paymentType->credit === 1) {
+                continue;
+            }
+
             $paymentTypeName = strtolower(trim($paymentType->name));
-            
-            // Clasificar y SUMAR (no sobrescribir) según el tipo de pago
+
             if (strpos($paymentTypeName, 'efectivo') !== false || strpos($paymentTypeName, 'cash') !== false) {
-                $this->total_cash += $total;
-            } elseif (strpos($paymentTypeName, 'tarjeta') !== false || strpos($paymentTypeName, 'card') !== false || 
+                $this->total_cash += $paidTotal;
+            } elseif (strpos($paymentTypeName, 'tarjeta') !== false || strpos($paymentTypeName, 'card') !== false ||
                       strpos($paymentTypeName, 'tarjeta de') !== false || strpos($paymentTypeName, 'debito') !== false ||
                       strpos($paymentTypeName, 'débito') !== false) {
-                $this->total_card += $total;
+                $this->total_card += $paidTotal;
             } elseif (strpos($paymentTypeName, 'transferencia') !== false || strpos($paymentTypeName, 'transfer') !== false) {
-                $this->total_transfer += $total;
-            } else {
-                // Si no coincide con ningún tipo conocido, no se suma a ningún total específico
-                // pero sí se cuenta en total_sales (que ya se calculó arriba)
+                $this->total_transfer += $paidTotal;
             }
         }
 
-        // El balance esperado solo incluye el efectivo (balance inicial + total en efectivo)
-        // Los otros medios de pago se registran pero no se suman al balance físico
         $this->closing_balance = $this->opening_balance + $this->total_cash;
         $this->save();
     }
 }
-
-
-
-
-
