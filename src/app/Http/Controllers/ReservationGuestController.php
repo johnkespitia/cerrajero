@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Customer;
 use App\Models\Reservation;
 use App\Models\ReservationGuest;
 use App\Services\GuestImportService;
@@ -261,6 +262,159 @@ class ReservationGuestController extends Controller
     {
         $guests = $reservation->guests()->orderBy('is_primary_guest', 'desc')->get();
         return response()->json($guests);
+    }
+
+    /**
+     * Busca un huésped previo o cliente registrado por documento para prellenar formularios.
+     */
+    public function lookup(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'document_number' => 'required|string|max:50',
+            'document_type' => 'nullable|string|max:20',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json($validator->errors(), 422);
+        }
+
+        $documentNumber = trim((string) $request->input('document_number'));
+        if ($documentNumber === '') {
+            return response()->json(['found' => false]);
+        }
+
+        $documentType = $request->filled('document_type')
+            ? trim((string) $request->input('document_type'))
+            : null;
+
+        $previousGuest = $this->findPreviousGuest($documentNumber, $documentType);
+        $customer = $this->findCustomerByDocument($documentNumber);
+
+        if (!$previousGuest && !$customer) {
+            return response()->json(['found' => false]);
+        }
+
+        $guestPayload = $this->buildLookupGuestPayload($previousGuest, $customer, $documentNumber, $documentType);
+        $source = $previousGuest && $customer
+            ? 'both'
+            : ($previousGuest ? 'guest' : 'customer');
+
+        return response()->json([
+            'found' => true,
+            'source' => $source,
+            'guest' => $guestPayload,
+        ]);
+    }
+
+    protected function findPreviousGuest(string $documentNumber, ?string $documentType): ?ReservationGuest
+    {
+        $query = ReservationGuest::query()
+            ->where('document_number', $documentNumber)
+            ->whereNotNull('first_name')
+            ->where('first_name', '!=', '')
+            ->orderByDesc('updated_at')
+            ->orderByDesc('id');
+
+        if ($documentType) {
+            $typed = (clone $query)->where('document_type', $documentType)->first();
+            if ($typed) {
+                return $typed;
+            }
+        }
+
+        return $query->first();
+    }
+
+    protected function findCustomerByDocument(string $documentNumber): ?Customer
+    {
+        return Customer::query()
+            ->where(function ($q) use ($documentNumber) {
+                $q->where('dni', $documentNumber)
+                    ->orWhere('company_nit', $documentNumber);
+            })
+            ->first();
+    }
+
+    protected function buildLookupGuestPayload(
+        ?ReservationGuest $previousGuest,
+        ?Customer $customer,
+        string $documentNumber,
+        ?string $documentType
+    ): array {
+        $fromGuest = $previousGuest ? [
+            'first_name' => $previousGuest->first_name,
+            'last_name' => $previousGuest->last_name,
+            'document_type' => $previousGuest->document_type ?: ($documentType ?: 'CC'),
+            'document_number' => $previousGuest->document_number ?: $documentNumber,
+            'birth_date' => optional($previousGuest->birth_date)->format('Y-m-d'),
+            'gender' => $previousGuest->gender,
+            'nationality' => $previousGuest->nationality,
+            'email' => $previousGuest->email,
+            'phone' => $previousGuest->phone,
+            'health_insurance_name' => $previousGuest->health_insurance_name,
+            'health_insurance_type' => $previousGuest->health_insurance_type ?: 'national',
+            'special_needs' => $previousGuest->special_needs,
+        ] : [];
+
+        $fromCustomer = [];
+        if ($customer) {
+            if ($customer->customer_type === 'company') {
+                $fromCustomer = [
+                    'first_name' => $customer->company_name ?: $customer->company_legal_representative,
+                    'last_name' => $customer->company_legal_representative ?: '',
+                    'document_type' => $documentType ?: 'NIT',
+                    'document_number' => $customer->company_nit ?: $documentNumber,
+                    'email' => $customer->email,
+                    'phone' => $customer->phone_number,
+                ];
+            } else {
+                $fromCustomer = [
+                    'first_name' => $customer->name,
+                    'last_name' => $customer->last_name,
+                    'document_type' => $documentType ?: 'CC',
+                    'document_number' => $customer->dni ?: $documentNumber,
+                    'email' => $customer->email,
+                    'phone' => $customer->phone_number,
+                ];
+            }
+        }
+
+        $fields = [
+            'first_name',
+            'last_name',
+            'document_type',
+            'document_number',
+            'birth_date',
+            'gender',
+            'nationality',
+            'email',
+            'phone',
+            'health_insurance_name',
+            'health_insurance_type',
+            'special_needs',
+        ];
+
+        $merged = [];
+        foreach ($fields as $field) {
+            $guestValue = $fromGuest[$field] ?? null;
+            $customerValue = $fromCustomer[$field] ?? null;
+            $value = ($guestValue !== null && $guestValue !== '')
+                ? $guestValue
+                : $customerValue;
+            $merged[$field] = $value !== null && $value !== '' ? $value : null;
+        }
+
+        if (empty($merged['document_number'])) {
+            $merged['document_number'] = $documentNumber;
+        }
+        if (empty($merged['document_type'])) {
+            $merged['document_type'] = $documentType ?: 'CC';
+        }
+        if (empty($merged['health_insurance_type'])) {
+            $merged['health_insurance_type'] = 'national';
+        }
+
+        return $merged;
     }
 
     public function store(Request $request, Reservation $reservation)

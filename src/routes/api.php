@@ -484,6 +484,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::controller(\App\Http\Controllers\ReservationGuestController::class)->group(function () {
         Route::get('/guests/import/template', 'downloadTemplate')->middleware('permission:reservation.list,reservas');
         Route::post('/guests/import/preview', 'previewImport')->middleware('permission:reservation.edit,reservas');
+        Route::get('/guests/lookup', 'lookup')->middleware('permission:reservation.list,reservas');
         Route::get('/reservations/{reservation}/guests', 'index')->middleware('permission:reservation.list,reservas');
         Route::post('/reservations/{reservation}/guests', 'store')->middleware('permission:reservation.edit,reservas');
         Route::post('/reservations/{reservation}/guests/import', 'import')->middleware('permission:reservation.edit,reservas');
