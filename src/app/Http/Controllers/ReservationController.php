@@ -142,6 +142,7 @@ class ReservationController extends Controller
             'additionalServices.additionalService',
             'payments',
             'minibarCharges',
+            'createdBy',
             'childReservations' => function($query) use (&$childWith) {
                 $query->with($childWith);
             },
@@ -270,6 +271,11 @@ class ReservationController extends Controller
             });
         }
 
+        // Filtro por usuario/asesor que creó la reserva
+        if ($request->filled('created_by')) {
+            $query->where('created_by', $request->created_by);
+        }
+
         // Búsqueda general por texto (busca en número de reserva, nombre y documento)
         if ($request->has('search')) {
             $searchTerm = $request->search;
@@ -300,7 +306,8 @@ class ReservationController extends Controller
                           $request->has('reservation_number') ||
                           $request->has('customer_document') ||
                           $request->has('additional_service_id') ||
-                          $request->has('service_package_id');
+                          $request->has('service_package_id') ||
+                          $request->filled('created_by');
         
         // Si no hay filtros activos, limitar a últimos 30 días por defecto
         if (!$hasDateFilter && !$hasOtherFilters && !$request->boolean('show_all')) {

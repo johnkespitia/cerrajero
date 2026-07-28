@@ -395,6 +395,12 @@
                                     </div>
                                 </div>
                             @endif
+                            @if(!empty($advisorName) || $reservation->createdBy)
+                                <div class="info-row">
+                                    <div class="info-label">Asesor:</div>
+                                    <div class="info-value">{{ $advisorName ?? $reservation->createdBy->name }}</div>
+                                </div>
+                            @endif
                         </div>
                     </div>
                 </div>
