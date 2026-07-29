@@ -1177,11 +1177,18 @@ class ReservationController extends Controller
             $calculatedPrice = $priceCalculation['calculated_price'];
             $priceBreakdown = $priceCalculation['price_breakdown'];
             
-            // Usar precio manual si se proporciona y hay override, sino usar el calculado
+            // Con override manual: total_price guarda el subtotal bruto; calculated_price el neto (cupón/descuento).
             $manualOverride = $this->parseBoolean($request->manual_price_override ?? false);
-            $totalPrice = ($manualOverride && $request->total_price !== null)
-                ? $request->total_price
-                : $calculatedPrice;
+            if ($manualOverride && $request->total_price !== null) {
+                $tempReservation->total_price = $request->total_price;
+                $tempReservation->manual_price_override = true;
+                $priceCalculation = $this->priceCalculator->calculatePrice($tempReservation, false);
+                $calculatedPrice = $priceCalculation['calculated_price'];
+                $priceBreakdown = $priceCalculation['price_breakdown'];
+                $totalPrice = $request->total_price;
+            } else {
+                $totalPrice = $calculatedPrice;
+            }
 
             $reservation = Reservation::create([
                 'customer_id' => $request->customer_id,
@@ -1201,7 +1208,7 @@ class ReservationController extends Controller
                 'promotion_code' => $request->promotion_code,
                 'discount_amount' => $request->discount_amount ?? 0,
                 'courtesy_guests' => $request->courtesy_guests ?? 0,
-                'final_price' => $totalPrice,
+                'final_price' => $calculatedPrice,
                 'deposit_amount' => $request->deposit_amount ?? 0,
                 'special_requests' => $request->special_requests,
                 'cancellation_policy_id' => $request->cancellation_policy_id,
@@ -1615,6 +1622,13 @@ class ReservationController extends Controller
                 } else {
                     $updateData['total_price'] = $reservation->total_price;
                 }
+                // Recalcular neto (cupón/descuento) sobre el subtotal manual
+                $tempReservation->total_price = $updateData['total_price'];
+                $tempReservation->manual_price_override = true;
+                $manualPriceCalculation = $this->priceCalculator->calculatePrice($tempReservation, false);
+                $newCalculatedPrice = $manualPriceCalculation['calculated_price'];
+                $updateData['calculated_price'] = $newCalculatedPrice;
+                $updateData['price_breakdown'] = $manualPriceCalculation['price_breakdown'];
             } else {
                 $updateData['manual_price_override'] = false;
                 $updateData['total_price'] = $newCalculatedPrice;

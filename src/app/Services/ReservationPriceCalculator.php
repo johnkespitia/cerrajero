@@ -12,15 +12,32 @@ class ReservationPriceCalculator
 {
     public function calculatePrice(Reservation $reservation, $forceRecalculate = false)
     {
-        // Si hay override manual y no se fuerza recálculo, conservar el precio manual
+        // Si hay override manual y no se fuerza recálculo, usar el subtotal manual
+        // aplicando cupón/descuento (misma regla que el preview del formulario).
         if ($reservation->manual_price_override && !$forceRecalculate) {
             $manualPrice = (float) ($reservation->total_price ?? 0);
+            $nights = max(1, (int) $reservation->nights);
+            $guestBreakdown = [
+                'adults' => (int) ($reservation->adults ?? 0),
+                'children' => (int) ($reservation->children ?? 0),
+                'adult_price' => 0,
+                'child_price' => 0,
+            ];
+            $discount = $this->calculateDiscount(
+                $reservation,
+                $manualPrice,
+                $nights,
+                $guestBreakdown
+            );
+            $netPrice = max(0, $manualPrice - $discount);
             $breakdown = $reservation->price_breakdown ?? [];
             $breakdown['manual_override'] = true;
             $breakdown['subtotal'] = $manualPrice;
+            $breakdown['discount'] = $discount;
+            $breakdown['final_price'] = $netPrice;
 
             return [
-                'calculated_price' => $manualPrice,
+                'calculated_price' => $netPrice,
                 'price_breakdown' => $breakdown,
             ];
         }

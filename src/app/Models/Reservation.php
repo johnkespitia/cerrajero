@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Services\CourtesyGuestDiscountCalculator;
+use App\Services\ReservationPriceCalculator;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Carbon\Carbon;
@@ -373,7 +374,20 @@ class Reservation extends Model
     public function getEffectiveLodgingPrice(): float
     {
         if ($this->manual_price_override) {
-            return (float) ($this->total_price ?? 0);
+            $gross = (float) ($this->total_price ?? 0);
+            $breakdown = $this->price_breakdown ?? [];
+            $discount = (float) ($breakdown['discount'] ?? 0);
+
+            // Si el breakdown no trae descuento pero hay cupón/descuento manual, recalcular neto.
+            if (
+                $discount <= 0 &&
+                (!empty($this->promotion_code) || (float) ($this->discount_amount ?? 0) > 0)
+            ) {
+                $result = app(ReservationPriceCalculator::class)->calculatePrice($this, false);
+                return (float) ($result['calculated_price'] ?? max(0, $gross));
+            }
+
+            return max(0.0, round($gross - $discount, 2));
         }
 
         return (float) ($this->calculated_price ?? $this->total_price ?? 0);
