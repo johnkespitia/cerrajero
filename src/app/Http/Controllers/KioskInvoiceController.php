@@ -586,14 +586,17 @@ class KioskInvoiceController extends Controller
             return response()->json($payload, 201);
         }catch(ValidationException $ve){
             DB::rollBack();
+            $errors = $ve->errors();
+            $firstMessage = collect($errors)->flatten()->first();
             return response()->json([
-                'errors' => $ve->errors()
+                'message' => $firstMessage ?: 'Datos de factura inválidos.',
+                'errors' => $errors,
             ], 422);
         } catch (\Exception $e) {
             DB::rollBack();
             Log::error('Error al crear factura de kiosko: ' . $e->getMessage());
             return response()->json([
-                'message' => 'Error al crear la factura',
+                'message' => 'Error al crear la factura: ' . $e->getMessage(),
                 'error' => $e->getMessage()
             ], 500);
         }
