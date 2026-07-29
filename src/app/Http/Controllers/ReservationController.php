@@ -69,6 +69,79 @@ class ReservationController extends Controller
     }
 
     /**
+     * Recalcula payment_status tras cambios de final_price (p. ej. servicios adicionales).
+     * No altera reservas gratuitas ni reembolsadas.
+     */
+    protected function syncPaymentStatusAfterPriceChange(Reservation $reservation): void
+    {
+        if (in_array($reservation->payment_status, ['free', 'refunded'], true)) {
+            return;
+        }
+
+        $finalPrice = (float) $reservation->final_price;
+        $totalPaid = (float) $reservation->payments()
+            ->whereNotNull('payment_type_id')
+            ->where(function ($query) {
+                $query->where('concept', '!=', 'Compra en kiosko (a crédito)')
+                    ->orWhereNull('concept');
+            })
+            ->sum('amount');
+
+        $hasPendingKiosk = $reservation->kioskInvoices()
+            ->whereHas('payment_type', function ($query) {
+                $query->where('credit', true);
+            })
+            ->where('payed', false)
+            ->whereNull('cancelled_at')
+            ->exists();
+
+        if ($hasPendingKiosk) {
+            $reservation->payment_status = 'partial';
+        } elseif ($totalPaid >= $finalPrice && $finalPrice >= 0 && $totalPaid > 0) {
+            $reservation->payment_status = 'paid';
+        } elseif ($totalPaid > 0) {
+            $reservation->payment_status = 'partial';
+        } else {
+            $reservation->payment_status = 'pending';
+        }
+
+        $reservation->saveQuietly();
+    }
+
+    /**
+     * Eager-load de relaciones usadas por el modal de detalle de reservas.
+     */
+    protected function loadReservationDetailRelations(Reservation $reservation): Reservation
+    {
+        return $reservation->load([
+            'customer',
+            'room',
+            'room.roomType',
+            'roomType',
+            'guests',
+            'additionalServices.additionalService',
+            'createdBy',
+            'childReservations' => function ($q) {
+                $q->with([
+                    'room',
+                    'room.roomType',
+                    'payments.paymentType',
+                    'kioskInvoices.payment_type',
+                    'kioskInvoices.details.kiosk_unit.product',
+                    'minibarCharges.product',
+                ]);
+            },
+            'parentReservation',
+            'payments.paymentType',
+            'kioskInvoices.payment_type',
+            'kioskInvoices.details.kiosk_unit.product',
+            'minibarCharges.product',
+            'promotion',
+            'cancellationPolicy',
+        ]);
+    }
+
+    /**
      * Verificar si un cliente tiene reserva activa (para uso desde módulo de kiosko)
      */
     public function checkActiveReservation(Request $request)
@@ -2681,7 +2754,8 @@ class ReservationController extends Controller
             : $this->additionalServiceCalculator->getDefaultItemQuantity($reservation);
         $ras = $this->additionalServiceCalculator->addServiceToReservation($reservation, $svc, $itemQuantity);
         $reservation->recomputeFinalPrice();
-        $reservation->load(['additionalServices.additionalService']);
+        $this->syncPaymentStatusAfterPriceChange($reservation);
+        $this->loadReservationDetailRelations($reservation);
         $this->syncReservationToGoogleCalendar($reservation);
 
         return response()->json([
@@ -2708,7 +2782,8 @@ class ReservationController extends Controller
 
         $reservationAdditionalService->delete();
         $reservation->recomputeFinalPrice();
-        $reservation->load(['additionalServices.additionalService']);
+        $this->syncPaymentStatusAfterPriceChange($reservation);
+        $this->loadReservationDetailRelations($reservation);
         $this->syncReservationToGoogleCalendar($reservation);
 
         return response()->json([
