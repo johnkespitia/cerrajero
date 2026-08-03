@@ -339,6 +339,14 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::post('/kiosk/products/unit/bulk-delete', 'bulkDelete')->middleware('permission:kiosk_products.edit,kioskinvetario');
     });
 
+    Route::controller(\App\Http\Controllers\KioskCouponController::class)->group(function () {
+        Route::get('/kiosk/coupons', 'index')->middleware('permission:kiosk_coupons.list,kioskcaja');
+        Route::post('/kiosk/coupons', 'store')->middleware('permission:kiosk_coupons.create,kioskcaja');
+        Route::get('/kiosk/coupons/{kioskCoupon}', 'show')->middleware('permission:kiosk_coupons.list,kioskcaja');
+        Route::put('/kiosk/coupons/{kioskCoupon}', 'update')->middleware('permission:kiosk_coupons.edit,kioskcaja');
+        Route::delete('/kiosk/coupons/{kioskCoupon}', 'destroy')->middleware('permission:kiosk_coupons.delete,kioskcaja');
+    });
+
     Route::controller(\App\Http\Controllers\KioskInvoiceController::class)->group(function () {
         Route::get('/kiosk/caja', 'index')->name('index')->middleware('permission:caja.list,kioskcaja');
         Route::post('/kiosk/caja', 'store')->name('store')->middleware('permission:caja.create,kioskcaja');

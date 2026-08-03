@@ -13,6 +13,7 @@ use App\Services\ElectronicInvoicing\Exceptions\KioskEmissionUnavailableExceptio
 use App\Services\ElectronicInvoicing\KioskFiscalSnapshotBuilder;
 use App\Services\ElectronicInvoicing\KioskInvoiceEmissionService;
 use App\Services\CashRegisterClosureService;
+use App\Services\KioskDiscountService;
 use App\Services\KioskOtpService;
 use Illuminate\Http\Request;
 use App\Http\Controllers\Controller;
@@ -25,11 +26,16 @@ class KioskInvoiceController extends Controller
 {
     protected $otpService;
     protected CashRegisterClosureService $closureService;
+    protected KioskDiscountService $discountService;
 
-    public function __construct(KioskOtpService $otpService, CashRegisterClosureService $closureService)
-    {
+    public function __construct(
+        KioskOtpService $otpService,
+        CashRegisterClosureService $closureService,
+        KioskDiscountService $discountService
+    ) {
         $this->otpService = $otpService;
         $this->closureService = $closureService;
+        $this->discountService = $discountService;
     }
 
     /**
@@ -37,7 +43,13 @@ class KioskInvoiceController extends Controller
      */
     public function index()
     {
-        return KioskInvoice::with(["customer","payment_type","details.kiosk_unit.product.tax","details.kiosk_unit.product.category"])
+        return KioskInvoice::with([
+            "customer",
+            "payment_type",
+            "details.kiosk_unit.product.tax",
+            "details.kiosk_unit.product.category",
+            "manualDiscountBy:id,name",
+        ])
             ->orderBy('id', 'desc')
             ->get();
     }
@@ -132,6 +144,8 @@ class KioskInvoiceController extends Controller
     {
         $request->validate([
             'otp_code' => 'required|string|size:6',
+            'coupon_code' => 'nullable|string|max:50',
+            'manual_discount' => 'nullable|numeric|min:0',
         ]);
 
         DB::beginTransaction();
@@ -161,10 +175,18 @@ class KioskInvoiceController extends Controller
                 }
             }
 
+            $discount = $this->discountService->resolve(
+                $total_invoice,
+                $request->input('coupon_code'),
+                $request->input('manual_discount')
+            );
+            $this->discountService->applyToInvoice($kioskInvoice, $discount, auth()->id(), true);
+            $payable = $discount['payable'];
+
             // Actualizar factura
             if ($request->has('payed_value') && $request->payed_value > 0) {
                 $kioskInvoice->payed_value = $request->payed_value;
-                $kioskInvoice->remain_money = $request->payed_value - $total_invoice;
+                $kioskInvoice->remain_money = $request->payed_value - $payable;
             }
             $kioskInvoice->save();
 
@@ -172,7 +194,7 @@ class KioskInvoiceController extends Controller
             if ($kioskInvoice->reservation_id && $kioskInvoice->payment_type->credit) {
                 ReservationPayment::create([
                     'reservation_id' => $kioskInvoice->reservation_id,
-                    'amount' => $total_invoice,
+                    'amount' => $payable,
                     'concept' => 'Compra en kiosko (a crédito)',
                     'payment_type_id' => $kioskInvoice->payment_type_id,
                     'payment_reference' => $kioskInvoice->payment_code,
@@ -183,6 +205,9 @@ class KioskInvoiceController extends Controller
 
             // Asignar a cierre de caja (crea cierre abierto del día si aún no existe)
             $this->closureService->assignInvoice($kioskInvoice, $request->user()->id);
+            if ($kioskInvoice->closure_id) {
+                $this->closureService->refreshTotals($kioskInvoice->closure);
+            }
 
             $electronicEnvelope = [];
             if ($this->electronicEmissionEnabled()) {
@@ -208,7 +233,7 @@ class KioskInvoiceController extends Controller
 
             DB::commit();
 
-            $kioskInvoice->load(['details.kiosk_unit.product', 'payment_type', 'customer', 'reservation']);
+            $kioskInvoice->load(['details.kiosk_unit.product', 'payment_type', 'customer', 'reservation', 'manualDiscountBy:id,name']);
 
             $response = [
                 'message' => 'Compra completada exitosamente.',
@@ -218,6 +243,14 @@ class KioskInvoiceController extends Controller
                 $response[$key] = $value;
             }
             return response()->json($response, 200);
+        } catch (ValidationException $ve) {
+            DB::rollBack();
+            $errors = $ve->errors();
+            $firstMessage = collect($errors)->flatten()->first();
+            return response()->json([
+                'message' => $firstMessage ?: 'Datos de factura inválidos.',
+                'errors' => $errors,
+            ], 422);
         } catch (\Exception $e) {
             DB::rollBack();
             Log::error('Error completando factura con OTP: ' . $e->getMessage());
@@ -284,6 +317,8 @@ class KioskInvoiceController extends Controller
                 'pending' => 'nullable|boolean',
                 'temp_invoice_id' => 'nullable|exists:kiosk_invoices,id',
                 'otp_code' => 'nullable|string|size:6',
+                'coupon_code' => 'nullable|string|max:50',
+                'manual_discount' => 'nullable|numeric|min:0',
                 'acquirer' => 'nullable|array',
                 'acquirer.document_type' => 'required_with:acquirer|string|max:30',
                 'acquirer.document_number' => 'required_with:acquirer|string|max:30',
@@ -440,7 +475,13 @@ class KioskInvoiceController extends Controller
                 ]);
             } else {
                 // Para compras sin crédito, crear nueva factura
-                $requestBody = $request->all();
+                $requestBody = $request->only([
+                    'customer_id',
+                    'payment_code',
+                    'payment_type_id',
+                    'payed_value',
+                    'electronic_invoice',
+                ]);
                 $requestBody['payed'] = !$paymentType->credit;
                 
                 if ($activeReservation) {
@@ -475,11 +516,19 @@ class KioskInvoiceController extends Controller
                     $unit_saved = KioskInvoiceDetail::create(array_merge($unit, $snapshot));
                     $unitModel->sold = true;
                     $unitModel->save();
-                    $total_invoice += $unitModel->product->sale_price;
+                    $total_invoice += (float) $unit['price'];
                 }
             }
+            $discount = $this->discountService->resolve(
+                $total_invoice,
+                $request->input('coupon_code'),
+                $request->input('manual_discount')
+            );
+            $this->discountService->applyToInvoice($kioskInvoice, $discount, auth()->id(), true);
+            $payable = $discount['payable'];
+
             if($request->get('payed_value') > 0){
-                $kioskInvoice->remain_money = $kioskInvoice->payed_value - $total_invoice;
+                $kioskInvoice->remain_money = $kioskInvoice->payed_value - $payable;
                 $kioskInvoice->save();
             }
 
@@ -489,7 +538,7 @@ class KioskInvoiceController extends Controller
                     // REGLA 2: credit = 1 → crear pago PENDIENTE en reserva
                     ReservationPayment::create([
                         'reservation_id' => $activeReservation->id,
-                        'amount' => $total_invoice,
+                        'amount' => $payable,
                         'concept' => 'Compra en kiosko (a crédito)',
                         'payment_type_id' => $paymentType->id,
                         'payment_reference' => $kioskInvoice->payment_code,
@@ -507,7 +556,7 @@ class KioskInvoiceController extends Controller
                     // REGLA 3: credit = 0 → crear pago PAGADO en reserva
                     ReservationPayment::create([
                         'reservation_id' => $activeReservation->id,
-                        'amount' => $total_invoice,
+                        'amount' => $payable,
                         'concept' => 'Compra en kiosko',
                         'payment_type_id' => $paymentType->id,
                         'payment_reference' => $kioskInvoice->payment_code,
@@ -535,7 +584,7 @@ class KioskInvoiceController extends Controller
                         ->get();
 
                     $totalPendingKiosk = $pendingKioskInvoices->sum(function ($invoice) {
-                        return $invoice->details->sum('price');
+                        return $invoice->payableTotal();
                     });
                     
                     // Si hay cargos a habitación pendientes, siempre 'partial'
@@ -552,6 +601,9 @@ class KioskInvoiceController extends Controller
 
             // Asignar a cierre de caja (crea cierre abierto del día si aún no existe)
             $this->closureService->assignInvoice($kioskInvoice, $request->user()->id);
+            if ($kioskInvoice->closure_id) {
+                $this->closureService->refreshTotals($kioskInvoice->closure);
+            }
 
             $electronicEnvelope = [];
             if ($this->electronicEmissionEnabled()) {
@@ -577,7 +629,7 @@ class KioskInvoiceController extends Controller
 
             DB::commit();
 
-            $kioskInvoice->load(['details', 'payment_type', 'customer', 'reservation']);
+            $kioskInvoice->load(['details', 'payment_type', 'customer', 'reservation', 'manualDiscountBy:id,name']);
 
             $payload = $kioskInvoice->toArray();
             foreach ($electronicEnvelope as $key => $value) {
@@ -659,6 +711,7 @@ class KioskInvoiceController extends Controller
             'reservation',
             'details.kiosk_unit.product.tax',
             'details.kiosk_unit.product.category',
+            'manualDiscountBy:id,name',
         ]);
 
         return $kioskInvoice;
@@ -737,12 +790,26 @@ class KioskInvoiceController extends Controller
             }
 
             $kioskInvoice->load('details');
-            $totalInvoice = $kioskInvoice->details->sum('price');
+            $subtotal = (float) $kioskInvoice->details->sum('price');
+            if ($kioskInvoice->coupon_code || (float) $kioskInvoice->manual_discount > 0) {
+                $discount = $this->discountService->recalculateExisting(
+                    $subtotal,
+                    $kioskInvoice->coupon_code,
+                    $kioskInvoice->manual_discount
+                );
+                $this->discountService->applyToInvoice(
+                    $kioskInvoice,
+                    $discount,
+                    $kioskInvoice->manual_discount_by,
+                    false
+                );
+            }
+            $payable = $kioskInvoice->fresh()->payableTotal();
 
             if ($kioskInvoice->isRoomCredit()) {
                 $creditPayment = $this->findCreditReservationPayment($kioskInvoice);
                 if ($creditPayment) {
-                    $creditPayment->amount = $totalInvoice;
+                    $creditPayment->amount = $payable;
                     $creditPayment->save();
                 }
             }
@@ -755,6 +822,7 @@ class KioskInvoiceController extends Controller
                 'payment_type',
                 'customer',
                 'reservation',
+                'manualDiscountBy:id,name',
             ]);
 
             return response()->json($kioskInvoice, 200);
@@ -791,6 +859,8 @@ class KioskInvoiceController extends Controller
             'payment_code' => 'required|string|max:50',
             'payed_value' => 'nullable|numeric',
             'electronic_invoice' => 'nullable|boolean',
+            'coupon_code' => 'nullable|string|max:50',
+            'manual_discount' => 'nullable|numeric|min:0',
             'acquirer' => 'nullable|array',
         ]);
 
@@ -805,6 +875,13 @@ class KioskInvoiceController extends Controller
         DB::beginTransaction();
         try {
             $totalInvoice = $kioskInvoice->details()->sum('price');
+            $discount = $this->discountService->resolve(
+                $totalInvoice,
+                $request->input('coupon_code'),
+                $request->input('manual_discount')
+            );
+            $this->discountService->applyToInvoice($kioskInvoice, $discount, auth()->id(), true);
+            $payable = $discount['payable'];
 
             $kioskInvoice->payment_type_id = $paymentType->id;
             $kioskInvoice->payment_code = $request->payment_code;
@@ -814,7 +891,7 @@ class KioskInvoiceController extends Controller
             }
             if ($request->filled('payed_value') && $request->payed_value > 0) {
                 $kioskInvoice->payed_value = $request->payed_value;
-                $kioskInvoice->remain_money = $request->payed_value - $totalInvoice;
+                $kioskInvoice->remain_money = $request->payed_value - $payable;
             }
             $kioskInvoice->save();
 
@@ -850,6 +927,7 @@ class KioskInvoiceController extends Controller
                 'payment_type',
                 'customer',
                 'reservation',
+                'manualDiscountBy:id,name',
             ]);
 
             $payload = $kioskInvoice->toArray();
@@ -857,6 +935,14 @@ class KioskInvoiceController extends Controller
                 $payload[$key] = $value;
             }
             return response()->json($payload, 200);
+        } catch (ValidationException $ve) {
+            DB::rollBack();
+            $errors = $ve->errors();
+            $firstMessage = collect($errors)->flatten()->first();
+            return response()->json([
+                'message' => $firstMessage ?: 'Datos de factura inválidos.',
+                'errors' => $errors,
+            ], 422);
         } catch (\Exception $e) {
             DB::rollBack();
             Log::error('Error cobrando factura kiosko: ' . $e->getMessage());
@@ -909,7 +995,7 @@ class KioskInvoiceController extends Controller
 
             DB::commit();
 
-            $kioskInvoice->load(['details', 'payment_type', 'customer', 'reservation']);
+            $kioskInvoice->load(['details', 'payment_type', 'customer', 'reservation', 'manualDiscountBy:id,name']);
             return response()->json([
                 'message' => 'Factura cancelada. Las unidades fueron restauradas.',
                 'invoice' => $kioskInvoice,

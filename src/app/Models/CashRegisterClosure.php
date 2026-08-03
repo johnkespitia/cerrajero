@@ -113,7 +113,7 @@ class CashRegisterClosure extends Model
 
         $this->total_invoices = $invoices->count();
         $this->total_sales = $invoices->sum(function ($invoice) {
-            return $invoice->details->sum('price');
+            return $invoice->payableTotal();
         });
 
         $this->total_cash = 0;
@@ -130,13 +130,13 @@ class CashRegisterClosure extends Model
             }
 
             $total = $typeInvoices->sum(function ($invoice) {
-                return $invoice->details->sum('price');
+                return $invoice->payableTotal();
             });
 
             // PRIORIDAD 1: crédito a habitación pendiente → solo total_credit
             if (($paymentType->credit === true || $paymentType->credit === 1) && !$typeInvoices->first()->payed) {
                 $creditTotal = $typeInvoices->filter(fn ($inv) => !$inv->payed)->sum(function ($invoice) {
-                    return $invoice->details->sum('price');
+                    return $invoice->payableTotal();
                 });
                 $this->total_credit += $creditTotal;
                 continue;
@@ -144,7 +144,7 @@ class CashRegisterClosure extends Model
 
             // Solo facturas pagadas (no crédito) entran a cash/card/transfer
             $paidTotal = $typeInvoices->filter(fn ($inv) => (bool) $inv->payed)->sum(function ($invoice) {
-                return $invoice->details->sum('price');
+                return $invoice->payableTotal();
             });
             if ($paidTotal <= 0) {
                 continue;

@@ -33,6 +33,9 @@ class KioskCajaPermissionsSeeder extends Seeder
         // Compras
         $this->createComprasPermissions();
 
+        // Cupones
+        $this->createCouponPermissions();
+
         $this->command->info('Permisos de KioskCaja creados exitosamente.');
     }
 
@@ -116,6 +119,26 @@ class KioskCajaPermissionsSeeder extends Seeder
         }
 
         $this->command->info('  ✓ Permisos de compras creados');
+    }
+
+    private function createCouponPermissions(): void
+    {
+        $permissions = [
+            'kiosk_coupons.list' => 'Listar cupones del kiosko',
+            'kiosk_coupons.create' => 'Crear cupones del kiosko',
+            'kiosk_coupons.edit' => 'Editar cupones del kiosko',
+            'kiosk_coupons.delete' => 'Eliminar cupones del kiosko',
+            'kiosk_coupons.view' => 'Ver detalles de cupón del kiosko',
+        ];
+
+        foreach ($permissions as $name => $description) {
+            Permission::firstOrCreate(
+                ['name' => $name, 'guard_name' => self::GUARD],
+                ['name' => $name, 'guard_name' => self::GUARD]
+            );
+        }
+
+        $this->command->info('  ✓ Permisos de cupones creados');
     }
 }
 
