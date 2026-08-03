@@ -17,6 +17,7 @@ use App\Services\ReservationValidationService;
 use App\Services\ReservationNotificationService;
 use App\Services\ReservationCancellationService;
 use App\Services\AdditionalServicePriceCalculator;
+use App\Services\GuestAgeClassifier;
 use App\Services\ElectronicInvoicing\Exceptions\ReservationEmissionException;
 use App\Services\ElectronicInvoicing\Exceptions\ReservationEmissionInvalidPayloadException;
 use App\Services\ElectronicInvoicing\Exceptions\ReservationEmissionUnavailableException;
@@ -597,7 +598,8 @@ class ReservationController extends Controller
             $request->adults ?? 0,
             $request->children ?? 0,
             $request->infants ?? 0,
-            $guests
+            $guests,
+            $request->check_in_date
         );
 
         // Validar que todos los huéspedes fueron asignados
@@ -680,21 +682,11 @@ class ReservationController extends Controller
                         break;
                     }
 
-                    $mainReservation->guests()->create([
-                        'first_name' => $guestData['first_name'],
-                        'last_name' => $guestData['last_name'],
-                        'document_type' => $guestData['document_type'] ?? null,
-                        'document_number' => $guestData['document_number'] ?? null,
-                        'birth_date' => $guestData['birth_date'] ?? null,
-                        'gender' => $guestData['gender'] ?? null,
-                        'nationality' => $guestData['nationality'] ?? null,
-                        'email' => $guestData['email'] ?? null,
-                        'phone' => $guestData['phone'] ?? null,
-                        'special_needs' => $guestData['special_needs'] ?? null,
-                        'is_primary_guest' => $index === 0,
-                        'health_insurance_name' => $guestData['health_insurance_name'] ?? null,
-                        'health_insurance_type' => $guestData['health_insurance_type'] ?? null,
-                    ]);
+                    $mainReservation->guests()->create($this->guestPersistAttributes(
+                        $guestData,
+                        $request->check_in_date,
+                        ['is_primary_guest' => $index === 0]
+                    ));
                     $guestsAssigned++;
                 }
             }
@@ -756,21 +748,11 @@ class ReservationController extends Controller
                 $guestsForRoom = $roomData['guests_count'];
                 for ($j = 0; $j < $guestsForRoom && $guestsAssigned < count($guests); $j++) {
                     $guestData = $guests[$guestsAssigned];
-                    $childReservation->guests()->create([
-                        'first_name' => $guestData['first_name'],
-                        'last_name' => $guestData['last_name'],
-                        'document_type' => $guestData['document_type'] ?? null,
-                        'document_number' => $guestData['document_number'] ?? null,
-                        'birth_date' => $guestData['birth_date'] ?? null,
-                        'gender' => $guestData['gender'] ?? null,
-                        'nationality' => $guestData['nationality'] ?? null,
-                        'email' => $guestData['email'] ?? null,
-                        'phone' => $guestData['phone'] ?? null,
-                        'special_needs' => $guestData['special_needs'] ?? null,
-                        'is_primary_guest' => false,
-                        'health_insurance_name' => $guestData['health_insurance_name'] ?? null,
-                        'health_insurance_type' => $guestData['health_insurance_type'] ?? null,
-                    ]);
+                    $childReservation->guests()->create($this->guestPersistAttributes(
+                        $guestData,
+                        $request->check_in_date,
+                        ['is_primary_guest' => false]
+                    ));
                     $guestsAssigned++;
                 }
 
@@ -951,6 +933,8 @@ class ReservationController extends Controller
             'guests.*.phone' => 'nullable|string',
             'guests.*.special_needs' => 'nullable|string',
             'guests.*.is_primary_guest' => 'nullable|boolean',
+            'guests.*.is_infant' => 'nullable|boolean',
+            'guests.*.is_child' => 'nullable|boolean',
             'guests.*.health_insurance_name' => 'nullable|string|max:200',
             'guests.*.health_insurance_type' => 'nullable|in:national,international',
             'contact_channel' => 'nullable|in:whatsapp,facebook,instagram,email,phone,website,walk_in,other',
@@ -1246,21 +1230,11 @@ class ReservationController extends Controller
 
             if ($request->has('guests') && is_array($request->guests)) {
                 foreach ($request->guests as $guestData) {
-                    $reservation->guests()->create([
-                        'first_name' => $guestData['first_name'],
-                        'last_name' => $guestData['last_name'],
-                        'document_type' => $guestData['document_type'] ?? null,
-                        'document_number' => $guestData['document_number'] ?? null,
-                        'birth_date' => $guestData['birth_date'] ?? null,
-                        'gender' => $guestData['gender'] ?? null,
-                        'nationality' => $guestData['nationality'] ?? null,
-                        'email' => $guestData['email'] ?? null,
-                        'phone' => $guestData['phone'] ?? null,
-                        'special_needs' => $guestData['special_needs'] ?? null,
-                        'is_primary_guest' => $guestData['is_primary_guest'] ?? false,
-                        'health_insurance_name' => $guestData['health_insurance_name'] ?? null,
-                        'health_insurance_type' => $guestData['health_insurance_type'] ?? null,
-                    ]);
+                    $reservation->guests()->create($this->guestPersistAttributes(
+                        $guestData,
+                        $request->check_in_date,
+                        ['is_primary_guest' => $guestData['is_primary_guest'] ?? false]
+                    ));
                 }
             }
 
@@ -3168,41 +3142,27 @@ class ReservationController extends Controller
                         if (isset($guestData['is_primary_guest']) && $guestData['is_primary_guest']) {
                             $reservation->guests()->where('id', '!=', $existingGuest->id)->update(['is_primary_guest' => false]);
                         }
-                        $existingGuest->update([
-                            'first_name' => $guestData['first_name'],
-                            'last_name' => $guestData['last_name'],
-                            'document_type' => $guestData['document_type'] ?? 'CC',
-                            'document_number' => $guestData['document_number'],
-                            'birth_date' => $guestData['birth_date'] ?? null,
-                            'gender' => $guestData['gender'] ?? null,
-                            'nationality' => $guestData['nationality'] ?? null,
-                            'email' => $guestData['email'] ?? null,
-                            'phone' => $guestData['phone'] ?? null,
-                            'special_needs' => $guestData['special_needs'] ?? null,
-                            'is_primary_guest' => $guestData['is_primary_guest'] ?? false,
-                            'health_insurance_name' => $guestData['health_insurance_name'] ?? null,
-                            'health_insurance_type' => $guestData['health_insurance_type'] ?? null,
-                        ]);
+                        $existingGuest->update($this->guestPersistAttributes(
+                            $guestData,
+                            $reservation->check_in_date,
+                            [
+                                'document_type' => $guestData['document_type'] ?? 'CC',
+                                'is_primary_guest' => $guestData['is_primary_guest'] ?? false,
+                            ]
+                        ));
                     } else {
                         // Crear nuevo huésped
                         if (isset($guestData['is_primary_guest']) && $guestData['is_primary_guest']) {
                             $reservation->guests()->update(['is_primary_guest' => false]);
                         }
-                        $reservation->guests()->create([
-                            'first_name' => $guestData['first_name'],
-                            'last_name' => $guestData['last_name'],
-                            'document_type' => $guestData['document_type'] ?? 'CC',
-                            'document_number' => $guestData['document_number'],
-                            'birth_date' => $guestData['birth_date'] ?? null,
-                            'gender' => $guestData['gender'] ?? null,
-                            'nationality' => $guestData['nationality'] ?? null,
-                            'email' => $guestData['email'] ?? null,
-                            'phone' => $guestData['phone'] ?? null,
-                            'special_needs' => $guestData['special_needs'] ?? null,
-                            'is_primary_guest' => $guestData['is_primary_guest'] ?? false,
-                            'health_insurance_name' => $guestData['health_insurance_name'] ?? null,
-                            'health_insurance_type' => $guestData['health_insurance_type'] ?? null,
-                        ]);
+                        $reservation->guests()->create($this->guestPersistAttributes(
+                            $guestData,
+                            $reservation->check_in_date,
+                            [
+                                'document_type' => $guestData['document_type'] ?? 'CC',
+                                'is_primary_guest' => $guestData['is_primary_guest'] ?? false,
+                            ]
+                        ));
                     }
                 }
             }
@@ -4233,7 +4193,34 @@ class ReservationController extends Controller
     /**
      * Distribuye huéspedes de manera inteligente manteniendo familias juntas
      */
-    private function distributeGuestsIntelligently($availableRooms, $totalGuests, $adults, $children, $infants, $guestsData = [])
+    /**
+     * @param array<string, mixed> $guestData
+     * @param array<string, mixed> $overrides
+     * @return array<string, mixed>
+     */
+    private function guestPersistAttributes(array $guestData, $checkInDate, array $overrides = []): array
+    {
+        $classified = app(GuestAgeClassifier::class)->applyToGuestPayload($guestData, $checkInDate);
+
+        return array_merge([
+            'first_name' => $classified['first_name'] ?? null,
+            'last_name' => $classified['last_name'] ?? null,
+            'document_type' => $classified['document_type'] ?? null,
+            'document_number' => $classified['document_number'] ?? null,
+            'birth_date' => $classified['birth_date'] ?? null,
+            'gender' => $classified['gender'] ?? null,
+            'nationality' => $classified['nationality'] ?? null,
+            'email' => $classified['email'] ?? null,
+            'phone' => $classified['phone'] ?? null,
+            'special_needs' => $classified['special_needs'] ?? null,
+            'is_primary_guest' => $classified['is_primary_guest'] ?? false,
+            'is_infant' => $classified['is_infant'],
+            'is_child' => $classified['is_child'],
+            'health_insurance_name' => $classified['health_insurance_name'] ?? null,
+            'health_insurance_type' => $classified['health_insurance_type'] ?? null,
+        ], $overrides);
+    }
+    private function distributeGuestsIntelligently($availableRooms, $totalGuests, $adults, $children, $infants, $guestsData = [], $checkInDate = null)
     {
         $roomsNeeded = [];
         $remainingGuests = $totalGuests;
@@ -4256,8 +4243,8 @@ class ReservationController extends Controller
                 }
             }
 
-            // Calcular edad de cada huésped para clasificar
-            $now = now();
+            // Bebé por edad (< 4); niño solo por flag manual; resto adulto
+            $classifier = app(GuestAgeClassifier::class);
             foreach ($familiesByLastName as $lastName => $familyMembers) {
                 $familyAdults = 0;
                 $familyChildren = 0;
@@ -4265,30 +4252,22 @@ class ReservationController extends Controller
                 $familyMembersWithAge = [];
 
                 foreach ($familyMembers as $member) {
-                    $age = null;
-                    if (isset($member['birth_date']) && $member['birth_date']) {
-                        try {
-                            $birthDate = \Carbon\Carbon::parse($member['birth_date']);
-                            $age = $now->diffInYears($birthDate);
-                        } catch (\Exception $e) {
-                            // Si no se puede calcular la edad, asumir adulto
-                            $age = 18;
-                        }
-                    }
+                    $resolved = $classifier->resolve(
+                        $member['birth_date'] ?? null,
+                        filter_var($member['is_infant'] ?? false, FILTER_VALIDATE_BOOLEAN),
+                        filter_var($member['is_child'] ?? false, FILTER_VALIDATE_BOOLEAN),
+                        $checkInDate
+                    );
 
-                    // Clasificar: bebé (0-2), niño (3-12), adulto (13+)
-                    if ($age === null || $age >= 13) {
-                        $familyAdults++;
-                        $member['calculated_age'] = $age ?? 18;
-                        $member['guest_type'] = 'adult';
-                    } elseif ($age >= 3) {
-                        $familyChildren++;
-                        $member['calculated_age'] = $age;
-                        $member['guest_type'] = 'child';
-                    } else {
+                    $member['calculated_age'] = $resolved['age'];
+                    $member['guest_type'] = $resolved['age_category'];
+
+                    if ($resolved['age_category'] === GuestAgeClassifier::CATEGORY_INFANT) {
                         $familyInfants++;
-                        $member['calculated_age'] = $age;
-                        $member['guest_type'] = 'infant';
+                    } elseif ($resolved['age_category'] === GuestAgeClassifier::CATEGORY_CHILD) {
+                        $familyChildren++;
+                    } else {
+                        $familyAdults++;
                     }
 
                     $familyMembersWithAge[] = $member;

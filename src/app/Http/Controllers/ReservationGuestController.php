@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Customer;
 use App\Models\Reservation;
 use App\Models\ReservationGuest;
+use App\Services\GuestAgeClassifier;
 use App\Services\GuestImportService;
 use App\Services\GoogleCalendarService;
 use Illuminate\Http\Request;
@@ -14,13 +15,16 @@ class ReservationGuestController extends Controller
 {
     protected GuestImportService $guestImportService;
     protected GoogleCalendarService $googleCalendarService;
+    protected GuestAgeClassifier $guestAgeClassifier;
 
     public function __construct(
         GuestImportService $guestImportService,
-        GoogleCalendarService $googleCalendarService
+        GoogleCalendarService $googleCalendarService,
+        GuestAgeClassifier $guestAgeClassifier
     ) {
         $this->guestImportService = $guestImportService;
         $this->googleCalendarService = $googleCalendarService;
+        $this->guestAgeClassifier = $guestAgeClassifier;
     }
 
     protected function syncReservationToGoogleCalendar(Reservation $reservation): void
@@ -235,6 +239,8 @@ class ReservationGuestController extends Controller
                 ->first();
         }
 
+        $guestData = $this->classifyGuestPayload($guestData, $reservation);
+
         if ($existingGuest) {
             $existingGuest->update($guestData);
 
@@ -244,6 +250,18 @@ class ReservationGuestController extends Controller
         $guest = $reservation->guests()->create($guestData);
 
         return ['guest' => $guest, 'created' => true];
+    }
+
+    /**
+     * @param array<string, mixed> $guestData
+     * @return array<string, mixed>
+     */
+    protected function classifyGuestPayload(array $guestData, Reservation $reservation): array
+    {
+        return $this->guestAgeClassifier->applyToGuestPayload(
+            $guestData,
+            $reservation->check_in_date
+        );
     }
 
     protected function normalizePrimaryGuest(Reservation $reservation): void
@@ -354,6 +372,8 @@ class ReservationGuestController extends Controller
             'health_insurance_name' => $previousGuest->health_insurance_name,
             'health_insurance_type' => $previousGuest->health_insurance_type ?: 'national',
             'special_needs' => $previousGuest->special_needs,
+            'is_infant' => (bool) $previousGuest->is_infant,
+            'is_child' => (bool) $previousGuest->is_child,
         ] : [];
 
         $fromCustomer = [];
@@ -404,6 +424,9 @@ class ReservationGuestController extends Controller
             $merged[$field] = $value !== null && $value !== '' ? $value : null;
         }
 
+        $merged['is_infant'] = (bool) ($fromGuest['is_infant'] ?? false);
+        $merged['is_child'] = (bool) ($fromGuest['is_child'] ?? false);
+
         if (empty($merged['document_number'])) {
             $merged['document_number'] = $documentNumber;
         }
@@ -431,6 +454,8 @@ class ReservationGuestController extends Controller
             'phone' => 'nullable|string|max:20',
             'special_needs' => 'nullable|string|max:500',
             'is_primary_guest' => 'nullable|boolean',
+            'is_infant' => 'nullable|boolean',
+            'is_child' => 'nullable|boolean',
             'health_insurance_name' => 'nullable|string|max:200',
             'health_insurance_type' => 'nullable|in:national,international',
         ]);
@@ -439,30 +464,32 @@ class ReservationGuestController extends Controller
             return response()->json($validator->errors(), 422);
         }
 
+        $payload = $this->classifiedGuestAttributes($request, $reservation);
+
         // Verificar si ya existe un huésped con el mismo documento en esta reserva
-        if ($request->document_number) {
+        if (!empty($payload['document_number'])) {
             $existingGuest = $reservation->guests()
-                ->where('document_number', $request->document_number)
-                ->where('document_type', $request->document_type ?? 'CC')
+                ->where('document_number', $payload['document_number'])
+                ->where('document_type', $payload['document_type'] ?? 'CC')
                 ->first();
             
             if ($existingGuest) {
                 // Si existe, actualizar en lugar de crear
-                if ($request->is_primary_guest) {
+                if (!empty($payload['is_primary_guest'])) {
                     $reservation->guests()->where('id', '!=', $existingGuest->id)->update(['is_primary_guest' => false]);
                 }
                 
-                $existingGuest->update($request->all());
+                $existingGuest->update($payload);
                 $this->syncReservationToGoogleCalendar($reservation);
-                return response()->json($existingGuest);
+                return response()->json($existingGuest->fresh());
             }
         }
 
-        if ($request->is_primary_guest) {
+        if (!empty($payload['is_primary_guest'])) {
             $reservation->guests()->update(['is_primary_guest' => false]);
         }
 
-        $guest = $reservation->guests()->create($request->all());
+        $guest = $reservation->guests()->create($payload);
         $this->syncReservationToGoogleCalendar($reservation);
 
         return response()->json($guest, 201);
@@ -482,6 +509,8 @@ class ReservationGuestController extends Controller
             'phone' => 'nullable|string|max:20',
             'special_needs' => 'nullable|string|max:500',
             'is_primary_guest' => 'nullable|boolean',
+            'is_infant' => 'nullable|boolean',
+            'is_child' => 'nullable|boolean',
             'health_insurance_name' => 'nullable|string|max:200',
             'health_insurance_type' => 'nullable|in:national,international',
         ]);
@@ -490,14 +519,60 @@ class ReservationGuestController extends Controller
             return response()->json($validator->errors(), 422);
         }
 
-        if ($request->is_primary_guest) {
+        $validated = $validator->validated();
+        $resolved = $this->guestAgeClassifier->resolve(
+            $request->has('birth_date')
+                ? $request->input('birth_date')
+                : optional($guest->birth_date)->format('Y-m-d'),
+            $request->has('is_infant')
+                ? $request->boolean('is_infant')
+                : (bool) $guest->is_infant,
+            $request->has('is_child')
+                ? $request->boolean('is_child')
+                : (bool) $guest->is_child,
+            $reservation->check_in_date
+        );
+
+        $payload = array_merge($validated, [
+            'is_infant' => $resolved['is_infant'],
+            'is_child' => $resolved['is_child'],
+        ]);
+
+        if (!empty($payload['is_primary_guest'])) {
             $reservation->guests()->where('id', '!=', $guest->id)->update(['is_primary_guest' => false]);
         }
 
-        $guest->update($request->all());
+        $guest->update($payload);
         $this->syncReservationToGoogleCalendar($reservation);
 
-        return response()->json($guest);
+        return response()->json($guest->fresh());
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    protected function classifiedGuestAttributes(Request $request, Reservation $reservation): array
+    {
+        $data = $request->only([
+            'first_name',
+            'last_name',
+            'document_type',
+            'document_number',
+            'birth_date',
+            'gender',
+            'nationality',
+            'email',
+            'phone',
+            'special_needs',
+            'is_primary_guest',
+            'health_insurance_name',
+            'health_insurance_type',
+        ]);
+
+        $data['is_infant'] = $request->boolean('is_infant');
+        $data['is_child'] = $request->boolean('is_child');
+
+        return $this->classifyGuestPayload($data, $reservation);
     }
 
     public function destroy(Reservation $reservation, ReservationGuest $guest)
