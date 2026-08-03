@@ -24,7 +24,12 @@ class KioskInvoice extends Model
         'otp_sent_at',
         'otp_verified_at',
         'otp_verified_by',
-        'otp_expires_at'
+        'otp_expires_at',
+        'coupon_code',
+        'coupon_discount',
+        'manual_discount',
+        'manual_discount_by',
+        'discount_total',
     ];
 
     protected $casts = [
@@ -33,6 +38,9 @@ class KioskInvoice extends Model
         'otp_sent_at' => 'datetime',
         'otp_verified_at' => 'datetime',
         'otp_expires_at' => 'datetime',
+        'coupon_discount' => 'decimal:2',
+        'manual_discount' => 'decimal:2',
+        'discount_total' => 'decimal:2',
     ];
 
     protected $appends = [
@@ -67,6 +75,27 @@ class KioskInvoice extends Model
     public function otpVerifiedBy()
     {
         return $this->belongsTo(\App\Models\User::class, 'otp_verified_by');
+    }
+
+    public function manualDiscountBy()
+    {
+        return $this->belongsTo(\App\Models\User::class, 'manual_discount_by');
+    }
+
+    public function subtotal(): float
+    {
+        if ($this->relationLoaded('details')) {
+            return round((float) $this->details->sum('price'), 2);
+        }
+
+        return round((float) $this->details()->sum('price'), 2);
+    }
+
+    public function payableTotal(): float
+    {
+        $discount = (float) ($this->discount_total ?? 0);
+
+        return max(0, round($this->subtotal() - $discount, 2));
     }
 
     public function isCancelled(): bool
