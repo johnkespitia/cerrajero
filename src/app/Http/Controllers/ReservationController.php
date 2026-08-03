@@ -2302,6 +2302,97 @@ class ReservationController extends Controller
         ]);
     }
 
+    /**
+     * Anular reserva por error de captura (staff).
+     * No marca reembolso, no aplica política, no envía email al cliente.
+     */
+    public function voidStaffError(Request $request, Reservation $reservation)
+    {
+        $validator = Validator::make($request->all(), [
+            'cancellation_reason' => 'required|string|max:500',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json($validator->errors(), 422);
+        }
+
+        if ($reservation->status === 'checked_in') {
+            return response()->json([
+                'message' => 'No se puede anular una reserva que ya tiene check-in realizado. Debe hacer check-out primero.'
+            ], 403);
+        }
+
+        if ($reservation->status === 'checked_out') {
+            return response()->json([
+                'message' => 'No se puede anular una reserva que ya tiene check-out realizado.'
+            ], 403);
+        }
+
+        if ($reservation->status === 'cancelled') {
+            return response()->json([
+                'message' => 'La reserva ya está cancelada o anulada.'
+            ], 422);
+        }
+
+        DB::beginTransaction();
+        try {
+            $oldStatus = $reservation->status;
+            $oldPaymentStatus = $reservation->payment_status;
+
+            if ($reservation->reservation_type === 'day_pass') {
+                $totalGuests = $reservation->adults + $reservation->children;
+                $capacity = \App\Models\DayPassCapacity::where('date', $reservation->check_in_date)->first();
+                if ($capacity) {
+                    $capacity->releaseCapacity($totalGuests);
+                }
+            }
+
+            $this->cancellationService->processStaffErrorVoid(
+                $reservation,
+                $request->cancellation_reason
+            );
+
+            $reservation->refresh();
+
+            if ($reservation->google_calendar_event_id) {
+                try {
+                    $this->googleCalendarService->deleteEvent($reservation);
+                } catch (\Exception $e) {
+                    \Log::warning('Error deleting Google Calendar event on staff void: ' . $e->getMessage());
+                }
+            }
+
+            $this->auditService->logVoidStaffError(
+                $reservation,
+                $oldStatus,
+                $oldPaymentStatus,
+                $request->cancellation_reason,
+                $request
+            );
+
+            DB::commit();
+
+            $reservation->load([
+                'customer',
+                'room',
+                'room.roomType',
+                'roomType',
+                'guests',
+                'payments.paymentType',
+                'additionalServices.additionalService',
+                'createdBy',
+            ]);
+
+            return response()->json($reservation);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json([
+                'message' => 'Error al anular la reserva por error de captura',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
     public function destroy(Reservation $reservation)
     {
         // Restricción: No se puede eliminar una reserva en estado checked_in o checked_out
@@ -3858,13 +3949,23 @@ class ReservationController extends Controller
         $validator = Validator::make($request->all(), [
             'date_from' => 'nullable|date',
             'date_to' => 'nullable|date|after_or_equal:date_from',
+            'include_staff_errors' => 'nullable|boolean',
         ]);
 
         if ($validator->fails()) {
             return response()->json($validator->errors(), 422);
         }
 
+        $includeStaffErrors = $request->boolean('include_staff_errors');
+
         $query = Reservation::where('status', 'cancelled');
+
+        if (!$includeStaffErrors) {
+            $query->where(function ($q) {
+                $q->where('cancellation_kind', 'customer')
+                    ->orWhereNull('cancellation_kind');
+            });
+        }
 
         if ($request->date_from) {
             $query->whereDate('updated_at', '>=', $request->date_from);
@@ -3876,6 +3977,13 @@ class ReservationController extends Controller
 
         $cancellations = $query->with(['customer', 'roomType'])->get();
 
+        $customerCancellations = $cancellations->filter(function ($reservation) {
+            return ($reservation->cancellation_kind ?? 'customer') === 'customer';
+        });
+        $staffErrors = $cancellations->filter(function ($reservation) {
+            return $reservation->cancellation_kind === 'staff_error';
+        });
+
         return response()->json([
             'period' => [
                 'from' => $request->date_from,
@@ -3883,9 +3991,10 @@ class ReservationController extends Controller
             ],
             'cancellations' => $cancellations,
             'summary' => [
-                'total_cancellations' => $cancellations->count(),
-                'total_lost_revenue' => $cancellations->sum('total_price'),
-                'by_reason' => $cancellations->groupBy('cancellation_reason')->map->count(),
+                'total_cancellations' => $customerCancellations->count(),
+                'total_lost_revenue' => $customerCancellations->sum('total_price'),
+                'total_staff_errors' => $staffErrors->count(),
+                'by_reason' => $customerCancellations->groupBy('cancellation_reason')->map->count(),
             ],
         ]);
     }
