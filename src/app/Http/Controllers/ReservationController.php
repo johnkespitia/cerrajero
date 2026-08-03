@@ -2651,6 +2651,251 @@ class ReservationController extends Controller
     }
 
     /**
+     * Actualizar un pago de reserva ya registrado.
+     */
+    public function updatePayment(Request $request, Reservation $reservation, ReservationPayment $reservationPayment)
+    {
+        $payment = $reservationPayment;
+        if ($guard = $this->assertMutableReservationPayment($reservation, $payment)) {
+            return $guard;
+        }
+
+        // Compatibilidad payment_method → payment_type_id
+        $paymentMethodMap = [
+            'cash' => 'Efectivo',
+            'card' => 'Tarjeta',
+            'transfer' => 'Transferencia',
+            'check' => 'Cheque',
+            'other' => 'Otro',
+        ];
+        if ($request->has('payment_method') && !$request->has('payment_type_id')) {
+            $paymentMethod = $request->payment_method;
+            if (isset($paymentMethodMap[$paymentMethod])) {
+                $paymentType = \App\Models\PaymentType::where('name', $paymentMethodMap[$paymentMethod])->first();
+                if ($paymentType) {
+                    $request->merge(['payment_type_id' => $paymentType->id]);
+                }
+            }
+        }
+
+        $validator = Validator::make($request->all(), [
+            'amount' => 'required|numeric|min:0.01',
+            'concept' => 'nullable|string|max:200',
+            'payment_type_id' => 'required|exists:payment_types,id',
+            'payment_reference' => 'nullable|string|max:200',
+            'notes' => 'nullable|string|max:1000',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json($validator->errors(), 422);
+        }
+
+        $pendingContext = $this->computeGroupPaymentPending($reservation);
+        // Al editar, el monto actual se libera: puede reasignarse hasta pendiente + monto vigente.
+        $maxAllowed = (float) $pendingContext['total_pending'] + (float) $payment->amount;
+
+        if ((float) $request->amount > $maxAllowed + 0.0001) {
+            $formattedAmount = number_format((float) $request->amount, 2);
+            $formattedMax = number_format($maxAllowed, 2);
+
+            return response()->json([
+                'message' => "El monto del pago ({$formattedAmount}) excede el saldo pendiente permitido ({$formattedMax}) al actualizar este pago.",
+                'total_pending' => $pendingContext['total_pending'],
+                'payment_amount' => (float) $request->amount,
+                'max_payment_allowed' => $maxAllowed,
+            ], 422);
+        }
+
+        DB::beginTransaction();
+        try {
+            $oldPaymentType = $payment->paymentType;
+            $oldValues = [
+                'payment_id' => $payment->id,
+                'amount' => (float) $payment->amount,
+                'concept' => $payment->concept,
+                'payment_type_id' => $payment->payment_type_id,
+                'payment_method' => $oldPaymentType?->name,
+                'payment_reference' => $payment->payment_reference,
+                'notes' => $payment->notes,
+            ];
+
+            $payment->update([
+                'amount' => $request->amount,
+                'concept' => $request->concept,
+                'payment_type_id' => $request->payment_type_id,
+                'payment_reference' => $request->payment_reference,
+                'notes' => $request->notes,
+            ]);
+
+            $this->syncPaymentStatusAfterPriceChange($reservation);
+
+            $newPaymentType = \App\Models\PaymentType::find($request->payment_type_id);
+            $newValues = [
+                'payment_id' => $payment->id,
+                'amount' => (float) $payment->amount,
+                'concept' => $payment->concept,
+                'payment_type_id' => $payment->payment_type_id,
+                'payment_method' => $newPaymentType?->name,
+                'payment_reference' => $payment->payment_reference,
+                'notes' => $payment->notes,
+            ];
+
+            $this->auditService->logPaymentUpdate($reservation, $oldValues, $newValues, $request);
+
+            DB::commit();
+
+            $this->syncReservationToGoogleCalendar($reservation);
+
+            return response()->json([
+                'message' => 'Pago actualizado exitosamente',
+                'payment' => $payment->fresh('paymentType'),
+                'reservation' => $reservation->fresh(['payments.paymentType', 'customer']),
+            ]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json([
+                'message' => 'Error al actualizar el pago',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Eliminar un pago de reserva ya registrado.
+     */
+    public function deletePayment(Request $request, Reservation $reservation, ReservationPayment $reservationPayment)
+    {
+        $payment = $reservationPayment;
+        if ($guard = $this->assertMutableReservationPayment($reservation, $payment)) {
+            return $guard;
+        }
+
+        DB::beginTransaction();
+        try {
+            $payment->load('paymentType');
+            $paymentValues = [
+                'payment_id' => $payment->id,
+                'amount' => (float) $payment->amount,
+                'concept' => $payment->concept,
+                'payment_type_id' => $payment->payment_type_id,
+                'payment_method' => $payment->paymentType?->name,
+                'payment_reference' => $payment->payment_reference,
+                'notes' => $payment->notes,
+            ];
+
+            $payment->delete();
+
+            $this->syncPaymentStatusAfterPriceChange($reservation);
+            $this->auditService->logPaymentDeletion($reservation, $paymentValues, $request);
+
+            DB::commit();
+
+            $this->syncReservationToGoogleCalendar($reservation);
+
+            return response()->json([
+                'message' => 'Pago eliminado exitosamente',
+                'reservation' => $reservation->fresh(['payments.paymentType', 'customer']),
+            ]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json([
+                'message' => 'Error al eliminar el pago',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Valida que el pago pueda editarse o eliminarse.
+     */
+    protected function assertMutableReservationPayment(Reservation $reservation, ReservationPayment $payment): ?\Illuminate\Http\JsonResponse
+    {
+        if ((int) $payment->reservation_id !== (int) $reservation->id) {
+            return response()->json(['message' => 'El pago no pertenece a esta reserva.'], 422);
+        }
+
+        if (in_array($reservation->payment_status, ['refunded', 'free'], true)) {
+            return response()->json([
+                'message' => 'No se pueden modificar pagos de una reserva con estado de pago reembolsado o cortesía.',
+            ], 403);
+        }
+
+        $isKioskCredit = $payment->payment_type_id === null
+            || $payment->concept === 'Compra en kiosko (a crédito)';
+
+        if ($isKioskCredit) {
+            return response()->json([
+                'message' => 'No se pueden modificar cargos automáticos de kiosko a crédito.',
+            ], 403);
+        }
+
+        return null;
+    }
+
+    /**
+     * Calcula el saldo pendiente del grupo (reserva + minibar + kiosko).
+     *
+     * @return array{total_pending: float, final_price: float, total_paid: float}
+     */
+    protected function computeGroupPaymentPending(Reservation $reservation): array
+    {
+        $mainReservation = $reservation->parent_reservation_id ? $reservation->parentReservation : $reservation;
+        $mainReservation->load('childReservations');
+        $groupReservationIds = $reservation->parent_reservation_id
+            ? $reservation->allGroupReservations()->pluck('id')->toArray()
+            : array_merge([$mainReservation->id], $mainReservation->childReservations->pluck('id')->toArray());
+
+        $groupReservations = \App\Models\Reservation::whereIn('id', $groupReservationIds)->get();
+
+        $finalPrice = $groupReservations->sum(function ($r) {
+            return (float) ($r->final_price ?? $r->total_price ?? 0);
+        });
+
+        $totalPaid = (float) \App\Models\ReservationPayment::whereIn('reservation_id', $groupReservationIds)
+            ->whereNotNull('payment_type_id')
+            ->where(function ($q) {
+                $q->where('concept', '!=', 'Compra en kiosko (a crédito)')->orWhereNull('concept');
+            })
+            ->sum('amount');
+
+        $minibarChargesTotal = $groupReservations->sum(function ($r) {
+            return (float) $r->minibarCharges()->sum('total');
+        });
+        $minibarPaid = (float) \App\Models\ReservationPayment::whereIn('reservation_id', $groupReservationIds)
+            ->whereRaw('LOWER(concept) LIKE ?', ['%minibar%'])
+            ->sum('amount');
+
+        $basePrice = $finalPrice - $minibarChargesTotal;
+        $reservationBalance = max(0, $basePrice - $totalPaid);
+        $excess = max(0, $totalPaid - $basePrice);
+        $amountToMinibar = min($excess, max(0, $minibarChargesTotal - $minibarPaid));
+        $remainingMinibarBalance = max(0, $minibarChargesTotal - $minibarPaid - $amountToMinibar);
+
+        $pendingKioskInvoices = \App\Models\KioskInvoice::whereIn('reservation_id', $groupReservationIds)
+            ->whereHas('payment_type', function ($query) {
+                $query->where('credit', true);
+            })
+            ->where('payed', false)
+            ->whereNull('cancelled_at')
+            ->with('details')
+            ->get();
+
+        $totalPendingKiosk = $pendingKioskInvoices->sum(function ($invoice) {
+            return $invoice->details->sum('price');
+        });
+
+        $amountToKiosk = min(max(0, $excess - $amountToMinibar), $totalPendingKiosk);
+        $remainingRoomCharges = max(0, $totalPendingKiosk - $amountToKiosk);
+        $totalPending = $reservationBalance + $remainingMinibarBalance + $remainingRoomCharges;
+
+        return [
+            'total_pending' => (float) $totalPending,
+            'final_price' => (float) $finalPrice,
+            'total_paid' => (float) $totalPaid,
+        ];
+    }
+
+    /**
      * Valida huéspedes contra capacidad mínima/máxima cuando aplica una sola habitación.
      */
     private function validateRequestedRoomGuestCapacity(Request $request, int $totalGuests): ?\Illuminate\Http\JsonResponse
@@ -2738,9 +2983,9 @@ class ReservationController extends Controller
      */
     public function addAdditionalService(Request $request, Reservation $reservation)
     {
-        if (in_array($reservation->status, ['checked_in', 'checked_out'], true)) {
+        if ($reservation->status === 'checked_out') {
             return response()->json([
-                'message' => 'No se pueden modificar servicios adicionales en una reserva con check-in o check-out realizado.',
+                'message' => 'No se pueden modificar servicios adicionales en una reserva con check-out realizado.',
             ], 403);
         }
 
@@ -2780,13 +3025,55 @@ class ReservationController extends Controller
     }
 
     /**
+     * Actualizar cantidad de un servicio adicional ya contratado
+     */
+    public function updateAdditionalService(
+        Request $request,
+        Reservation $reservation,
+        ReservationAdditionalService $reservationAdditionalService
+    ) {
+        if ($reservation->status === 'checked_out') {
+            return response()->json([
+                'message' => 'No se pueden modificar servicios adicionales en una reserva con check-out realizado.',
+            ], 403);
+        }
+
+        if ((int) $reservationAdditionalService->reservation_id !== (int) $reservation->id) {
+            return response()->json(['message' => 'El servicio no pertenece a esta reserva.'], 422);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'quantity' => 'required|integer|min:1',
+        ]);
+        if ($validator->fails()) {
+            return response()->json($validator->errors(), 422);
+        }
+
+        $ras = $this->additionalServiceCalculator->updateServiceQuantity(
+            $reservationAdditionalService,
+            $reservation,
+            (int) $request->input('quantity')
+        );
+        $reservation->recomputeFinalPrice();
+        $this->syncPaymentStatusAfterPriceChange($reservation);
+        $this->loadReservationDetailRelations($reservation);
+        $this->syncReservationToGoogleCalendar($reservation);
+
+        return response()->json([
+            'message' => 'Cantidad de servicio actualizada.',
+            'reservation' => $reservation,
+            'item' => $ras,
+        ]);
+    }
+
+    /**
      * Quitar servicio adicional de una reserva
      */
     public function removeAdditionalService(Reservation $reservation, ReservationAdditionalService $reservationAdditionalService)
     {
-        if (in_array($reservation->status, ['checked_in', 'checked_out'], true)) {
+        if ($reservation->status === 'checked_out') {
             return response()->json([
-                'message' => 'No se pueden modificar servicios adicionales en una reserva con check-in o check-out realizado.',
+                'message' => 'No se pueden modificar servicios adicionales en una reserva con check-out realizado.',
             ], 403);
         }
 

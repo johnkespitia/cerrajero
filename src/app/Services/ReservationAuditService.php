@@ -99,6 +99,35 @@ class ReservationAuditService
         );
     }
 
+    public function logPaymentUpdate(Reservation $reservation, array $oldValues, array $newValues, Request $request = null)
+    {
+        return $this->log(
+            'payment_updated',
+            $reservation,
+            $oldValues,
+            $newValues,
+            'Pago actualizado',
+            auth()->id(),
+            $request
+        );
+    }
+
+    public function logPaymentDeletion(Reservation $reservation, array $paymentValues, Request $request = null)
+    {
+        $amount = $paymentValues['amount'] ?? '';
+        $method = $paymentValues['payment_method'] ?? ($paymentValues['payment_type'] ?? 'Desconocido');
+
+        return $this->log(
+            'payment_deleted',
+            $reservation,
+            $paymentValues,
+            null,
+            "Pago eliminado: {$amount} via {$method}",
+            auth()->id(),
+            $request
+        );
+    }
+
     public function logCancellation(Reservation $reservation, $reason = null, Request $request = null)
     {
         return $this->log(

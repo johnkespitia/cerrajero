@@ -95,6 +95,31 @@ class AdditionalServicePriceCalculator
     }
 
     /**
+     * Actualiza la cantidad de ítems de un servicio ya contratado y recalcula su total.
+     */
+    public function updateServiceQuantity(
+        ReservationAdditionalService $ras,
+        Reservation $reservation,
+        int $itemQuantity
+    ): ReservationAdditionalService {
+        $service = $ras->additionalService;
+        if (!$service) {
+            $service = AdditionalService::findOrFail($ras->additional_service_id);
+        }
+
+        $calc = $this->calculateTotal($service, $reservation, $itemQuantity);
+        $ras->update([
+            'unit_price' => $calc['unit_price'],
+            'quantity' => $calc['quantity'],
+            'service_days' => $calc['service_days'],
+            'guests_count' => $calc['guests_count'],
+            'total' => $calc['total'],
+        ]);
+
+        return $ras->fresh()->load('additionalService');
+    }
+
+    /**
      * Aplica los servicios de un paquete a la reserva (evitando duplicados del mismo servicio).
      */
     public function applyPackageToReservation(

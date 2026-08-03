@@ -453,9 +453,12 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::get('/reservations/{reservation}/certificate/download', 'downloadCertificate')->middleware('permission:reservation.view,reservas');
         Route::post('/reservations/{reservation}/resend-email', 'resendEmail')->middleware('permission:reservation.edit,reservas');
         Route::post('/reservations/{reservation}/payments', 'addPayment')->middleware('permission:reservation.edit,reservas');
+        Route::put('/reservations/{reservation}/payments/{reservationPayment}', 'updatePayment')->middleware('permission:reservation.edit,reservas');
+        Route::delete('/reservations/{reservation}/payments/{reservationPayment}', 'deletePayment')->middleware('permission:reservation.edit,reservas');
         Route::get('/reservations/{reservation}/audits', 'getAuditHistory')->middleware('permission:reservation.view,reservas');
         Route::post('/reservations/{reservation}/recalculate-price', 'recalculatePrice')->middleware('permission:reservation.edit,reservas');
         Route::post('/reservations/{reservation}/additional-services', 'addAdditionalService')->middleware('permission:reservation.edit,reservas');
+        Route::put('/reservations/{reservation}/additional-services/{reservationAdditionalService}', 'updateAdditionalService')->middleware('permission:reservation.edit,reservas');
         Route::delete('/reservations/{reservation}/additional-services/{reservationAdditionalService}', 'removeAdditionalService')->middleware('permission:reservation.edit,reservas');
         Route::get('/reservations/{reservation}/meal-consumption', 'getMealConsumption')->middleware('permission:reservation.view,reservas');
         Route::post('/reservations/{reservation}/check-in', 'checkIn')->middleware('permission:reservation.edit,reservas');
