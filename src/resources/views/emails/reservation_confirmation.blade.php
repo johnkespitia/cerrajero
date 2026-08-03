@@ -44,5 +44,13 @@
         </div>
     </div>
 
+    <div class="info-block" style="background-color: #e8f5e9; border-left: 4px solid #2F6B3F; padding: 16px;">
+        <h3 style="margin-top: 0;">Sobre tus pagos</h3>
+        <p style="margin-bottom: 0;">
+            Si has realizado pagos sobre esta reserva, recibirás un correo aparte con el detalle de cada pago registrado.
+            Este mensaje solo confirma la reserva; los comprobantes de pago se envían de forma independiente.
+        </p>
+    </div>
+
     <p>Si tienes alguna pregunta o necesitas modificar tu reserva, por favor responde a este correo.</p>
 @endsection
