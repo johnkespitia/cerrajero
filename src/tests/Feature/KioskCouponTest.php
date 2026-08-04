@@ -177,6 +177,32 @@ class KioskCouponTest extends TestCase
         $this->assertDatabaseMissing('kiosk_coupons', ['id' => $coupon->id]);
     }
 
+    public function test_validate_coupon_endpoint_returns_discount_preview(): void
+    {
+        $this->makeCoupon();
+
+        $response = $this->postJson('/api/kiosk/coupons/validate', [
+            'code' => 'verano10',
+            'subtotal' => 100000,
+            'manual_discount' => 0,
+        ]);
+
+        $response->assertStatus(200)
+            ->assertJsonPath('valid', true)
+            ->assertJsonPath('coupon_code', 'VERANO10')
+            ->assertJsonPath('coupon_discount', 10000)
+            ->assertJsonPath('payable', 90000);
+    }
+
+    public function test_validate_invalid_coupon_returns_422(): void
+    {
+        $this->postJson('/api/kiosk/coupons/validate', [
+            'code' => 'NOEXISTE',
+            'subtotal' => 100000,
+        ])->assertStatus(422)
+            ->assertJsonPath('valid', false);
+    }
+
     public function test_invoice_with_coupon_applies_discount_and_increments_usage(): void
     {
         $this->makeCoupon();

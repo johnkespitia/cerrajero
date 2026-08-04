@@ -341,6 +341,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
 
     Route::controller(\App\Http\Controllers\KioskCouponController::class)->group(function () {
         Route::get('/kiosk/coupons', 'index')->middleware('permission:kiosk_coupons.list,kioskcaja');
+        Route::post('/kiosk/coupons/validate', 'validateCode')->middleware('permission:compras.list,kioskcaja');
         Route::post('/kiosk/coupons', 'store')->middleware('permission:kiosk_coupons.create,kioskcaja');
         Route::get('/kiosk/coupons/{kioskCoupon}', 'show')->middleware('permission:kiosk_coupons.list,kioskcaja');
         Route::put('/kiosk/coupons/{kioskCoupon}', 'update')->middleware('permission:kiosk_coupons.edit,kioskcaja');

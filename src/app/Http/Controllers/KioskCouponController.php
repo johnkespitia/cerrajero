@@ -4,9 +4,11 @@ namespace App\Http\Controllers;
 
 use App\Models\KioskCoupon;
 use App\Models\KioskInvoice;
+use App\Services\KioskDiscountService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 class KioskCouponController extends Controller
 {
@@ -19,6 +21,47 @@ class KioskCouponController extends Controller
         }
 
         return response()->json($query->orderBy('code')->get());
+    }
+
+    /**
+     * Valida un cupón contra el subtotal actual (uso en Caja, sin permiso de admin).
+     */
+    public function validateCode(Request $request, KioskDiscountService $discountService)
+    {
+        $request->validate([
+            'code' => 'required|string|max:50',
+            'subtotal' => 'required|numeric|min:0',
+            'manual_discount' => 'nullable|numeric|min:0',
+        ]);
+
+        try {
+            $resolved = $discountService->resolve(
+                (float) $request->input('subtotal'),
+                $request->input('code'),
+                $request->input('manual_discount', 0)
+            );
+        } catch (ValidationException $e) {
+            return response()->json([
+                'valid' => false,
+                'message' => collect($e->errors())->flatten()->first() ?: 'Cupón inválido.',
+                'errors' => $e->errors(),
+            ], 422);
+        }
+
+        $coupon = $resolved['coupon'];
+
+        return response()->json([
+            'valid' => true,
+            'coupon_code' => $resolved['coupon_code'],
+            'coupon_name' => $coupon?->name,
+            'coupon_type' => $coupon?->type,
+            'coupon_value' => $coupon?->value,
+            'coupon_discount' => $resolved['coupon_discount'],
+            'manual_discount' => $resolved['manual_discount'],
+            'discount_total' => $resolved['discount_total'],
+            'payable' => $resolved['payable'],
+            'subtotal' => round((float) $request->input('subtotal'), 2),
+        ]);
     }
 
     public function show(KioskCoupon $kioskCoupon)
