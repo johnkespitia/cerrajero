@@ -10,10 +10,17 @@ class KioskCoupon extends Model
 {
     use HasFactory;
 
+    public const EFFECT_DISCOUNT = 'discount';
+    public const EFFECT_INCREMENT = 'increment';
+    public const SCOPE_CART = 'cart';
+    public const SCOPE_ITEM = 'item';
+
     protected $fillable = [
         'code',
         'name',
         'type',
+        'effect',
+        'apply_scope',
         'value',
         'valid_from',
         'valid_until',
@@ -30,6 +37,16 @@ class KioskCoupon extends Model
         'max_uses' => 'integer',
         'used_count' => 'integer',
     ];
+
+    public function isIncrement(): bool
+    {
+        return ($this->effect ?? self::EFFECT_DISCOUNT) === self::EFFECT_INCREMENT;
+    }
+
+    public function isItemScope(): bool
+    {
+        return ($this->apply_scope ?? self::SCOPE_CART) === self::SCOPE_ITEM;
+    }
 
     public function isValid(?string $onDate = null): bool
     {
@@ -49,30 +66,66 @@ class KioskCoupon extends Model
         return true;
     }
 
-    public function discountAmountFor(float $subtotal): float
+    /**
+     * Monto absoluto del ajuste (descuento o incremento) sobre una base.
+     * Para descuento se capea a la base; para incremento no.
+     */
+    public function amountForBase(float $base): float
     {
-        if ($subtotal <= 0) {
+        if ($base < 0) {
             return 0.0;
         }
 
         if ($this->type === 'percentage') {
-            $amount = round($subtotal * ((float) $this->value / 100), 2);
+            $amount = round($base * ((float) $this->value / 100), 2);
         } elseif ($this->type === 'fixed') {
             $amount = round((float) $this->value, 2);
         } else {
             return 0.0;
         }
 
-        return min($amount, $subtotal);
+        if ($this->isIncrement()) {
+            return max(0.0, $amount);
+        }
+
+        return min(max(0.0, $amount), $base);
     }
 
-    public function calculateDiscount(float $subtotal): float
+    /**
+     * @param  array<int, float>  $linePrices  precios por unidad/línea (para scope item)
+     */
+    public function calculateAdjustment(float $subtotal, array $linePrices = []): float
     {
         if (!$this->isValid()) {
             return 0.0;
         }
 
-        return $this->discountAmountFor($subtotal);
+        if ($this->isItemScope()) {
+            if (empty($linePrices)) {
+                return 0.0;
+            }
+
+            $total = 0.0;
+            foreach ($linePrices as $price) {
+                $total += $this->amountForBase((float) $price);
+            }
+
+            return round($total, 2);
+        }
+
+        return $this->amountForBase($subtotal);
+    }
+
+    /** @deprecated usar calculateAdjustment */
+    public function discountAmountFor(float $subtotal): float
+    {
+        return $this->amountForBase($subtotal);
+    }
+
+    /** @deprecated usar calculateAdjustment */
+    public function calculateDiscount(float $subtotal): float
+    {
+        return $this->calculateAdjustment($subtotal);
     }
 
     public function incrementUsage(): void

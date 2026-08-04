@@ -32,13 +32,21 @@ class KioskCouponController extends Controller
             'code' => 'required|string|max:50',
             'subtotal' => 'required|numeric|min:0',
             'manual_discount' => 'nullable|numeric|min:0',
+            'line_prices' => 'nullable|array',
+            'line_prices.*' => 'numeric|min:0',
         ]);
+
+        $linePrices = array_map(
+            'floatval',
+            $request->input('line_prices', [])
+        );
 
         try {
             $resolved = $discountService->resolve(
                 (float) $request->input('subtotal'),
                 $request->input('code'),
-                $request->input('manual_discount', 0)
+                $request->input('manual_discount', 0),
+                $linePrices
             );
         } catch (ValidationException $e) {
             return response()->json([
@@ -55,6 +63,8 @@ class KioskCouponController extends Controller
             'coupon_code' => $resolved['coupon_code'],
             'coupon_name' => $coupon?->name,
             'coupon_type' => $coupon?->type,
+            'coupon_effect' => $resolved['coupon_effect'],
+            'coupon_apply_scope' => $resolved['coupon_apply_scope'],
             'coupon_value' => $coupon?->value,
             'coupon_discount' => $resolved['coupon_discount'],
             'manual_discount' => $resolved['manual_discount'],
@@ -126,6 +136,8 @@ class KioskCouponController extends Controller
             ],
             'name' => 'required|string|max:255',
             'type' => 'required|in:percentage,fixed',
+            'effect' => 'nullable|in:discount,increment',
+            'apply_scope' => 'nullable|in:cart,item',
             'value' => 'required|numeric|min:0',
             'valid_from' => 'required|date',
             'valid_until' => 'required|date|after_or_equal:valid_from',
@@ -140,6 +152,12 @@ class KioskCouponController extends Controller
             'code' => strtoupper(trim((string) ($data['code'] ?? ''))),
             'name' => trim((string) ($data['name'] ?? '')),
             'type' => $data['type'] ?? 'percentage',
+            'effect' => in_array($data['effect'] ?? 'discount', ['discount', 'increment'], true)
+                ? $data['effect']
+                : 'discount',
+            'apply_scope' => in_array($data['apply_scope'] ?? 'cart', ['cart', 'item'], true)
+                ? $data['apply_scope']
+                : 'cart',
             'value' => $data['value'] ?? 0,
             'valid_from' => $data['valid_from'],
             'valid_until' => $data['valid_until'],
