@@ -178,7 +178,8 @@ class KioskInvoiceController extends Controller
             $discount = $this->discountService->resolve(
                 $total_invoice,
                 $request->input('coupon_code'),
-                $request->input('manual_discount')
+                $request->input('manual_discount'),
+                $this->linePricesFromDetails($details)
             );
             $this->discountService->applyToInvoice($kioskInvoice, $discount, auth()->id(), true);
             $payable = $discount['payable'];
@@ -522,7 +523,8 @@ class KioskInvoiceController extends Controller
             $discount = $this->discountService->resolve(
                 $total_invoice,
                 $request->input('coupon_code'),
-                $request->input('manual_discount')
+                $request->input('manual_discount'),
+                $this->linePricesFromUnitsPayload($units)
             );
             $this->discountService->applyToInvoice($kioskInvoice, $discount, auth()->id(), true);
             $payable = $discount['payable'];
@@ -795,7 +797,8 @@ class KioskInvoiceController extends Controller
                 $discount = $this->discountService->recalculateExisting(
                     $subtotal,
                     $kioskInvoice->coupon_code,
-                    $kioskInvoice->manual_discount
+                    $kioskInvoice->manual_discount,
+                    $this->linePricesFromDetails($kioskInvoice)
                 );
                 $this->discountService->applyToInvoice(
                     $kioskInvoice,
@@ -878,7 +881,8 @@ class KioskInvoiceController extends Controller
             $discount = $this->discountService->resolve(
                 $totalInvoice,
                 $request->input('coupon_code'),
-                $request->input('manual_discount')
+                $request->input('manual_discount'),
+                $this->linePricesFromDetails($kioskInvoice)
             );
             $this->discountService->applyToInvoice($kioskInvoice, $discount, auth()->id(), true);
             $payable = $discount['payable'];
@@ -1008,6 +1012,25 @@ class KioskInvoiceController extends Controller
                 'error' => $e->getMessage(),
             ], 500);
         }
+    }
+
+
+    protected function linePricesFromDetails($detailsOrInvoice): array
+    {
+        if ($detailsOrInvoice instanceof \App\Models\KioskInvoice) {
+            return $detailsOrInvoice->linePrices();
+        }
+
+        return collect($detailsOrInvoice)->pluck('price')->map(fn ($p) => (float) $p)->all();
+    }
+
+    protected function linePricesFromUnitsPayload(?array $units): array
+    {
+        if (empty($units)) {
+            return [];
+        }
+
+        return array_map(fn ($u) => (float) ($u['price'] ?? 0), $units);
     }
 
     protected function findCreditReservationPayment(KioskInvoice $kioskInvoice): ?ReservationPayment

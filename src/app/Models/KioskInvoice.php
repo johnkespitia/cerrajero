@@ -26,6 +26,8 @@ class KioskInvoice extends Model
         'otp_verified_by',
         'otp_expires_at',
         'coupon_code',
+        'coupon_effect',
+        'coupon_apply_scope',
         'coupon_discount',
         'manual_discount',
         'manual_discount_by',
@@ -91,11 +93,26 @@ class KioskInvoice extends Model
         return round((float) $this->details()->sum('price'), 2);
     }
 
+    public function linePrices(): array
+    {
+        if ($this->relationLoaded('details')) {
+            return $this->details->pluck('price')->map(fn ($p) => (float) $p)->all();
+        }
+
+        return $this->details()->pluck('price')->map(fn ($p) => (float) $p)->all();
+    }
+
     public function payableTotal(): float
     {
-        $discount = (float) ($this->discount_total ?? 0);
+        $subtotal = $this->subtotal();
+        $couponAmount = (float) ($this->coupon_discount ?? 0);
+        $manual = (float) ($this->manual_discount ?? 0);
 
-        return max(0, round($this->subtotal() - $discount, 2));
+        if (($this->coupon_effect ?? 'discount') === 'increment') {
+            return max(0, round($subtotal + $couponAmount - $manual, 2));
+        }
+
+        return max(0, round($subtotal - $couponAmount - $manual, 2));
     }
 
     public function isCancelled(): bool
