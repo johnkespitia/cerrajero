@@ -339,6 +339,14 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::post('/kiosk/products/unit/bulk-delete', 'bulkDelete')->middleware('permission:kiosk_products.edit,kioskinvetario');
     });
 
+    Route::controller(\App\Http\Controllers\KioskMinibarTransferController::class)->group(function () {
+        Route::get('/kiosk/minibar/mappings', 'mappings')->middleware('permission:kiosk_products.list,kioskinvetario');
+        Route::get('/kiosk/minibar/suggestions', 'suggestions')->middleware('permission:kiosk_products.list,kioskinvetario');
+        Route::get('/kiosk/minibar/products', 'minibarProducts')->middleware('permission:kiosk_products.list,kioskinvetario');
+        Route::post('/kiosk/minibar/map', 'setMapping')->middleware('permission:kiosk_products.edit,kioskinvetario');
+        Route::post('/kiosk/units/transfer-to-minibar', 'transfer')->middleware('permission:kiosk_products.edit,kioskinvetario');
+    });
+
     Route::controller(\App\Http\Controllers\KioskCouponController::class)->group(function () {
         Route::get('/kiosk/coupons', 'index')->middleware('permission:kiosk_coupons.list,kioskcaja');
         Route::post('/kiosk/coupons/validate', 'validateCode')->middleware('permission:compras.list,kioskcaja');

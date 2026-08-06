@@ -15,14 +15,27 @@ class KioskUnit extends Model
         "expiration",
         "active",
         "product_id",
-        'sold'
+        'sold',
+        'transferred_at'
     ];
 
     protected $casts = [
         'active' => 'boolean',
         'sold' => 'boolean',
         'expiration' => 'date',
+        'transferred_at' => 'datetime',
     ];
+
+    public function scopeAvailable($query)
+    {
+        return $query->where('active', true)
+            ->where('sold', false)
+            ->whereNull('transferred_at')
+            ->where(function ($q) {
+                $q->whereNull('expiration')
+                    ->orWhere('expiration', '>=', now()->toDateString());
+            });
+    }
 
     public function product()
     {

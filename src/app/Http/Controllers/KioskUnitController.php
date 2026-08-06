@@ -26,9 +26,10 @@ class KioskUnitController extends Controller
             return $query->orderBy('product_id')->orderBy('id')->get();
         }
 
-        // Por defecto: solo unidades activas y NO vendidas
+        // Por defecto: solo unidades activas, NO vendidas y NO trasladadas
         return $query->where('active', true)
             ->where('sold', false)
+            ->whereNull('transferred_at')
             ->where(function($q) {
                 $q->whereNull('expiration')
                   ->orWhere('expiration', '>=', now()->toDateString());
@@ -172,15 +173,26 @@ class KioskUnitController extends Controller
         $unitIds = $request->unit_ids;
         $fields = $request->fields;
 
-        // Validar que las unidades no estén vendidas
+        // Validar que las unidades no estén vendidas ni trasladadas
         $soldUnits = KioskUnit::whereIn('id', $unitIds)
             ->where('sold', true)
+            ->pluck('id');
+
+        $transferredUnits = KioskUnit::whereIn('id', $unitIds)
+            ->whereNotNull('transferred_at')
             ->pluck('id');
 
         if ($soldUnits->count() > 0) {
             return response()->json([
                 'message' => 'No se pueden editar unidades vendidas',
                 'sold_units' => $soldUnits
+            ], 422);
+        }
+
+        if ($transferredUnits->count() > 0) {
+            return response()->json([
+                'message' => 'No se pueden editar unidades trasladadas al minibar',
+                'transferred_units' => $transferredUnits
             ], 422);
         }
 
@@ -210,15 +222,26 @@ class KioskUnitController extends Controller
 
         $unitIds = $request->unit_ids;
 
-        // Validar que las unidades no estén vendidas
+        // Validar que las unidades no estén vendidas ni trasladadas
         $soldUnits = KioskUnit::whereIn('id', $unitIds)
             ->where('sold', true)
+            ->pluck('id');
+
+        $transferredUnits = KioskUnit::whereIn('id', $unitIds)
+            ->whereNotNull('transferred_at')
             ->pluck('id');
 
         if ($soldUnits->count() > 0) {
             return response()->json([
                 'message' => 'No se pueden eliminar unidades vendidas',
                 'sold_units' => $soldUnits
+            ], 422);
+        }
+
+        if ($transferredUnits->count() > 0) {
+            return response()->json([
+                'message' => 'No se pueden eliminar unidades trasladadas al minibar',
+                'transferred_units' => $transferredUnits
             ], 422);
         }
 
