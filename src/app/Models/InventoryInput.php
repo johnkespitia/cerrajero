@@ -18,6 +18,10 @@ class InventoryInput extends Model
         'min_inventory'
     ];
 
+    protected $casts = [
+        'active' => 'boolean',
+    ];
+
     public function category()
     {
         return $this->belongsTo(InventoryCategory::class, "category_id", "id");
