@@ -464,6 +464,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::post('/reservations', 'store')->middleware('permission:reservation.create,reservas');
         Route::get('/reservations/{reservation}', 'show')->middleware('permission:reservation.view,reservas');
         Route::put('/reservations/{reservation}', 'update')->middleware('permission:reservation.edit,reservas');
+        Route::post('/reservations/{reservation}/void-staff-error', 'voidStaffError')->middleware('permission:reservation.edit,reservas');
         Route::delete('/reservations/{reservation}', 'destroy')->middleware('permission:reservation.delete,reservas');
         Route::post('/reservations/{reservation}/change-room', 'changeRoom')->middleware('permission:reservation.edit,reservas');
         Route::post('/reservations/{reservation}/certificate', 'generateCertificate')->middleware('permission:reservation.view,reservas');

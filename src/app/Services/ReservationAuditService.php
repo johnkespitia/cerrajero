@@ -134,8 +134,36 @@ class ReservationAuditService
             'cancelled',
             $reservation,
             ['status' => $reservation->getOriginal('status')],
-            ['status' => 'cancelled', 'cancellation_reason' => $reason],
+            ['status' => 'cancelled', 'cancellation_reason' => $reason, 'cancellation_kind' => 'customer'],
             $reason ?? 'Reserva cancelada',
+            auth()->id(),
+            $request
+        );
+    }
+
+    public function logVoidStaffError(
+        Reservation $reservation,
+        $oldStatus,
+        $oldPaymentStatus,
+        $reason = null,
+        Request $request = null
+    ) {
+        return $this->log(
+            'voided_staff_error',
+            $reservation,
+            [
+                'status' => $oldStatus,
+                'payment_status' => $oldPaymentStatus,
+            ],
+            [
+                'status' => 'cancelled',
+                'cancellation_kind' => 'staff_error',
+                'cancellation_reason' => $reason,
+                'payment_status' => $reservation->payment_status,
+                'refund_amount' => 0,
+                'penalty_amount' => 0,
+            ],
+            $reason ?? 'Reserva anulada por error de captura',
             auth()->id(),
             $request
         );

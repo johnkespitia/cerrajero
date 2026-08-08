@@ -45,6 +45,7 @@ class Reservation extends Model
         'free_reservation_reference',
         'special_requests',
         'cancellation_reason',
+        'cancellation_kind',
         'cancellation_policy_id',
         'cancellation_deadline',
         'refund_amount',
