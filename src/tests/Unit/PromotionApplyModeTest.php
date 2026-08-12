@@ -58,8 +58,11 @@ class PromotionApplyModeTest extends TestCase
                 'children' => 1,
                 'adult_price' => 100000,
                 'child_price' => 50000,
-            ]
+             ]
         );
+
+        $this->assertSame(25000.0, $discount);
+    }
 
     public function test_percentage_per_guest_uses_lodging_prices_for_room_stay(): void
     {
