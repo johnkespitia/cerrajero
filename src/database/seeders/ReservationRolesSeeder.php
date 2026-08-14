@@ -54,6 +54,9 @@ class ReservationRolesSeeder extends Seeder
             'reservation.list',
             'reservation.create',
             'reservation.edit',
+            'reservation.check-in',
+            'reservation.check-out',
+            'reservation.payment-register',
             'reservation.delete',
             'reservation.view',
             'reservation.report',
@@ -82,7 +85,8 @@ class ReservationRolesSeeder extends Seeder
             // Permisos de reservas (sin delete ni report)
             'reservation.list',
             'reservation.create',
-            'reservation.edit',
+            'reservation.check-in',
+            'reservation.check-out',
             'reservation.view',
             // Permisos de habitaciones
             'room.list',

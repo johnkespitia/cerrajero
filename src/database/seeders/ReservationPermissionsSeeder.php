@@ -51,6 +51,9 @@ class ReservationPermissionsSeeder extends Seeder
             'reservation.delete' => 'Eliminar reservas',
             'reservation.view' => 'Ver detalles y certificados de reservas',
             'reservation.report' => 'Ver reportes de marketing de reservas',
+            'reservation.check-in' => 'Realizar check-in de reservas',
+            'reservation.check-out' => 'Realizar check-out de reservas',
+            'reservation.payment-register' => 'Registrar pagos en reservas',
         ];
 
         foreach ($permissions as $name => $description) {

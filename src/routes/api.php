@@ -469,17 +469,17 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::post('/reservations/{reservation}/certificate', 'generateCertificate')->middleware('permission:reservation.view,reservas');
         Route::get('/reservations/{reservation}/certificate/download', 'downloadCertificate')->middleware('permission:reservation.view,reservas');
         Route::post('/reservations/{reservation}/resend-email', 'resendEmail')->middleware('permission:reservation.edit,reservas');
-        Route::post('/reservations/{reservation}/payments', 'addPayment')->middleware('permission:reservation.edit,reservas');
-        Route::put('/reservations/{reservation}/payments/{reservationPayment}', 'updatePayment')->middleware('permission:reservation.edit,reservas');
-        Route::delete('/reservations/{reservation}/payments/{reservationPayment}', 'deletePayment')->middleware('permission:reservation.edit,reservas');
+        Route::post('/reservations/{reservation}/payments', 'addPayment')->middleware('permission:reservation.payment-register,reservas');
+        Route::put('/reservations/{reservation}/payments/{reservationPayment}', 'updatePayment')->middleware('permission:reservation.payment-register,reservas');
+        Route::delete('/reservations/{reservation}/payments/{reservationPayment}', 'deletePayment')->middleware('permission:reservation.payment-register,reservas');
         Route::get('/reservations/{reservation}/audits', 'getAuditHistory')->middleware('permission:reservation.view,reservas');
         Route::post('/reservations/{reservation}/recalculate-price', 'recalculatePrice')->middleware('permission:reservation.edit,reservas');
         Route::post('/reservations/{reservation}/additional-services', 'addAdditionalService')->middleware('permission:reservation.edit,reservas');
         Route::put('/reservations/{reservation}/additional-services/{reservationAdditionalService}', 'updateAdditionalService')->middleware('permission:reservation.edit,reservas');
         Route::delete('/reservations/{reservation}/additional-services/{reservationAdditionalService}', 'removeAdditionalService')->middleware('permission:reservation.edit,reservas');
         Route::get('/reservations/{reservation}/meal-consumption', 'getMealConsumption')->middleware('permission:reservation.view,reservas');
-        Route::post('/reservations/{reservation}/check-in', 'checkIn')->middleware('permission:reservation.edit,reservas');
-        Route::post('/reservations/{reservation}/check-out', 'checkOut')->middleware('permission:reservation.edit,reservas');
+        Route::post('/reservations/{reservation}/check-in', 'checkIn')->middleware('permission:reservation.check-in,reservas');
+        Route::post('/reservations/{reservation}/check-out', 'checkOut')->middleware('permission:reservation.check-out,reservas');
         Route::get('/reservations/{reservation}/checkout-certificate/download', 'downloadCheckoutCertificate')->middleware('permission:reservation.view,reservas');
         Route::post('/reservations/{reservation}/resend-checkout-email', 'resendCheckoutEmail')->middleware('permission:reservation.edit,reservas');
     });
@@ -624,6 +624,16 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::post('/room-inventory/items', 'store')->middleware('permission:room_inventory.item.create,reservas');
         Route::put('/room-inventory/items/{roomInventoryItem}', 'update')->middleware('permission:room_inventory.item.edit,reservas');
         Route::delete('/room-inventory/items/{roomInventoryItem}', 'destroy')->middleware('permission:room_inventory.item.delete,reservas');
+    });
+
+    // QR Codes para artículos de inventario
+    Route::prefix('room-inventory/qr')->middleware('permission:room_inventory.item.list,reservas')->group(function () {
+        Route::get('/items/{roomInventoryItem}', [\App\Http\Controllers\Api\RoomInventory\QrCodeController::class, 'generate'])
+            ->name('room-inventory.qr.generate');
+        Route::get('/items/{roomInventoryItem}/svg', [\App\Http\Controllers\Api\RoomInventory\QrCodeController::class, 'downloadSvg'])
+            ->name('room-inventory.qr.download-svg');
+        Route::get('/items/{roomInventoryItem}/png', [\App\Http\Controllers\Api\RoomInventory\QrCodeController::class, 'downloadPng'])
+            ->name('room-inventory.qr.download-png');
     });
 
     // Zonas comunes
