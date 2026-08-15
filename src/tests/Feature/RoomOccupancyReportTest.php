@@ -233,6 +233,51 @@ class RoomOccupancyReportTest extends TestCase
         }
     }
 
+    public function test_room_with_checked_in_guest_checking_out_on_checkin_day_is_available(): void
+    {
+        $base = now()->addDays(40);
+        $checkIn = $base->format('Y-m-d');
+        $checkOut = $base->copy()->addDay()->format('Y-m-d');
+
+        $room = $this->room;
+        $room->update(['status' => 'occupied']);
+
+        $this->createRoomReservation(
+            $room,
+            $base->copy()->subDays(3)->format('Y-m-d'),
+            $checkIn,
+            'checked_in'
+        );
+
+        $this->assertTrue($room->isAvailable($checkIn, $checkOut));
+
+        $response = $this->getJson("/api/reservations/room-occupancy/report?date_from={$checkIn}&date_to={$checkOut}");
+        $response->assertOk();
+
+        $roomRow = collect($response->json('rooms'))->firstWhere('id', $room->id);
+        $this->assertNotNull($roomRow);
+        $this->assertSame('available', $roomRow['dates'][0]['status']);
+    }
+
+    public function test_room_with_checked_in_guest_checking_out_after_checkin_day_is_not_available(): void
+    {
+        $base = now()->addDays(50);
+        $checkIn = $base->format('Y-m-d');
+        $checkOut = $base->copy()->addDay()->format('Y-m-d');
+
+        $room = $this->room;
+        $room->update(['status' => 'occupied']);
+
+        $this->createRoomReservation(
+            $room,
+            $base->copy()->subDays(3)->format('Y-m-d'),
+            $base->copy()->addDays(2)->format('Y-m-d'),
+            'checked_in'
+        );
+
+        $this->assertFalse($room->isAvailable($checkIn, $checkOut));
+    }
+
     public function test_report_requires_both_dates(): void
     {
         $response = $this->getJson('/api/reservations/room-occupancy/report?date_from=2026-08-01');

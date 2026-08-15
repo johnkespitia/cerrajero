@@ -111,7 +111,7 @@ class Room extends Model
                     ->where(function($query) use ($checkIn, $checkOut) {
                         $query->where(function($q) use ($checkIn, $checkOut) {
                             $q->where('check_in_date', '<', $checkOut->format('Y-m-d'))
-                              ->where('check_out_date', '>=', $checkIn->format('Y-m-d'));
+                              ->where('check_out_date', '>', $checkIn->format('Y-m-d'));
                         });
                     })
                     ->exists();
