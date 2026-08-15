@@ -3700,8 +3700,18 @@ class ReservationController extends Controller
             return response()->json($validator->errors(), 422);
         }
 
+        // Filtro de solapamiento: una reserva ocupa el período si su check-in es
+        // anterior o igual al fin del rango y su check-out es posterior o igual al
+        // inicio del rango (una reserva que inició antes de date_from también ocupa).
+        // La precisión por fecha (día de check-out libre) la aplica el filtro de abajo.
         $query = Reservation::where('status', '!=', 'cancelled')
-            ->whereBetween('check_in_date', [$request->date_from, $request->date_to]);
+            ->where(function ($q) use ($request) {
+                $q->where('check_in_date', '<=', $request->date_to)
+                    ->where(function ($q2) use ($request) {
+                        $q2->where('check_out_date', '>=', $request->date_from)
+                            ->orWhereNull('check_out_date');
+                    });
+            });
 
         if ($request->room_type_id) {
             $query->where('room_type_id', $request->room_type_id);
@@ -3715,7 +3725,18 @@ class ReservationController extends Controller
 
         for ($date = $dateFrom->copy(); $date->lte($dateTo); $date->addDay()) {
             $dayReservations = $reservations->filter(function ($reservation) use ($date) {
-                return $date->between($reservation->check_in_date, $reservation->check_out_date ?? $reservation->check_in_date);
+                // Pasadía: ocupa únicamente su propio día.
+                if ($reservation->reservation_type === 'day_pass') {
+                    return $date->eq($reservation->check_in_date->startOfDay());
+                }
+
+                // Habitación: ocupa [check_in, check_out); el día de check-out queda libre
+                // (coherente con Room::isAvailable).
+                $checkIn = $reservation->check_in_date->startOfDay();
+                if (!$reservation->check_out_date) {
+                    return $date->gte($checkIn);
+                }
+                return $date->gte($checkIn) && $date->lt($reservation->check_out_date->startOfDay());
             });
 
             $occupancyByDate[] = [
@@ -3740,6 +3761,153 @@ class ReservationController extends Controller
                 'total_day_passes' => $reservations->where('reservation_type', 'day_pass')->count(),
             ],
         ]);
+    }
+
+    /**
+     * Reporte de ocupación por habitación: matriz habitación × fecha para un rango.
+     *
+     * Muestra qué habitación está ocupada (y por qué reserva), disponible o en
+     * mantenimiento en cada fecha del rango. Usa el mismo criterio de solapamiento
+     * que Room::isAvailable: una habitación ocupa [check_in, check_out) y el día de
+     * check-out queda libre.
+     */
+    public function roomOccupancyReport(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'date_from' => 'required|date',
+            'date_to' => 'required|date|after_or_equal:date_from',
+            'room_type_id' => 'nullable|exists:room_types,id',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json($validator->errors(), 422);
+        }
+
+        $dateFrom = Carbon::parse($request->date_from)->startOfDay();
+        $dateTo = Carbon::parse($request->date_to)->startOfDay();
+
+        $roomsQuery = Room::where('active', true);
+        if ($request->room_type_id) {
+            $roomsQuery->where('room_type_id', (int) $request->room_type_id);
+        }
+        $rooms = $roomsQuery->with('roomType')->orderBy('room_type_id')->orderBy('number')->get();
+
+        // Reservas de habitación que ocupan al menos una noche dentro del rango.
+        $overlappingReservations = Reservation::where('reservation_type', 'room')
+            ->whereIn('status', ['confirmed', 'checked_in'])
+            ->where('check_in_date', '<=', $dateTo->format('Y-m-d'))
+            ->where(function ($q) use ($dateFrom) {
+                $q->where('check_out_date', '>', $dateFrom->format('Y-m-d'))
+                    ->orWhereNull('check_out_date');
+            })
+            ->with('customer')
+            ->get()
+            ->groupBy('room_id');
+
+        $dates = [];
+        for ($date = $dateFrom->copy(); $date->lte($dateTo); $date->addDay()) {
+            $dates[] = $date->copy();
+        }
+
+        $dailyCounts = [];
+        foreach ($dates as $date) {
+            $dailyCounts[$date->format('Y-m-d')] = [
+                'occupied' => 0,
+                'available' => 0,
+                'maintenance' => 0,
+            ];
+        }
+
+        $roomsMatrix = [];
+
+        foreach ($rooms as $room) {
+            $roomDates = [];
+            $inMaintenance = $room->status === 'maintenance' || $room->status === 'out_of_order';
+
+            foreach ($dates as $date) {
+                $dateStr = $date->format('Y-m-d');
+                $cell = ['date' => $dateStr, 'status' => 'available', 'reservation' => null];
+
+                if ($inMaintenance) {
+                    $cell['status'] = 'maintenance';
+                } else {
+                    $reservation = $this->reservationOccupyingDate($room, $date, $overlappingReservations);
+                    if ($reservation) {
+                        $cell['status'] = 'occupied';
+                        $cell['reservation'] = $this->formatOccupyingReservation($reservation);
+                    }
+                }
+
+                $dailyCounts[$dateStr][$cell['status']]++;
+                $roomDates[] = $cell;
+            }
+
+            $roomsMatrix[] = [
+                'id' => $room->id,
+                'room_type_id' => $room->room_type_id,
+                'room_type_name' => $room->roomType->name ?? '',
+                'display_name' => $room->display_name,
+                'number' => $room->number,
+                'capacity' => (int) $room->capacity,
+                'max_capacity' => (int) ($room->max_capacity ?? $room->capacity),
+                'status' => $room->status,
+                'dates' => $roomDates,
+            ];
+        }
+
+        $occupancyByDate = [];
+        foreach ($dailyCounts as $dateStr => $counts) {
+            $total = $counts['occupied'] + $counts['available'] + $counts['maintenance'];
+            $occupancyByDate[] = [
+                'date' => $dateStr,
+                'total_rooms' => $total,
+                'occupied_rooms' => $counts['occupied'],
+                'available_rooms' => $counts['available'],
+                'maintenance_rooms' => $counts['maintenance'],
+                'occupancy_percentage' => $total > 0 ? round(($counts['occupied'] / $total) * 100, 1) : 0,
+            ];
+        }
+
+        return response()->json([
+            'period' => [
+                'from' => $request->date_from,
+                'to' => $request->date_to,
+            ],
+            'room_type_id' => $request->room_type_id ? (int) $request->room_type_id : null,
+            'occupancy_by_date' => $occupancyByDate,
+            'rooms' => $roomsMatrix,
+        ]);
+    }
+
+    /**
+     * Retorna la reserva que ocupa la habitación en la fecha dada, o null si está libre.
+     */
+    protected function reservationOccupyingDate(Room $room, Carbon $date, $overlappingReservations): ?Reservation
+    {
+        $reservations = $overlappingReservations->get($room->id) ?? collect();
+
+        foreach ($reservations as $reservation) {
+            $checkIn = $reservation->check_in_date;
+            $checkOut = $reservation->check_out_date ?? $checkIn;
+
+            if ($date->gte($checkIn) && $date->lt($checkOut)) {
+                return $reservation;
+            }
+        }
+
+        return null;
+    }
+
+    protected function formatOccupyingReservation(Reservation $reservation): array
+    {
+        return [
+            'id' => $reservation->id,
+            'reservation_number' => $reservation->reservation_number,
+            'customer_name' => $reservation->customer?->display_name ?? null,
+            'check_in_date' => $reservation->check_in_date?->format('Y-m-d'),
+            'check_out_date' => $reservation->check_out_date?->format('Y-m-d'),
+            'reservation_status' => $reservation->status,
+        ];
     }
 
     /**

@@ -458,6 +458,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::get('/reservations/daily-dashboard', 'dailyDashboard')->middleware('permission:reservation.list,reservas');
         Route::get('/reservations/marketing/report', 'marketingReport')->middleware('permission:reservation.report,reservas');
         Route::get('/reservations/occupancy/report', 'occupancyReport')->middleware('permission:reservation.report,reservas');
+        Route::get('/reservations/room-occupancy/report', 'roomOccupancyReport')->middleware('permission:reservation.report,reservas');
         Route::get('/reservations/revenue/report', 'revenueReport')->middleware('permission:reservation.report,reservas');
         Route::get('/reservations/cancellations/report', 'cancellationsReport')->middleware('permission:reservation.report,reservas');
         Route::get('/reservations/group-reservations/report', 'groupReservationsReport')->middleware('permission:reservation.report,reservas');
