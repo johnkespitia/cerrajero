@@ -1427,31 +1427,40 @@ class ReservationController extends Controller
                     $newTotal = $dayPassCapacity->calculatePrice($updateAdults, $updateChildren);
                     $request->merge(['total_price' => $newTotal]);
                 }
-            } elseif ($request->has('room_id') || $request->has('check_in_date') || $request->has('check_out_date')) {
-                $roomId = $request->room_id ?? $reservation->room_id;
-                $checkIn = $request->check_in_date ?? $reservation->check_in_date;
-                $checkOut = $request->check_out_date ?? $reservation->check_out_date;
+            $roomIdChanged = $request->has('room_id') && ($request->room_id ?? null) !== ($reservation->room_id ?? null);
+                $checkInChanged = $request->has('check_in_date') && ($request->check_in_date ?? null) !== ($reservation->check_in_date ?? null);
+                $checkOutChanged = $request->has('check_out_date') && ($request->check_out_date ?? null) !== ($reservation->check_out_date ?? null);
 
-                if ($roomId) {
-                    $room = Room::findOrFail($roomId);
+                // Solo validar disponibilidad si cambiaron las fechas o el room_id
+                // Si nochanged nada, la reserva es la misma y no hay por qué validar solapamiento
+                $validateAvailability = $roomIdChanged || $checkInChanged || $checkOutChanged;
 
-                    $isAvailable = $room->reservations()
-                        ->where('id', '!=', $reservation->id)
-                        ->where('status', '!=', 'cancelled')
-                        ->where(function ($query) use ($checkIn, $checkOut) {
-                            $query->whereBetween('check_in_date', [$checkIn, $checkOut])
-                                ->orWhereBetween('check_out_date', [$checkIn, $checkOut])
-                                ->orWhere(function ($q) use ($checkIn, $checkOut) {
-                                    $q->where('check_in_date', '<=', $checkIn)
-                                        ->where('check_out_date', '>=', $checkOut);
-                                });
-                        })
-                        ->doesntExist();
+                if ($validateAvailability && $request->has('room_id') || $request->has('check_in_date') || $request->has('check_out_date')) {
+                    $actualRoomId = $request->room_id ?? $reservation->room_id;
+                    $checkIn = $request->check_in_date ?? $reservation->check_in_date;
+                    $checkOut = $request->check_out_date ?? $reservation->check_out_date;
 
-                    if (!$isAvailable) {
-                        return response()->json([
-                            'message' => 'La habitación no está disponible para las fechas seleccionadas'
-                        ], 409);
+                    if ($actualRoomId) {
+                        $room = Room::findOrFail($actualRoomId);
+
+                        $isAvailable = $room->reservations()
+                            ->where('id', '!=', $reservation->id)
+                            ->where('status', '!=', 'cancelled')
+                            ->where(function ($query) use ($checkIn, $checkOut) {
+                                $query->whereBetween('check_in_date', [$checkIn, $checkOut])
+                                    ->orWhereBetween('check_out_date', [$checkIn, $checkOut])
+                                    ->orWhere(function ($q) use ($checkIn, $checkOut) {
+                                        $q->where('check_in_date', '<=', $checkIn)
+                                            ->where('check_out_date', '>=', $checkOut);
+                                    });
+                            })
+                            ->doesntExist();
+
+                        if (!$isAvailable) {
+                            return response()->json([
+                                'message' => 'La habitación no está disponible para las fechas seleccionadas'
+                            ], 409);
+                        }
                     }
                 }
             }
