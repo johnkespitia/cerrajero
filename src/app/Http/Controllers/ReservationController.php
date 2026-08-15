@@ -1523,29 +1523,35 @@ class ReservationController extends Controller
                 $newChildren = (int) ($updateData['children'] ?? $reservation->children);
                 $totalSolicitado = $newAdults + $newChildren;
 
-                if ($reservation->is_group_reservation) {
+                // DETECTAR AUTOMÁTICAMENTE si es reserva grupal:
+                // 1. Si la bandera is_group_reservation es verdadera, ó
+                // 2. Si hay child_reservations (habitaciones secundarias) cargadas
+                $tiene_habitaciones_secundarias = !empty($reservation->child_reservations ?? $reservation->childReservations ?? []);
+                $es_grupal = $reservation->is_group_reservation || $tiene_habitaciones_secundarias;
+
+                if ($es_grupal) {
                     // RESERVA MULTIHABITACIÓN: validar total contra suma de capacidades de todas las habitaciones
                     $totalCapacidadHabitaciones = 0;
                     
-                    // Sumar capacidad de habitaciones principales
-                    if ($reservation->room_id) {
+                    // Sumar capacidad de la habitación principal (si existe)
+                    if (!empty($reservation->room_id)) {
                         $room = Room::find($reservation->room_id);
                         $totalCapacidadHabitaciones += $room->max_capacity ?? $room->capacity;
                     }
                     
                     // Sumar capacidad de habitaciones secundarias (child_reservations)
                     $childReservations = $reservation->child_reservations ?? $reservation->childReservations ?? [];
-                    if ($childReservations) {
+                    if (!empty($childReservations)) {
                         foreach ($childReservations as $childRes) {
-                            if ($childRes->room_id) {
+                            if (!empty($childRes->room_id)) {
                                 $childRoom = Room::find($childRes->room_id);
                                 $totalCapacidadHabitaciones += $childRoom->max_capacity ?? $childRoom->capacity;
                             }
                         }
                     }
                     
-                    // Si hay room_type_id y no hay habitaciones específicas, usar el tipo
-                    if ($totalCapacidadHabitaciones === 0 && $roomType) {
+                    // Siaún no se determinó capacidad y hay room_type_id, usar el tipo
+                    if ($totalCapacidadHabitaciones === 0 && !empty($roomType)) {
                         $totalCapacidadHabitaciones = $roomType->max_capacity ?? $roomType->default_capacity;
                     }
                     
