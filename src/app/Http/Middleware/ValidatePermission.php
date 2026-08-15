@@ -28,14 +28,18 @@ class ValidatePermission
             abort(401, 'This action is unauthorized.');
         }
 
-        try {
-            $allowed = $user->hasPermissionTo($permission, $guard);
-        } catch (Throwable $e) {
-            $allowed = false;
-        }
+        $permissions = is_array($permission)
+            ? $permission
+            : explode('|', $permission ?? '');
 
-        if ($allowed) {
-            return $next($request);
+        foreach ($permissions as $singlePermission) {
+            try {
+                if ($user->hasPermissionTo($singlePermission, $guard)) {
+                    return $next($request);
+                }
+            } catch (Throwable $e) {
+                continue;
+            }
         }
 
         abort(401, 'This action is unauthorized.');
