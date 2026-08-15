@@ -22,6 +22,8 @@ class CashRegisterClosure extends Model
         'total_transfer',
         'total_invoices',
         'total_voided_invoices',
+        'total_coupon_discount',
+        'total_manual_discount',
         'observations',
         'closed',
         'closed_by',
@@ -37,6 +39,8 @@ class CashRegisterClosure extends Model
         'total_card' => 'decimal:2',
         'total_credit' => 'decimal:2',
         'total_transfer' => 'decimal:2',
+        'total_coupon_discount' => 'decimal:2',
+        'total_manual_discount' => 'decimal:2',
         'closed' => 'boolean',
         'closed_at' => 'datetime',
     ];
@@ -114,6 +118,13 @@ class CashRegisterClosure extends Model
         $this->total_invoices = $invoices->count();
         $this->total_sales = $invoices->sum(function ($invoice) {
             return $invoice->payableTotal();
+        });
+
+        $this->total_coupon_discount = $invoices->sum(function ($invoice) {
+            return (float) ($invoice->coupon_discount ?? 0);
+        });
+        $this->total_manual_discount = $invoices->sum(function ($invoice) {
+            return (float) ($invoice->manual_discount ?? 0);
         });
 
         $this->total_cash = 0;

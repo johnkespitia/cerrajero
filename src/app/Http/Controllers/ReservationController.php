@@ -1512,33 +1512,57 @@ class ReservationController extends Controller
             if ($reservation->reservation_type === 'room' && !$reservation->is_group_reservation) {
                 $newAdults = (int) ($updateData['adults'] ?? $reservation->adults);
                 $newChildren = (int) ($updateData['children'] ?? $reservation->children);
+                $totalSolicitado = $newAdults + $newChildren;
                 $roomId = $updateData['room_id'] ?? $reservation->room_id;
                 $room = $roomId ? Room::find($roomId) : null;
                 $roomType = $reservation->room_type_id
                     ? RoomType::find($reservation->room_type_id)
                     : null;
-                $totalGuests = $newAdults + $newChildren;
+                $maxCapacity = $room ? ($room->max_capacity ?? $room->capacity) : 
+                    ($roomType ? ($roomType->max_capacity ?? $roomType->default_capacity) : null);
 
-                if ($room) {
-                    $capacityCheck = $this->validationService->validateGuestCapacity(
-                        $newAdults,
-                        $newChildren,
-                        $room
-                    );
-                } elseif ($roomType && $totalGuests <= $roomType->getMaxGuestCapacity()) {
-                    $capacityCheck = $this->validationService->validateGuestCapacity(
-                        $newAdults,
-                        $newChildren,
-                        null,
-                        $roomType
-                    );
-                } else {
-                    $capacityCheck = ['valid' => true];
+                // Validar que el total solicitado no exceda la capacidad máxima de la habitación
+                if ($maxCapacity !== null && $totalSolicitado > $maxCapacity) {
+                    DB::rollBack();
+                    return response()->json([
+                        'message' => "La habitación admite un máximo de {$maxCapacity} huésped(es). Solicitados: {$totalSolicitado}."
+                    ], 422);
                 }
 
-                if (!$capacityCheck['valid']) {
-                    DB::rollBack();
-                    return response()->json(['message' => $capacityCheck['message']], 422);
+                // Sincronizar la lista de huéspedes con el nuevo total de adultos + niños
+                $actuales = $reservation->guests ? count($reservation->guests) : 0;
+                $deseados = $totalSolicitado;
+
+                if ($deseados > $actuales) {
+                    // Agregar huéspedes nuevos (datos vacíos, no principales al final)
+                    for ($i = $actuales; $i < $deseados; $i++) {
+                        $reservation->guests[] = [
+                            'first_name' => '',
+                            'last_name' => '',
+                            'document_type' => 'CC',
+                            'document_number' => '',
+                            'birth_date' => null,
+                            'gender' => null,
+                            'nationality' => null,
+                            'email' => null,
+                            'phone' => null,
+                            'special_needs' => null,
+                            'is_primary_guest' => false,
+                            'is_infant' => false,
+                            'is_child' => false,
+                            'health_insurance_name' => null,
+                            'health_insurance_type' => null,
+                        ];
+                    }
+                } elseif ($deseados < $actuales) {
+                    // Quitar huéspedes del último, preferiblemente no principales
+                    for ($i = $actuales - 1; $i >= $deseados; $i--) {
+                        if ($reservation->guests[$i]->is_primary_guest === false) {
+                            unset($reservation->guests[$i]);
+                        }
+                    }
+                    // Reindexar array de huéspedes
+                    $reservation->guests = array_values($reservation->guests);
                 }
             }
 

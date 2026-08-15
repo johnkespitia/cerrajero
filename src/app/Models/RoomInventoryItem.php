@@ -30,8 +30,22 @@ class RoomInventoryItem extends Model
         'current_value' => 'decimal:2',
         'purchase_date' => 'date',
         'warranty_expires_at' => 'date',
-        'active' => 'boolean'
+        'active' => 'boolean',
+        'qr_code' => 'string'
     ];
+
+    public function getQrCodeAttribute()
+    {
+        if ($this->qr_code) {
+            return $this->qr_code;
+        }
+        return null;
+    }
+
+    public function setQrCodeAttribute($value)
+    {
+        $this->attributes['qr_code'] = $value;
+    }
 
     public function category()
     {

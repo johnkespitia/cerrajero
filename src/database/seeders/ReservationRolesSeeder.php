@@ -102,13 +102,28 @@ class ReservationRolesSeeder extends Seeder
             'reservation.create',
             'reservation.check-in',
             'reservation.check-out',
+            'reservation.payment-register',
             'reservation.view',
             // Permisos de habitaciones
             'room.list',
             'room.view',
-            // Permisos de tipos de habitación
             'room_type.list',
             'room_type.view',
+            // Permisos de formas de pago
+            'payment_type.list',
+            // Permisos de minibar
+            'minibar.list',
+            'minibar.category.list',
+            'minibar.product.list',
+            'minibar.inventory.view',
+            'minibar.inventory.record',
+            'minibar.charge.view',
+            // Permisos de cleaning
+            'cleaning.list',
+            'cleaning.create',
+            'cleaning.edit',
+            'cleaning.schedule',
+            'cleaning.report',
         ]);
 
         $this->command->info('  ✓ Rol recepcionista creado');
