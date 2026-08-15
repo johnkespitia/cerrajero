@@ -591,16 +591,29 @@ class ReservationController extends Controller
         $roomsNeeded = [];
         $guests = $request->has('guests') && is_array($request->guests) ? $request->guests : [];
         
-        // Mejorar distribución: mantener familias juntas
-        $roomsNeeded = $this->distributeGuestsIntelligently(
-            $availableRooms,
-            $totalGuests,
-            $request->adults ?? 0,
-            $request->children ?? 0,
-            $request->infants ?? 0,
-            $guests,
-            $request->check_in_date
-        );
+        // Si hay habitaciones seleccionadas manualmente, usar distribución simple
+        if ($selectedRoomIds && count($selectedRoomIds) > 0) {
+            $roomsNeeded = $this->distributeGuestsSimple(
+                $availableRooms,
+                $totalGuests,
+                $request->adults ?? 0,
+                $request->children ?? 0,
+                $request->infants ?? 0,
+                $guests,
+                $request->check_in_date
+            );
+        } else {
+            // Mejorar distribución: mantener familias juntas (lógica original)
+            $roomsNeeded = $this->distributeGuestsIntelligently(
+                $availableRooms,
+                $totalGuests,
+                $request->adults ?? 0,
+                $request->children ?? 0,
+                $request->infants ?? 0,
+                $guests,
+                $request->check_in_date
+            );
+        }
 
         // Validar que todos los huéspedes fueron asignados
         $totalAssigned = array_sum(array_column($roomsNeeded, 'guests_count'));
@@ -4756,6 +4769,66 @@ class ReservationController extends Controller
             'rooms_assigned' => count($roomsNeeded),
             'total_guests_distributed' => $totalGuests - $remainingGuests,
             'families_kept_together' => !empty($familyGroups) ? count($familyGroups) : 0,
+        ]);
+
+        return $roomsNeeded;
+    }
+
+    /**
+     * Distribución simple y flexible para habitaciones seleccionadas manualmente.
+     * Llena cada habitación hasta su capacidad máxima sin restricciones de mínimo
+     * ni agrupación familiar. Ideal cuando el usuario selecciona explícitamente
+     * las habitaciones que quiere usar.
+     */
+    private function distributeGuestsSimple($availableRooms, $totalGuests, $adults, $children, $infants, $guestsData = [], $checkInDate = null)
+    {
+        $roomsNeeded = [];
+        $remainingGuests = $totalGuests;
+        $remainingAdults = $adults;
+        $remainingChildren = $children;
+        $remainingInfants = $infants;
+
+        \Log::info('Usando distribución simple para habitaciones seleccionadas manualmente', [
+            'total_guests' => $totalGuests,
+            'rooms_available' => $availableRooms->count(),
+            'rooms_capacity' => $availableRooms->sum(fn($r) => $r->max_capacity ?? $r->capacity),
+        ]);
+
+        foreach ($availableRooms as $room) {
+            if ($remainingGuests <= 0) {
+                break;
+            }
+
+            $roomMax = (int) ($room->max_capacity ?? $room->capacity);
+            $guestsForThisRoom = min($remainingGuests, $roomMax);
+
+            // Distribución proporcional de adultos/niños/bebés
+            $adultsForRoom = min($remainingAdults, $guestsForThisRoom);
+            $remainingAdults -= $adultsForRoom;
+            $guestsForThisRoom -= $adultsForRoom;
+
+            $childrenForRoom = min($remainingChildren, $guestsForThisRoom);
+            $remainingChildren -= $childrenForRoom;
+            $guestsForThisRoom -= $childrenForRoom;
+
+            $infantsForRoom = min($remainingInfants, $guestsForThisRoom);
+            $remainingInfants -= $infantsForRoom;
+
+            $roomsNeeded[] = [
+                'room' => $room,
+                'guests_count' => $adultsForRoom + $childrenForRoom + $infantsForRoom,
+                'adults' => $adultsForRoom,
+                'children' => $childrenForRoom,
+                'infants' => $infantsForRoom,
+            ];
+
+            $remainingGuests -= ($adultsForRoom + $childrenForRoom + $infantsForRoom);
+        }
+
+        \Log::info('Distribución simple completada', [
+            'rooms_assigned' => count($roomsNeeded),
+            'total_guests_distributed' => $totalGuests - $remainingGuests,
+            'remaining_guests' => $remainingGuests,
         ]);
 
         return $roomsNeeded;
