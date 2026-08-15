@@ -448,7 +448,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
 
     // Rutas de métodos de pago accesibles desde el módulo de reservas (debe ir ANTES de /reservations/{reservation})
     Route::controller(\App\Http\Controllers\PaymentTypeController::class)->group(function () {
-        Route::get('/reservations/payment-methods', 'indexForReservations')->middleware('permission:reservation.edit,reservas');
+        Route::get('/reservations/payment-methods', 'indexForReservations')->middleware('permission:reservation.edit|reservation.payment-register,reservas');
     });
 
     Route::controller(\App\Http\Controllers\ReservationController::class)->group(function () {
