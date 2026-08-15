@@ -128,18 +128,7 @@ class Room extends Model
         }
 
         // Si hay mantenimientos activos que requieren sacar la habitación de servicio, no está disponible
-        if ($this->hasMaintenanceInProgress()) {
-            return false;
-        }
-
-        // Verificar mantenimientos urgentes activos
-        $urgentMaintenance = $this->maintenanceRequests()
-            ->whereIn('status', ['pending', 'assigned', 'in_progress', 'on_hold'])
-            ->whereIn('priority', ['high', 'urgent'])
-            ->whereIn('issue_type', ['damage', 'repair'])
-            ->exists();
-        
-        if ($urgentMaintenance) {
+        if ($this->hasBlockingMaintenance()) {
             return false;
         }
 
@@ -293,6 +282,26 @@ class Room extends Model
         return $this->maintenanceRequests()
             ->where('status', 'in_progress')
             ->whereIn('issue_type', ['damage', 'repair']) // Solo daños y reparaciones requieren sacar de servicio
+            ->exists();
+    }
+
+    /**
+     * Verificar si la habitación está bloqueada para reservas por mantenimiento,
+     * independientemente del valor de la columna status:
+     * - mantenimientos en progreso (daños/reparaciones), o
+     * - solicitudes activas urgentes/altas (daños/reparaciones).
+     * Coincide con la lógica de bloqueo usada por isAvailable().
+     */
+    public function hasBlockingMaintenance()
+    {
+        if ($this->hasMaintenanceInProgress()) {
+            return true;
+        }
+
+        return $this->maintenanceRequests()
+            ->whereIn('status', ['pending', 'assigned', 'in_progress', 'on_hold'])
+            ->whereIn('priority', ['high', 'urgent'])
+            ->whereIn('issue_type', ['damage', 'repair'])
             ->exists();
     }
 

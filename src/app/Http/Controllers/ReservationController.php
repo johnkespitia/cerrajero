@@ -3822,7 +3822,9 @@ class ReservationController extends Controller
 
         foreach ($rooms as $room) {
             $roomDates = [];
-            $inMaintenance = $room->status === 'maintenance' || $room->status === 'out_of_order';
+            $inMaintenance = $room->status === 'maintenance'
+                || $room->status === 'out_of_order'
+                || $room->hasBlockingMaintenance();
 
             foreach ($dates as $date) {
                 $dateStr = $date->format('Y-m-d');

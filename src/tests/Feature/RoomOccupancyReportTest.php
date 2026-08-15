@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Customer;
+use App\Models\MaintenanceRequest;
 use App\Models\Reservation;
 use App\Models\Room;
 use App\Models\RoomType;
@@ -181,6 +182,49 @@ class RoomOccupancyReportTest extends TestCase
         $response->assertOk();
 
         $roomRow = collect($response->json('rooms'))->firstWhere('id', $this->maintenanceRoom->id);
+        $this->assertNotNull($roomRow);
+
+        foreach ($roomRow['dates'] as $cell) {
+            $this->assertSame('maintenance', $cell['status']);
+            $this->assertNull($cell['reservation']);
+        }
+    }
+
+    public function test_report_marks_room_with_urgent_maintenance_request_as_blocked(): void
+    {
+        $room = Room::create([
+            'room_type_id' => $this->roomType->id,
+            'number' => '103',
+            'name' => 'Habitación 103',
+            'status' => 'available',
+            'active' => true,
+            'capacity' => 2,
+            'max_capacity' => 2,
+            'room_price' => 200000,
+        ]);
+
+        MaintenanceRequest::create([
+            'maintainable_type' => Room::class,
+            'maintainable_id' => $room->id,
+            'reported_by' => $this->admin->id,
+            'reported_date' => now()->format('Y-m-d'),
+            'reported_time' => now()->format('H:i:s'),
+            'issue_type' => 'damage',
+            'priority' => 'urgent',
+            'title' => 'Fuga de agua',
+            'description' => 'Reparación urgente de tubería.',
+            'status' => 'pending',
+        ]);
+
+        $this->assertFalse($room->isAvailable(now()->addDays(5), now()->addDays(6)));
+
+        $base = now()->addDays(5);
+
+        $response = $this->getJson("/api/reservations/room-occupancy/report?date_from={$base->format('Y-m-d')}&date_to={$base->copy()->addDays(1)->format('Y-m-d')}");
+
+        $response->assertOk();
+
+        $roomRow = collect($response->json('rooms'))->firstWhere('id', $room->id);
         $this->assertNotNull($roomRow);
 
         foreach ($roomRow['dates'] as $cell) {
