@@ -698,9 +698,9 @@ Route::middleware(['auth:sanctum'])->group(function () {
     // Stock de minibar por habitación
     Route::controller(\App\Http\Controllers\RoomMinibarStockController::class)->group(function () {
         Route::get('/rooms/{room}/minibar/stock', 'index')->middleware('permission:minibar.inventory.view,reservas');
-        Route::post('/rooms/{room}/minibar/stock', 'store')->middleware('permission:minibar.inventory.record,reservas');
-        Route::put('/rooms/{room}/minibar/stock/{stock}', 'update')->middleware('permission:minibar.inventory.record,reservas');
-        Route::post('/rooms/{room}/minibar/restock', 'restock')->middleware('permission:minibar.inventory.record,reservas');
+        Route::post('/rooms/{room}/minibar/stock', 'store')->middleware('permission:minibar.warehouse.record,reservas');
+        Route::put('/rooms/{room}/minibar/stock/{stock}', 'update')->middleware('permission:minibar.warehouse.record,reservas');
+        Route::post('/rooms/{room}/minibar/restock', 'restock')->middleware('permission:minibar.warehouse.record,reservas');
         Route::get('/rooms/{room}/minibar/stock/needing-restock', 'needingRestock')->middleware('permission:minibar.inventory.view,reservas');
     });
 
@@ -729,8 +729,8 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::controller(\App\Http\Controllers\MinibarWarehouseController::class)->group(function () {
         Route::get('/minibar/warehouse', 'index')->middleware('permission:minibar.inventory.view,reservas');
         Route::get('/minibar/warehouse/expired-log', 'expiredLog')->middleware('permission:minibar.inventory.view,reservas');
-        Route::post('/minibar/warehouse/add', 'addUnits')->middleware('permission:minibar.inventory.record,reservas');
-        Route::post('/minibar/warehouse/register-expired', 'registerExpired')->middleware('permission:minibar.inventory.record,reservas');
+        Route::post('/minibar/warehouse/add', 'addUnits')->middleware('permission:minibar.warehouse.record,reservas');
+        Route::post('/minibar/warehouse/register-expired', 'registerExpired')->middleware('permission:minibar.warehouse.record,reservas');
     });
 
     // ============================================

@@ -66,6 +66,21 @@ class ReservationRolesSeeder extends Seeder
             // Permisos de tipos de habitación
             'room_type.list',
             'room_type.view',
+            // Permisos de minibar (gestión administrativa completa)
+            'minibar.list',
+            'minibar.category.list',
+            'minibar.category.create',
+            'minibar.category.edit',
+            'minibar.category.delete',
+            'minibar.product.list',
+            'minibar.product.create',
+            'minibar.product.edit',
+            'minibar.product.delete',
+            'minibar.inventory.view',
+            'minibar.inventory.record',
+            'minibar.warehouse.record',
+            'minibar.charge.view',
+            'minibar.charge.delete',
         ]);
 
         $this->command->info('  ✓ Rol reservas_admin creado');

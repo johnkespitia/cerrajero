@@ -110,6 +110,7 @@ class MinibarPermissionsSeeder extends Seeder
         $permissions = [
             'minibar.inventory.view' => 'Ver inventario del minibar',
             'minibar.inventory.record' => 'Registrar inventario del minibar (check-in, limpieza, checkout)',
+            'minibar.warehouse.record' => 'Gestionar inventario administrativo del minibar (bodega, stock por habitación, reposiciones, vencidos)',
         ];
 
         foreach ($permissions as $name => $description) {
