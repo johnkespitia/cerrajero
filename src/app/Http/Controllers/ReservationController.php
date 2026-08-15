@@ -1518,60 +1518,126 @@ class ReservationController extends Controller
                 'late_check_out_fee',
             ]);
 
-            if ($reservation->reservation_type === 'room' && !$reservation->is_group_reservation) {
+            if ($reservation->reservation_type === 'room') {
                 $newAdults = (int) ($updateData['adults'] ?? $reservation->adults);
                 $newChildren = (int) ($updateData['children'] ?? $reservation->children);
                 $totalSolicitado = $newAdults + $newChildren;
-                $roomId = $updateData['room_id'] ?? $reservation->room_id;
-                $room = $roomId ? Room::find($roomId) : null;
-                $roomType = $reservation->room_type_id
-                    ? RoomType::find($reservation->room_type_id)
-                    : null;
-                $maxCapacity = $room ? ($room->max_capacity ?? $room->capacity) : 
-                    ($roomType ? ($roomType->max_capacity ?? $roomType->default_capacity) : null);
 
-                // Validar que el total solicitado no exceda la capacidad máxima de la habitación
-                if ($maxCapacity !== null && $totalSolicitado > $maxCapacity) {
-                    DB::rollBack();
-                    return response()->json([
-                        'message' => "La habitación admite un máximo de {$maxCapacity} huésped(es). Solicitados: {$totalSolicitado}."
-                    ], 422);
-                }
-
-                // Sincronizar la lista de huéspedes con el nuevo total de adultos + niños
-                $actuales = $reservation->guests ? count($reservation->guests) : 0;
-                $deseados = $totalSolicitado;
-
-                if ($deseados > $actuales) {
-                    // Agregar huéspedes nuevos (datos vacíos, no principales al final)
-                    for ($i = $actuales; $i < $deseados; $i++) {
-                        $reservation->guests[] = [
-                            'first_name' => '',
-                            'last_name' => '',
-                            'document_type' => 'CC',
-                            'document_number' => '',
-                            'birth_date' => null,
-                            'gender' => null,
-                            'nationality' => null,
-                            'email' => null,
-                            'phone' => null,
-                            'special_needs' => null,
-                            'is_primary_guest' => false,
-                            'is_infant' => false,
-                            'is_child' => false,
-                            'health_insurance_name' => null,
-                            'health_insurance_type' => null,
-                        ];
+                if ($reservation->is_group_reservation) {
+                    // RESERVA MULTIHABITACIÓN: validar total contra suma de capacidades de todas las habitaciones
+                    $totalCapacidadHabitaciones = 0;
+                    
+                    // Sumar capacidad de habitaciones principales
+                    if ($reservation->room_id) {
+                        $room = Room::find($reservation->room_id);
+                        $totalCapacidadHabitaciones += $room->max_capacity ?? $room->capacity;
                     }
-                } elseif ($deseados < $actuales) {
-                    // Quitar huéspedes del último, preferiblemente no principales
-                    for ($i = $actuales - 1; $i >= $deseados; $i--) {
-                        if ($reservation->guests[$i]->is_primary_guest === false) {
-                            unset($reservation->guests[$i]);
+                    
+                    // Sumar capacidad de habitaciones secundarias (child_reservations)
+                    $childReservations = $reservation->child_reservations ?? $reservation->childReservations ?? [];
+                    if ($childReservations) {
+                        foreach ($childReservations as $childRes) {
+                            if ($childRes->room_id) {
+                                $childRoom = Room::find($childRes->room_id);
+                                $totalCapacidadHabitaciones += $childRoom->max_capacity ?? $childRoom->capacity;
+                            }
                         }
                     }
-                    // Reindexar array de huéspedes
-                    $reservation->guests = array_values($reservation->guests);
+                    
+                    // Si hay room_type_id y no hay habitaciones específicas, usar el tipo
+                    if ($totalCapacidadHabitaciones === 0 && $roomType) {
+                        $totalCapacidadHabitaciones = $roomType->max_capacity ?? $roomType->default_capacity;
+                    }
+                    
+                    // Validar que el total solicitado no exceda la capacidad combinada
+                    if ($totalCapacidadHabitaciones !== null && $totalSolicitado > $totalCapacidadHabitaciones) {
+                        DB::rollBack();
+                        return response()->json([
+                            'message' => "Las habitaciones de esta reserva admiten un máximo de {$totalCapacidadHabitaciones} huésped(es) en total. Solicitados: {$totalSolicitado}. Las tienes: " . count($reservation->guests ?? []) . " huésped(es) registrados."
+                        ], 422);
+                    }
+                    
+                    // Sincronizar lista de huéspedes con el total solicitado (mismo lógica que antes)
+                    $actuales = $reservation->guests ? count($reservation->guests) : 0;
+                    $deseados = $totalSolicitado;
+
+                    if ($deseados > $actuales) {
+                        for ($i = $actuales; $i < $deseados; $i++) {
+                            $reservation->guests[] = [
+                                'first_name' => '',
+                                'last_name' => '',
+                                'document_type' => 'CC',
+                                'document_number' => '',
+                                'birth_date' => null,
+                                'gender' => null,
+                                'nationality' => null,
+                                'email' => null,
+                                'phone' => null,
+                                'special_needs' => null,
+                                'is_primary_guest' => false,
+                                'is_infant' => false,
+                                'is_child' => false,
+                                'health_insurance_name' => null,
+                                'health_insurance_type' => null,
+                            ];
+                        }
+                    } elseif ($deseados < $actuales) {
+                        for ($i = $actuales - 1; $i >= $deseados; $i--) {
+                            if ($reservation->guests[$i]->is_primary_guest === false) {
+                                unset($reservation->guests[$i]);
+                            }
+                        }
+                        $reservation->guests = array_values($reservation->guests);
+                    }
+                } else {
+                    // RESERVA ÚNICA: validación contra la habitación individual (comportamiento anterior)
+                    $roomId = $updateData['room_id'] ?? $reservation->room_id;
+                    $room = $roomId ? Room::find($roomId) : null;
+                    $roomType = $reservation->room_type_id
+                        ? RoomType::find($reservation->room_type_id)
+                        : null;
+                    $maxCapacity = $room ? ($room->max_capacity ?? $room->capacity) : 
+                        ($roomType ? ($roomType->max_capacity ?? $roomType->default_capacity) : null);
+
+                    if ($maxCapacity !== null && $totalSolicitado > $maxCapacity) {
+                        DB::rollBack();
+                        return response()->json([
+                            'message' => "La habitación admite un máximo de {$maxCapacity} huésped(es). Solicitados: {$totalSolicitado}."
+                        ], 422);
+                    }
+
+                    // Sincronizar lista de huéspedes (mismo código de antes)
+                    $actuales = $reservation->guests ? count($reservation->guests) : 0;
+                    $deseados = $totalSolicitado;
+
+                    if ($deseados > $actuales) {
+                        for ($i = $actuales; $i < $deseados; $i++) {
+                            $reservation->guests[] = [
+                                'first_name' => '',
+                                'last_name' => '',
+                                'document_type' => 'CC',
+                                'document_number' => '',
+                                'birth_date' => null,
+                                'gender' => null,
+                                'nationality' => null,
+                                'email' => null,
+                                'phone' => null,
+                                'special_needs' => null,
+                                'is_primary_guest' => false,
+                                'is_infant' => false,
+                                'is_child' => false,
+                                'health_insurance_name' => null,
+                                'health_insurance_type' => null,
+                            ];
+                        }
+                    } elseif ($deseados < $actuales) {
+                        for ($i = $actuales - 1; $i >= $deseados; $i--) {
+                            if ($reservation->guests[$i]->is_primary_guest === false) {
+                                unset($reservation->guests[$i]);
+                            }
+                        }
+                        $reservation->guests = array_values($reservation->guests);
+                    }
                 }
             }
 
