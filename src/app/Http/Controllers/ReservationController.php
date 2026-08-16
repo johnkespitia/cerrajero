@@ -3337,18 +3337,44 @@ $childReservation = Reservation::create([
             }
 
             // Registrar inventario inicial del minibar si se proporciona
-            if ($reservation->room_id && $request->has('minibar_products')) {
-                try {
-                    $minibarService = app(\App\Services\MinibarInventoryService::class);
-                    $minibarService->recordCheckInInventory(
-                        $reservation,
-                        $request->minibar_products,
-                        auth()->id()
-                    );
-                } catch (\Exception $e) {
-                    \Log::warning('Error registrando inventario del minibar en check-in: ' . $e->getMessage());
-                }
+            // Para reservas grupales, procesar minibar en TODAS las habitaciones
+            $reservationsForMinibar = collect([$reservation]);
+            if ($reservation->is_group_reservation && !$reservation->parent_reservation_id) {
+                $reservation->load('childReservations');
+                $reservationsForMinibar = $reservationsForMinibar->merge($reservation->childReservations);
             }
+            
+            foreach ($reservationsForMinibar as $res) {
+                if ($res->room_id && $request->has('minibar_products') && is_array($request->minibar_products)) {
+                    // Si se envían productos específicos por habitación (array indexado por room_id)
+                    $productsForRoom = $request->minibar_products[$res->room_id] ?? 
+                        ($res === $reservation ? $request->minibar_products : []);
+                    
+                    if (!empty($productsForRoom) && is_array($productsForRoom)) {
+                        try {
+                            $minibarService = app(\App\Services\MinibarInventoryService::class);
+                            $minibarService->recordCheckInInventory(
+                                $res,
+                                $productsForRoom,
+                                auth()->id()
+                            );
+                        } catch (\Exception $e) {
+                            \Log::warning('Error registrando inventario del minibar en check-in (habitación ' . $res->room_id . '): ' . $e->getMessage());
+                        }
+                    } elseif (empty($request->minibar_products) && $res->room_id) {
+                        // Si no se envían productos, usar stock actual de la habitación
+                        try {
+                            $minibarService = app(\App\Services\MinibarInventoryService::class);
+                            $minibarService->recordCheckInInventory(
+                                $res,
+                                [],
+                                auth()->id()
+                            );
+                        } catch (\Exception $e) {
+                            \Log::warning('Error registrando inventario del minibar en check-in (habitación ' . $res->room_id . '): ' . $e->getMessage());
+                        }
+                    }
+                }
 
             // Registrar auditoría
             $this->auditService->logStatusChange(
@@ -3606,23 +3632,36 @@ $childReservation = Reservation::create([
                 }
             }
 
-            // Registrar inventario final del minibar si se proporciona (solo reserva principal)
-            if ($reservation->room_id && $request->has('minibar_products')) {
-                try {
-                    $minibarService = app(\App\Services\MinibarInventoryService::class);
-                    $minibarService->recordInventoryUpdate(
-                        $reservation,
-                        $request->minibar_products,
-                        'check_out',
-                        auth()->id()
-                    );
-                    // Recalcular precio final después de agregar cargos del minibar
-                    $reservation->refresh();
-                    $reservation->recomputeFinalPrice();
-                } catch (\Exception $e) {
-                    \Log::warning('Error registrando inventario final del minibar en check-out: ' . $e->getMessage());
-                }
+            // Registrar inventario final del minibar si se proporciona (TODAS las habitaciones del grupo)
+            $reservationsForMinibar = collect([$reservation]);
+            if ($reservation->is_group_reservation && !$reservation->parent_reservation_id) {
+                $reservation->load('childReservations');
+                $reservationsForMinibar = $reservationsForMinibar->merge($reservation->childReservations);
             }
+            
+            foreach ($reservationsForMinibar as $res) {
+                if ($res->room_id && $request->has('minibar_products') && is_array($request->minibar_products)) {
+                    // Si se envían productos específicos por habitación (array indexado por room_id)
+                    $productsForRoom = $request->minibar_products[$res->room_id] ?? 
+                        ($res === $reservation ? $request->minibar_products : []);
+                    
+                    if (!empty($productsForRoom) && is_array($productsForRoom)) {
+                        try {
+                            $minibarService = app(\App\Services\MinibarInventoryService::class);
+                            $minibarService->recordInventoryUpdate(
+                                $res,
+                                $productsForRoom,
+                                'check_out',
+                                auth()->id()
+                            );
+                            // Recalcular precio final después de agregar cargos del minibar
+                            $res->refresh();
+                            $res->recomputeFinalPrice();
+                        } catch (\Exception $e) {
+                            \Log::warning('Error registrando inventario final del minibar en check-out (habitación ' . $res->room_id . '): ' . $e->getMessage());
+                        }
+                    }
+                }
 
             // Registrar auditoría
             $this->auditService->logStatusChange(
