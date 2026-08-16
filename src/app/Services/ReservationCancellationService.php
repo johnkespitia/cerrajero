@@ -184,23 +184,116 @@ class ReservationCancellationService
      */
     public function processCancellation(Reservation $reservation, $reason = null)
     {
-        // Calcular reembolso
+        // Si es reserva principal de grupo, cancelar también las hijas
+        if ($reservation->is_group_reservation && !$reservation->parent_reservation_id) {
+            return $this->processGroupCancellation($reservation, $reason);
+        }
+        
+        // Cancelación simple (reserva individual o hija)
+        return $this->processSingleCancellation($reservation, $reason);
+    }
+
+    /**
+     * Cancelar reserva grupal (principal + hijas)
+     */
+    protected function processGroupCancellation(Reservation $mainReservation, $reason = null)
+    {
+        DB::beginTransaction();
+        try {
+            // Cargar reservas hijas
+            $mainReservation->load('childReservations');
+            $childReservations = $mainReservation->childReservations;
+            
+            // Calcular reembolso total para todo el grupo
+            $totalRefund = 0;
+            $totalPenalty = 0;
+            $totalPaid = 0;
+            
+            // Calcular para principal
+            $mainRefund = $this->calculateRefund($mainReservation);
+            $totalRefund += $mainRefund['refund_amount'];
+            $totalPenalty += $mainRefund['penalty_amount'];
+            $totalPaid += $mainRefund['total_paid'];
+            
+            // Calcular para hijas
+            foreach ($childReservations as $child) {
+                $childRefund = $this->calculateRefund($child);
+                $totalRefund += $childRefund['refund_amount'];
+                $totalPenalty += $childRefund['penalty_amount'];
+                $totalPaid += $childRefund['total_paid'];
+            }
+            
+            // Cancelar principal
+            $mainReservation->update([
+                'status' => 'cancelled',
+                'cancellation_reason' => $reason,
+                'refund_amount' => $mainRefund['refund_amount'],
+                'penalty_amount' => $mainRefund['penalty_amount'],
+            ]);
+            
+            if ($mainRefund['refund_amount'] > 0) {
+                $mainReservation->payment_status = 'refunded';
+            }
+            $mainReservation->save();
+            
+            // Cancelar hijas
+            foreach ($mainReservation->childReservations as $child) {
+                $childRefund = $this->calculateRefund($child);
+                $child->update([
+                    'status' => 'cancelled',
+                    'cancellation_reason' => $reason,
+                    'refund_amount' => $child->refund_amount + $childRefund['refund_amount'],
+                    'penalty_amount' => $child->penalty_amount + $childRefund['penalty_amount'],
+                ]);
+                
+                if ($childRefund['refund_amount'] > 0) {
+                    $child->payment_status = 'refunded';
+                }
+                $child->save();
+            }
+            
+            DB::commit();
+            
+            return [
+                'refund_amount' => $totalRefund,
+                'penalty_amount' => $totalPenalty,
+                'total_paid' => $totalPaid,
+                'can_refund' => $totalRefund > 0,
+                'rooms_cancelled' => 1 + $mainReservation->childReservations->count(),
+            ];
+        } catch (\Exception $e) {
+            DB::rollBack();
+            throw $e;
+        }
+    }
+    
+    /**
+     * Cancelación simple (reserva individual o hija)
+     */
+    protected function processSingleCancellation(Reservation $reservation, $reason = null)
+    {
         $refundCalculation = $this->calculateRefund($reservation);
 
-        // Actualizar reserva con los cálculos
         $reservation->update([
             'refund_amount' => $refundCalculation['refund_amount'],
             'penalty_amount' => $refundCalculation['penalty_amount'],
             'cancellation_reason' => $reason,
         ]);
 
-        // Si hay reembolso, actualizar estado de pago
         if ($refundCalculation['refund_amount'] > 0) {
             $reservation->payment_status = 'refunded';
             $reservation->save();
         }
 
-        return $refundCalculation;
+        return [
+            'refund_amount' => $refundCalculation['refund_amount'],
+            'penalty_amount' => $refundCalculation['penalty_amount'],
+            'total_paid' => $refundCalculation['total_paid'],
+            'can_refund' => $refundCalculation['refund_amount'] > 0,
+            'policy' => $refundCalculation['policy'],
+            'days_until_checkin' => $refundCalculation['days_until_checkin'],
+            'before_deadline' => $refundCalculation['before_deadline'],
+        ];
     }
 }
 
