@@ -658,6 +658,10 @@ class ReservationController extends Controller
                 ], 409);
             }
 
+            // Calcular precio base consistente para todo el grupo (usar precio de la primera habitación o tipo)
+            $groupBasePrice = $mainRoom['room']->room_price;
+            $groupRoomType = $mainRoom['room']->roomType;
+            
             $mainReservation = Reservation::create([
                 'customer_id' => $request->customer_id,
                 'room_id' => $mainRoom['room']->id,
@@ -688,9 +692,13 @@ class ReservationController extends Controller
                 'marketing_notes' => $request->marketing_notes,
             ]);
 
-            // Calcular precio correcto para la habitación principal usando ReservationPriceCalculator
+            // Usar precio base consistente del grupo para cálculo de precio
+            $originalMainRoomPrice = $mainRoom['room']->room_price;
+            $mainRoom['room']->room_price = $groupBasePrice;
             $mainReservation->load('room', 'roomType');
             $priceCalculation = $this->priceCalculator->calculatePrice($mainReservation, true);
+            $mainRoom['room']->room_price = $originalMainRoomPrice; // Restaurar precio original
+            
             $mainReservation->calculated_price = $priceCalculation['calculated_price'];
             $mainReservation->price_breakdown = $priceCalculation['price_breakdown'];
             $mainReservation->total_price = $priceCalculation['calculated_price'];
@@ -749,7 +757,7 @@ $childReservation = Reservation::create([
                     'infants' => $roomData['infants'],
                     'courtesy_guests' => $request->courtesy_guests ?? 0,
                     'extra_beds' => $roomData['extra_beds'] ?? 0,
-                    'total_price' => 0, // Se calculará correctamente abajo
+                    'total_price' => 0,
                     'deposit_amount' => 0,
                     'special_requests' => $request->special_requests,
                     'status' => 'confirmed',
@@ -768,9 +776,13 @@ $childReservation = Reservation::create([
                     'marketing_notes' => $request->marketing_notes,
                 ]);
 
-                // Calcular precio correcto para la habitación hija usando ReservationPriceCalculator
+                // Usar precio base consistente del grupo para cálculo de precio
+                $originalRoomPrice = $roomData['room']->room_price;
+                $roomData['room']->room_price = $groupBasePrice;
                 $childReservation->load('room', 'roomType');
                 $priceCalculation = $this->priceCalculator->calculatePrice($childReservation, true);
+                $roomData['room']->room_price = $originalRoomPrice; // Restaurar precio original
+                
                 $childReservation->calculated_price = $priceCalculation['calculated_price'];
                 $childReservation->price_breakdown = $priceCalculation['price_breakdown'];
                 $childReservation->total_price = $priceCalculation['calculated_price'];
