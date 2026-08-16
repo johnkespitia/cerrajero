@@ -669,7 +669,8 @@ class ReservationController extends Controller
                 'children' => $mainRoom['children'],
                 'infants' => $mainRoom['infants'],
                 'courtesy_guests' => $request->courtesy_guests ?? 0,
-                'total_price' => $mainRoom['room']->room_price,
+                'extra_beds' => $mainRoom['extra_beds'] ?? 0,
+                'total_price' => 0,
                 'deposit_amount' => 0,
                 'special_requests' => $request->special_requests,
                 'status' => 'confirmed',
@@ -686,6 +687,14 @@ class ReservationController extends Controller
                 'tracking_code' => $request->tracking_code,
                 'marketing_notes' => $request->marketing_notes,
             ]);
+
+            // Calcular precio correcto para la habitación principal usando ReservationPriceCalculator
+            $mainReservation->load('room', 'roomType');
+            $priceCalculation = $this->priceCalculator->calculatePrice($mainReservation, true);
+            $mainReservation->calculated_price = $priceCalculation['calculated_price'];
+            $mainReservation->price_breakdown = $priceCalculation['price_breakdown'];
+            $mainReservation->total_price = $priceCalculation['calculated_price'];
+            $mainReservation->save();
 
             // Huéspedes en habitación principal
             $guestsAssigned = 0;
@@ -705,7 +714,7 @@ class ReservationController extends Controller
             }
 
             // Reservas hijas
-            $totalPrice = $mainRoom['room']->room_price;
+            $totalPrice = $mainReservation->calculated_price;
             $childReservations = [];
 
             for ($i = 1; $i < count($roomsNeeded); $i++) {
@@ -728,7 +737,7 @@ class ReservationController extends Controller
                     ], 409);
                 }
 
-                $childReservation = Reservation::create([
+$childReservation = Reservation::create([
                     'customer_id' => $request->customer_id,
                     'room_id' => $roomData['room']->id,
                     'room_type_id' => $roomTypeId,
@@ -738,7 +747,9 @@ class ReservationController extends Controller
                     'adults' => $roomData['adults'],
                     'children' => $roomData['children'],
                     'infants' => $roomData['infants'],
-                    'total_price' => $roomData['room']->room_price,
+                    'courtesy_guests' => $request->courtesy_guests ?? 0,
+                    'extra_beds' => $roomData['extra_beds'] ?? 0,
+                    'total_price' => 0, // Se calculará correctamente abajo
                     'deposit_amount' => 0,
                     'special_requests' => $request->special_requests,
                     'status' => 'confirmed',
@@ -757,6 +768,14 @@ class ReservationController extends Controller
                     'marketing_notes' => $request->marketing_notes,
                 ]);
 
+                // Calcular precio correcto para la habitación hija usando ReservationPriceCalculator
+                $childReservation->load('room', 'roomType');
+                $priceCalculation = $this->priceCalculator->calculatePrice($childReservation, true);
+                $childReservation->calculated_price = $priceCalculation['calculated_price'];
+                $childReservation->price_breakdown = $priceCalculation['price_breakdown'];
+                $childReservation->total_price = $priceCalculation['calculated_price'];
+                $childReservation->save();
+
                 // Huéspedes en reservas hijas
                 $guestsForRoom = $roomData['guests_count'];
                 for ($j = 0; $j < $guestsForRoom && $guestsAssigned < count($guests); $j++) {
@@ -769,7 +788,7 @@ class ReservationController extends Controller
                     $guestsAssigned++;
                 }
 
-                $totalPrice += $roomData['room']->room_price;
+                $totalPrice += $childReservation->calculated_price;
                 $childReservations[] = $childReservation;
             }
 
