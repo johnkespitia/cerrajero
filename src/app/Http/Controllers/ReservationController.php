@@ -17,6 +17,7 @@ use App\Services\ReservationValidationService;
 use App\Services\ReservationNotificationService;
 use App\Services\ReservationCancellationService;
 use App\Services\AdditionalServicePriceCalculator;
+use App\Services\ReservationClientTransferService;
 use App\Services\GuestAgeClassifier;
 use App\Services\ElectronicInvoicing\Exceptions\ReservationEmissionException;
 use App\Services\ElectronicInvoicing\Exceptions\ReservationEmissionInvalidPayloadException;
@@ -861,16 +862,16 @@ $childReservation = Reservation::create([
                 \Log::warning('Error sending email: ' . $e->getMessage());
             }
 
-            $mainReservation->load([
-                'customer',
-                'room',
-                'room.roomType',
-                'roomType',
-                'guests',
-                'childReservations.room',
-                'childReservations.room.roomType',
-                'additionalServices.additionalService',
-            ]);
+$mainReservation->load([
+            'customer',
+            'room',
+            'room.roomType',
+            'roomType',
+            'guests',
+            'childReservations.room',
+            'childReservations.room.roomType',
+            'additionalServices.additionalService',
+        ]);
 
             // Preparar información detallada de habitaciones asignadas
             $roomsAssigned = [];
@@ -917,26 +918,49 @@ $childReservation = Reservation::create([
                 'child_reservations' => $childReservations,
                 'total_rooms' => count($roomsNeeded),
                 'total_price' => $totalPrice,
-                'rooms_assigned' => $roomsAssigned,
-                'price_breakdown' => $priceBreakdown,
+                'rooms_assigned' => $rooms_assigned,
+                'price_breakdown' => $price_breakdown,
             ], 201);
 
-        } catch (\Exception $e) {
-            // Rollback en caso de error
-            DB::rollBack();
-            \Log::error('Error creando reserva múltiple', [
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString(),
-                'room_type_id' => $roomTypeId,
-                'total_guests' => $totalGuests,
-            ]);
-            
+    /**
+     * Transferir cliente de una reserva con auditoría completa.
+     *
+     * Actualiza el cliente asociado a una reserva, guardando el cliente anterior
+     * y el nuevo, junto con la razón del traslado y el usuario que realizó el cambio.
+     *
+     * @param \Illuminate\Http\Request $request
+     * @param int $reservationId
+     * @return \Illuminate\Http\Response
+     */
+    public function transferClient(Request $request, int $reservationId)
+    {
+        $request->validate([
+            'new_customer_id' => 'required|exists:customers,id',
+            'reason' => 'required|string|max:500',
+        ]);
+
+        $userId = $request->user()->id ?? auth()->id();
+
+        $result = app(ReservationClientTransferService::class)->transferClient(
+            $reservationId,
+            $request->new_customer_id,
+            $request->reason,
+            $userId
+        );
+
+        if ($result['success']) {
             return response()->json([
-                'message' => 'Error al crear la reserva múltiple. Por favor, intente nuevamente.',
-                'error' => config('app.debug') ? $e->getMessage() : null,
-            ], 500);
+                'message' => $result['message'],
+                'reservation' => $reservation,
+                'audit_id' => $result['audit_id'],
+            ], 200);
         }
-    }
+
+        return response()->json([
+            'message' => $result['message'],
+            'error' => $result['error'],
+        ], 500);
+}
 
     public function store(Request $request)
     {

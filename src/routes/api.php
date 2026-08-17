@@ -483,6 +483,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::post('/reservations/{reservation}/check-out', 'checkOut')->middleware('permission:reservation.check-out,reservas');
         Route::get('/reservations/{reservation}/checkout-certificate/download', 'downloadCheckoutCertificate')->middleware('permission:reservation.view,reservas');
         Route::post('/reservations/{reservation}/resend-checkout-email', 'resendCheckoutEmail')->middleware('permission:reservation.edit,reservas');
+        Route::post('/reservations/{reservation}/transfer-client', 'transferClient')->middleware('permission:reservation.edit,reservas');
     });
 
     Route::controller(\App\Http\Controllers\ReservationSettingController::class)->group(function () {
