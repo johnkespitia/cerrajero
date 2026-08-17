@@ -918,9 +918,10 @@ $mainReservation->load([
                 'child_reservations' => $childReservations,
                 'total_rooms' => count($roomsNeeded),
                 'total_price' => $totalPrice,
-                'rooms_assigned' => $rooms_assigned,
-                'price_breakdown' => $price_breakdown,
+                'rooms_assigned' => $roomsAssigned,
+                'price_breakdown' => $priceBreakdown,
             ], 201);
+    }
 
     /**
      * Transferir cliente de una reserva con auditoría completa.
