@@ -921,6 +921,16 @@ $mainReservation->load([
                 'rooms_assigned' => $roomsAssigned,
                 'price_breakdown' => $priceBreakdown,
             ], 201);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            \Log::error('Error en createMultiRoomReservation', [
+                'message' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+            return response()->json([
+                'message' => 'Error al crear la reserva múltiple: ' . $e->getMessage(),
+            ], 500);
+        }
     }
 
     /**
