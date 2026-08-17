@@ -3375,6 +3375,7 @@ $childReservation = Reservation::create([
                         }
                     }
                 }
+            }
 
             // Registrar auditoría
             $this->auditService->logStatusChange(
@@ -3428,8 +3429,6 @@ $childReservation = Reservation::create([
                 $this->notificationService->sendCheckInConfirmation($reservation);
             } catch (\Exception $e) {
                 \Log::warning('Error sending check-in confirmation: ' . $e->getMessage());
-            }
-
             }
 
             $this->syncReservationToGoogleCalendar($reservation);
@@ -3664,6 +3663,7 @@ $childReservation = Reservation::create([
                         }
                     }
                 }
+            }
 
             // Registrar auditoría
             $this->auditService->logStatusChange(
