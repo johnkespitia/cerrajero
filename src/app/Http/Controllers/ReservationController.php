@@ -3430,6 +3430,8 @@ $childReservation = Reservation::create([
                 \Log::warning('Error sending check-in confirmation: ' . $e->getMessage());
             }
 
+            }
+
             $this->syncReservationToGoogleCalendar($reservation);
 
             DB::commit();
