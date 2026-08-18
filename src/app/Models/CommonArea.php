@@ -24,6 +24,10 @@ class CommonArea extends Model
         'active' => 'boolean'
     ];
 
+    protected $appends = [
+        'display_name',
+    ];
+
     public function assignments()
     {
         return $this->morphMany(RoomInventoryAssignment::class, 'assignable');
