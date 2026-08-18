@@ -4,7 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\CashRegisterClosure;
 use App\Models\KioskInvoice;
-use App\Models\PaymentType;
+use App\Services\CashRegisterClosureService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\DB;
@@ -12,6 +12,13 @@ use Carbon\Carbon;
 
 class CashRegisterClosureController extends Controller
 {
+    protected CashRegisterClosureService $closureService;
+
+    public function __construct(CashRegisterClosureService $closureService)
+    {
+        $this->closureService = $closureService;
+    }
+
     /**
      * Listar todos los cierres de caja
      */
@@ -74,8 +81,9 @@ class CashRegisterClosureController extends Controller
             ->first();
 
         if ($openClosure) {
-            // Si hay un cierre abierto, calcular totales y devolverlo
-            $openClosure->calculateTotals();
+            // Rescatar facturas del día creadas antes de abrir/visitar el cierre
+            $this->closureService->attachOrphanInvoices($openClosure);
+            $openClosure = $this->closureService->refreshTotals($openClosure);
             return response()->json($openClosure);
         }
 
@@ -94,15 +102,15 @@ class CashRegisterClosureController extends Controller
         }
 
         // Solo crear un nuevo cierre si no existe NINGÚN cierre para este día
-        $closure = CashRegisterClosure::create([
-            'user_id' => $user->id,
-            'closure_date' => $today,
-            'opening_balance' => 0,
-            'closed' => false
-        ]);
+        $closure = $this->closureService->ensureOpenClosure($user->id, $today);
+        if (!$closure) {
+            return response()->json([
+                'message' => 'No se pudo abrir el cierre de caja del día',
+            ], 409);
+        }
 
-        $closure->load(['invoices.customer', 'invoices.payment_type']);
-        $closure->calculateTotals();
+        $this->closureService->attachOrphanInvoices($closure);
+        $closure = $this->closureService->refreshTotals($closure);
 
         return response()->json($closure);
     }
@@ -207,15 +215,8 @@ class CashRegisterClosureController extends Controller
 
         DB::beginTransaction();
         try {
-            // Asignar facturas sin cierre a este cierre (mismo día)
-            $unassignedInvoices = KioskInvoice::whereNull('closure_id')
-                ->whereDate('created_at', $cashRegisterClosure->closure_date)
-                ->get();
-
-            foreach ($unassignedInvoices as $invoice) {
-                $invoice->closure_id = $cashRegisterClosure->id;
-                $invoice->save();
-            }
+            // Rescatar facturas huérfanas del día antes de congelar el cierre
+            $this->closureService->attachOrphanInvoices($cashRegisterClosure);
 
             // Calcular totales
             $cashRegisterClosure->calculateTotals();
@@ -295,9 +296,11 @@ class CashRegisterClosureController extends Controller
             ], 404);
         }
 
-        // Calcular totales si no está cerrado
+        // Calcular totales si no está cerrado (y rescatar huérfanas del día)
         if (!$closure->closed) {
+            $this->closureService->attachOrphanInvoices($closure);
             $closure->calculateTotals();
+            $closure->load(['invoices.customer', 'invoices.payment_type', 'invoices.details']);
         }
 
         return response()->json($closure);

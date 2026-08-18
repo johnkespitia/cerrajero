@@ -58,22 +58,16 @@ class RoomMinibarStockController extends Controller
             ->where('product_id', $productId)
             ->first();
         $currentInThisRoom = $existing ? (int) $existing->current_quantity : 0;
-        $totalInOtherRooms = $this->minibarService->getTotalInRoomsForProduct($productId) - $currentInThisRoom;
+        $delta = $newQty - $currentInThisRoom;
 
         try {
-            $this->minibarService->ensureWarehouseAvailableForAssignment(
-                $productId,
-                $currentInThisRoom,
-                $newQty,
-                $totalInOtherRooms
-            );
+            $this->minibarService->ensureWarehouseAvailableForDelta($productId, $delta);
         } catch (\InvalidArgumentException $e) {
             return response()->json([
                 'message' => $e->getMessage(),
             ], Response::HTTP_UNPROCESSABLE_ENTITY);
         }
 
-        $delta = $newQty - $currentInThisRoom;
         if ($delta > 0) {
             $this->minibarService->deductFromWarehouse($productId, $delta);
         } elseif ($delta < 0) {
@@ -120,22 +114,16 @@ class RoomMinibarStockController extends Controller
         $productId = (int) $stock->product_id;
         $newQty = $request->has('current_quantity') ? (int) $request->current_quantity : (int) $stock->current_quantity;
         $currentInThisRoom = (int) $stock->current_quantity;
-        $totalInOtherRooms = $this->minibarService->getTotalInRoomsForProduct($productId) - $currentInThisRoom;
+        $delta = $newQty - $currentInThisRoom;
 
         try {
-            $this->minibarService->ensureWarehouseAvailableForAssignment(
-                $productId,
-                $currentInThisRoom,
-                $newQty,
-                $totalInOtherRooms
-            );
+            $this->minibarService->ensureWarehouseAvailableForDelta($productId, $delta);
         } catch (\InvalidArgumentException $e) {
             return response()->json([
                 'message' => $e->getMessage(),
             ], Response::HTTP_UNPROCESSABLE_ENTITY);
         }
 
-        $delta = $newQty - $currentInThisRoom;
         if ($delta > 0) {
             $this->minibarService->deductFromWarehouse($productId, $delta);
         } elseif ($delta < 0) {

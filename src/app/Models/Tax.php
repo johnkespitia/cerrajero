@@ -8,6 +8,9 @@ use Illuminate\Database\Eloquent\Model;
 class Tax extends Model
 {
     use HasFactory;
-    protected $fillable = ['name', 'rate'];
+    protected $fillable = ['name', 'rate', 'active'];
 
+    protected $casts = [
+        'active' => 'boolean',
+    ];
 }

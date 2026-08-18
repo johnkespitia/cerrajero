@@ -17,6 +17,8 @@ use App\Services\ReservationValidationService;
 use App\Services\ReservationNotificationService;
 use App\Services\ReservationCancellationService;
 use App\Services\AdditionalServicePriceCalculator;
+use App\Services\ReservationClientTransferService;
+use App\Services\GuestAgeClassifier;
 use App\Services\ElectronicInvoicing\Exceptions\ReservationEmissionException;
 use App\Services\ElectronicInvoicing\Exceptions\ReservationEmissionInvalidPayloadException;
 use App\Services\ElectronicInvoicing\Exceptions\ReservationEmissionUnavailableException;
@@ -66,6 +68,79 @@ class ReservationController extends Controller
     protected function syncReservationToGoogleCalendar(Reservation $reservation): void
     {
         $this->googleCalendarService->syncReservation($reservation);
+    }
+
+    /**
+     * Recalcula payment_status tras cambios de final_price (p. ej. servicios adicionales).
+     * No altera reservas gratuitas ni reembolsadas.
+     */
+    protected function syncPaymentStatusAfterPriceChange(Reservation $reservation): void
+    {
+        if (in_array($reservation->payment_status, ['free', 'refunded'], true)) {
+            return;
+        }
+
+        $finalPrice = (float) $reservation->final_price;
+        $totalPaid = (float) $reservation->payments()
+            ->whereNotNull('payment_type_id')
+            ->where(function ($query) {
+                $query->where('concept', '!=', 'Compra en kiosko (a crédito)')
+                    ->orWhereNull('concept');
+            })
+            ->sum('amount');
+
+        $hasPendingKiosk = $reservation->kioskInvoices()
+            ->whereHas('payment_type', function ($query) {
+                $query->where('credit', true);
+            })
+            ->where('payed', false)
+            ->whereNull('cancelled_at')
+            ->exists();
+
+        if ($hasPendingKiosk) {
+            $reservation->payment_status = 'partial';
+        } elseif ($totalPaid >= $finalPrice && $finalPrice >= 0 && $totalPaid > 0) {
+            $reservation->payment_status = 'paid';
+        } elseif ($totalPaid > 0) {
+            $reservation->payment_status = 'partial';
+        } else {
+            $reservation->payment_status = 'pending';
+        }
+
+        $reservation->saveQuietly();
+    }
+
+    /**
+     * Eager-load de relaciones usadas por el modal de detalle de reservas.
+     */
+    protected function loadReservationDetailRelations(Reservation $reservation): Reservation
+    {
+        return $reservation->load([
+            'customer',
+            'room',
+            'room.roomType',
+            'roomType',
+            'guests',
+            'additionalServices.additionalService',
+            'createdBy',
+            'childReservations' => function ($q) {
+                $q->with([
+                    'room',
+                    'room.roomType',
+                    'payments.paymentType',
+                    'kioskInvoices.payment_type',
+                    'kioskInvoices.details.kiosk_unit.product',
+                    'minibarCharges.product',
+                ]);
+            },
+            'parentReservation',
+            'payments.paymentType',
+            'kioskInvoices.payment_type',
+            'kioskInvoices.details.kiosk_unit.product',
+            'minibarCharges.product',
+            'promotion',
+            'cancellationPolicy',
+        ]);
     }
 
     /**
@@ -142,6 +217,7 @@ class ReservationController extends Controller
             'additionalServices.additionalService',
             'payments',
             'minibarCharges',
+            'createdBy',
             'childReservations' => function($query) use (&$childWith) {
                 $query->with($childWith);
             },
@@ -270,6 +346,11 @@ class ReservationController extends Controller
             });
         }
 
+        // Filtro por usuario/asesor que creó la reserva
+        if ($request->filled('created_by')) {
+            $query->where('created_by', $request->created_by);
+        }
+
         // Búsqueda general por texto (busca en número de reserva, nombre y documento)
         if ($request->has('search')) {
             $searchTerm = $request->search;
@@ -300,7 +381,8 @@ class ReservationController extends Controller
                           $request->has('reservation_number') ||
                           $request->has('customer_document') ||
                           $request->has('additional_service_id') ||
-                          $request->has('service_package_id');
+                          $request->has('service_package_id') ||
+                          $request->filled('created_by');
         
         // Si no hay filtros activos, limitar a últimos 30 días por defecto
         if (!$hasDateFilter && !$hasOtherFilters && !$request->boolean('show_all')) {
@@ -510,15 +592,29 @@ class ReservationController extends Controller
         $roomsNeeded = [];
         $guests = $request->has('guests') && is_array($request->guests) ? $request->guests : [];
         
-        // Mejorar distribución: mantener familias juntas
-        $roomsNeeded = $this->distributeGuestsIntelligently(
-            $availableRooms,
-            $totalGuests,
-            $request->adults ?? 0,
-            $request->children ?? 0,
-            $request->infants ?? 0,
-            $guests
-        );
+        // Si hay habitaciones seleccionadas manualmente, usar distribución simple
+        if ($selectedRoomIds && count($selectedRoomIds) > 0) {
+            $roomsNeeded = $this->distributeGuestsSimple(
+                $availableRooms,
+                $totalGuests,
+                $request->adults ?? 0,
+                $request->children ?? 0,
+                $request->infants ?? 0,
+                $guests,
+                $request->check_in_date
+            );
+        } else {
+            // Mejorar distribución: mantener familias juntas (lógica original)
+            $roomsNeeded = $this->distributeGuestsIntelligently(
+                $availableRooms,
+                $totalGuests,
+                $request->adults ?? 0,
+                $request->children ?? 0,
+                $request->infants ?? 0,
+                $guests,
+                $request->check_in_date
+            );
+        }
 
         // Validar que todos los huéspedes fueron asignados
         $totalAssigned = array_sum(array_column($roomsNeeded, 'guests_count'));
@@ -563,6 +659,10 @@ class ReservationController extends Controller
                 ], 409);
             }
 
+            // Calcular precio base consistente para todo el grupo (usar precio de la primera habitación o tipo)
+            $groupBasePrice = $mainRoom['room']->room_price;
+            $groupRoomType = $mainRoom['room']->roomType;
+            
             $mainReservation = Reservation::create([
                 'customer_id' => $request->customer_id,
                 'room_id' => $mainRoom['room']->id,
@@ -574,7 +674,8 @@ class ReservationController extends Controller
                 'children' => $mainRoom['children'],
                 'infants' => $mainRoom['infants'],
                 'courtesy_guests' => $request->courtesy_guests ?? 0,
-                'total_price' => $mainRoom['room']->room_price,
+                'extra_beds' => $mainRoom['extra_beds'] ?? 0,
+                'total_price' => 0,
                 'deposit_amount' => 0,
                 'special_requests' => $request->special_requests,
                 'status' => 'confirmed',
@@ -592,6 +693,18 @@ class ReservationController extends Controller
                 'marketing_notes' => $request->marketing_notes,
             ]);
 
+            // Usar precio base consistente del grupo para cálculo de precio
+            $originalMainRoomPrice = $mainRoom['room']->room_price;
+            $mainRoom['room']->room_price = $groupBasePrice;
+            $mainReservation->load('room', 'roomType');
+            $priceCalculation = $this->priceCalculator->calculatePrice($mainReservation, true);
+            $mainRoom['room']->room_price = $originalMainRoomPrice; // Restaurar precio original
+            
+            $mainReservation->calculated_price = $priceCalculation['calculated_price'];
+            $mainReservation->price_breakdown = $priceCalculation['price_breakdown'];
+            $mainReservation->total_price = $priceCalculation['calculated_price'];
+            $mainReservation->save();
+
             // Huéspedes en habitación principal
             $guestsAssigned = 0;
             if (!empty($guests)) {
@@ -600,27 +713,17 @@ class ReservationController extends Controller
                         break;
                     }
 
-                    $mainReservation->guests()->create([
-                        'first_name' => $guestData['first_name'],
-                        'last_name' => $guestData['last_name'],
-                        'document_type' => $guestData['document_type'] ?? null,
-                        'document_number' => $guestData['document_number'] ?? null,
-                        'birth_date' => $guestData['birth_date'] ?? null,
-                        'gender' => $guestData['gender'] ?? null,
-                        'nationality' => $guestData['nationality'] ?? null,
-                        'email' => $guestData['email'] ?? null,
-                        'phone' => $guestData['phone'] ?? null,
-                        'special_needs' => $guestData['special_needs'] ?? null,
-                        'is_primary_guest' => $index === 0,
-                        'health_insurance_name' => $guestData['health_insurance_name'] ?? null,
-                        'health_insurance_type' => $guestData['health_insurance_type'] ?? null,
-                    ]);
+                    $mainReservation->guests()->create($this->guestPersistAttributes(
+                        $guestData,
+                        $request->check_in_date,
+                        ['is_primary_guest' => $index === 0]
+                    ));
                     $guestsAssigned++;
                 }
             }
 
             // Reservas hijas
-            $totalPrice = $mainRoom['room']->room_price;
+            $totalPrice = $mainReservation->calculated_price;
             $childReservations = [];
 
             for ($i = 1; $i < count($roomsNeeded); $i++) {
@@ -643,7 +746,7 @@ class ReservationController extends Controller
                     ], 409);
                 }
 
-                $childReservation = Reservation::create([
+$childReservation = Reservation::create([
                     'customer_id' => $request->customer_id,
                     'room_id' => $roomData['room']->id,
                     'room_type_id' => $roomTypeId,
@@ -653,7 +756,9 @@ class ReservationController extends Controller
                     'adults' => $roomData['adults'],
                     'children' => $roomData['children'],
                     'infants' => $roomData['infants'],
-                    'total_price' => $roomData['room']->room_price,
+                    'courtesy_guests' => $request->courtesy_guests ?? 0,
+                    'extra_beds' => $roomData['extra_beds'] ?? 0,
+                    'total_price' => 0,
                     'deposit_amount' => 0,
                     'special_requests' => $request->special_requests,
                     'status' => 'confirmed',
@@ -672,29 +777,31 @@ class ReservationController extends Controller
                     'marketing_notes' => $request->marketing_notes,
                 ]);
 
+                // Usar precio base consistente del grupo para cálculo de precio
+                $originalRoomPrice = $roomData['room']->room_price;
+                $roomData['room']->room_price = $groupBasePrice;
+                $childReservation->load('room', 'roomType');
+                $priceCalculation = $this->priceCalculator->calculatePrice($childReservation, true);
+                $roomData['room']->room_price = $originalRoomPrice; // Restaurar precio original
+                
+                $childReservation->calculated_price = $priceCalculation['calculated_price'];
+                $childReservation->price_breakdown = $priceCalculation['price_breakdown'];
+                $childReservation->total_price = $priceCalculation['calculated_price'];
+                $childReservation->save();
+
                 // Huéspedes en reservas hijas
                 $guestsForRoom = $roomData['guests_count'];
                 for ($j = 0; $j < $guestsForRoom && $guestsAssigned < count($guests); $j++) {
                     $guestData = $guests[$guestsAssigned];
-                    $childReservation->guests()->create([
-                        'first_name' => $guestData['first_name'],
-                        'last_name' => $guestData['last_name'],
-                        'document_type' => $guestData['document_type'] ?? null,
-                        'document_number' => $guestData['document_number'] ?? null,
-                        'birth_date' => $guestData['birth_date'] ?? null,
-                        'gender' => $guestData['gender'] ?? null,
-                        'nationality' => $guestData['nationality'] ?? null,
-                        'email' => $guestData['email'] ?? null,
-                        'phone' => $guestData['phone'] ?? null,
-                        'special_needs' => $guestData['special_needs'] ?? null,
-                        'is_primary_guest' => false,
-                        'health_insurance_name' => $guestData['health_insurance_name'] ?? null,
-                        'health_insurance_type' => $guestData['health_insurance_type'] ?? null,
-                    ]);
+                    $childReservation->guests()->create($this->guestPersistAttributes(
+                        $guestData,
+                        $request->check_in_date,
+                        ['is_primary_guest' => false]
+                    ));
                     $guestsAssigned++;
                 }
 
-                $totalPrice += $roomData['room']->room_price;
+                $totalPrice += $childReservation->calculated_price;
                 $childReservations[] = $childReservation;
             }
 
@@ -755,16 +862,16 @@ class ReservationController extends Controller
                 \Log::warning('Error sending email: ' . $e->getMessage());
             }
 
-            $mainReservation->load([
-                'customer',
-                'room',
-                'room.roomType',
-                'roomType',
-                'guests',
-                'childReservations.room',
-                'childReservations.room.roomType',
-                'additionalServices.additionalService',
-            ]);
+$mainReservation->load([
+            'customer',
+            'room',
+            'room.roomType',
+            'roomType',
+            'guests',
+            'childReservations.room',
+            'childReservations.room.roomType',
+            'additionalServices.additionalService',
+        ]);
 
             // Preparar información detallada de habitaciones asignadas
             $roomsAssigned = [];
@@ -814,23 +921,57 @@ class ReservationController extends Controller
                 'rooms_assigned' => $roomsAssigned,
                 'price_breakdown' => $priceBreakdown,
             ], 201);
-
         } catch (\Exception $e) {
-            // Rollback en caso de error
             DB::rollBack();
-            \Log::error('Error creando reserva múltiple', [
-                'error' => $e->getMessage(),
+            \Log::error('Error en createMultiRoomReservation', [
+                'message' => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),
-                'room_type_id' => $roomTypeId,
-                'total_guests' => $totalGuests,
             ]);
-            
             return response()->json([
-                'message' => 'Error al crear la reserva múltiple. Por favor, intente nuevamente.',
-                'error' => config('app.debug') ? $e->getMessage() : null,
+                'message' => 'Error al crear la reserva múltiple: ' . $e->getMessage(),
             ], 500);
         }
     }
+
+    /**
+     * Transferir cliente de una reserva con auditoría completa.
+     *
+     * Actualiza el cliente asociado a una reserva, guardando el cliente anterior
+     * y el nuevo, junto con la razón del traslado y el usuario que realizó el cambio.
+     *
+     * @param \Illuminate\Http\Request $request
+     * @param int $reservationId
+     * @return \Illuminate\Http\Response
+     */
+    public function transferClient(Request $request, int $reservationId)
+    {
+        $request->validate([
+            'new_customer_id' => 'required|exists:customers,id',
+            'reason' => 'required|string|max:500',
+        ]);
+
+        $userId = $request->user()->id ?? auth()->id();
+
+        $result = app(ReservationClientTransferService::class)->transferClient(
+            $reservationId,
+            $request->new_customer_id,
+            $request->reason,
+            $userId
+        );
+
+        if ($result['success']) {
+            return response()->json([
+                'message' => $result['message'],
+                'reservation' => $reservation,
+                'audit_id' => $result['audit_id'],
+            ], 200);
+        }
+
+        return response()->json([
+            'message' => $result['message'],
+            'error' => $result['error'],
+        ], 500);
+}
 
     public function store(Request $request)
     {
@@ -839,6 +980,9 @@ class ReservationController extends Controller
             $request->merge(['check_out_date' => $request->check_in_date]);
         }
 
+        // Campos numéricos vacíos llegan como null (ConvertEmptyStringsToNull)
+        $this->normalizeOptionalGuestCounts($request);
+
         $rules = [
             'customer_id' => 'required|exists:customers,id',
             'room_id' => 'nullable|exists:rooms,id',
@@ -846,9 +990,9 @@ class ReservationController extends Controller
             'reservation_type' => 'required|in:room,day_pass',
             'check_in_date' => 'required|date',
             'adults' => 'required|integer|min:1',
-            'children' => 'integer|min:0',
-            'infants' => 'integer|min:0',
-            'courtesy_guests' => 'integer|min:0',
+            'children' => 'nullable|integer|min:0',
+            'infants' => 'nullable|integer|min:0',
+            'courtesy_guests' => 'nullable|integer|min:0',
             'total_price' => 'nullable|numeric|min:0',
             'manual_price_override' => 'nullable|boolean',
             'deposit_amount' => 'numeric|min:0',
@@ -868,6 +1012,8 @@ class ReservationController extends Controller
             'guests.*.phone' => 'nullable|string',
             'guests.*.special_needs' => 'nullable|string',
             'guests.*.is_primary_guest' => 'nullable|boolean',
+            'guests.*.is_infant' => 'nullable|boolean',
+            'guests.*.is_child' => 'nullable|boolean',
             'guests.*.health_insurance_name' => 'nullable|string|max:200',
             'guests.*.health_insurance_type' => 'nullable|in:national,international',
             'contact_channel' => 'nullable|in:whatsapp,facebook,instagram,email,phone,website,walk_in,other',
@@ -1094,11 +1240,18 @@ class ReservationController extends Controller
             $calculatedPrice = $priceCalculation['calculated_price'];
             $priceBreakdown = $priceCalculation['price_breakdown'];
             
-            // Usar precio manual si se proporciona y hay override, sino usar el calculado
+            // Con override manual: total_price guarda el subtotal bruto; calculated_price el neto (cupón/descuento).
             $manualOverride = $this->parseBoolean($request->manual_price_override ?? false);
-            $totalPrice = ($manualOverride && $request->total_price !== null)
-                ? $request->total_price
-                : $calculatedPrice;
+            if ($manualOverride && $request->total_price !== null) {
+                $tempReservation->total_price = $request->total_price;
+                $tempReservation->manual_price_override = true;
+                $priceCalculation = $this->priceCalculator->calculatePrice($tempReservation, false);
+                $calculatedPrice = $priceCalculation['calculated_price'];
+                $priceBreakdown = $priceCalculation['price_breakdown'];
+                $totalPrice = $request->total_price;
+            } else {
+                $totalPrice = $calculatedPrice;
+            }
 
             $reservation = Reservation::create([
                 'customer_id' => $request->customer_id,
@@ -1118,7 +1271,7 @@ class ReservationController extends Controller
                 'promotion_code' => $request->promotion_code,
                 'discount_amount' => $request->discount_amount ?? 0,
                 'courtesy_guests' => $request->courtesy_guests ?? 0,
-                'final_price' => $totalPrice,
+                'final_price' => $calculatedPrice,
                 'deposit_amount' => $request->deposit_amount ?? 0,
                 'special_requests' => $request->special_requests,
                 'cancellation_policy_id' => $request->cancellation_policy_id,
@@ -1156,21 +1309,11 @@ class ReservationController extends Controller
 
             if ($request->has('guests') && is_array($request->guests)) {
                 foreach ($request->guests as $guestData) {
-                    $reservation->guests()->create([
-                        'first_name' => $guestData['first_name'],
-                        'last_name' => $guestData['last_name'],
-                        'document_type' => $guestData['document_type'] ?? null,
-                        'document_number' => $guestData['document_number'] ?? null,
-                        'birth_date' => $guestData['birth_date'] ?? null,
-                        'gender' => $guestData['gender'] ?? null,
-                        'nationality' => $guestData['nationality'] ?? null,
-                        'email' => $guestData['email'] ?? null,
-                        'phone' => $guestData['phone'] ?? null,
-                        'special_needs' => $guestData['special_needs'] ?? null,
-                        'is_primary_guest' => $guestData['is_primary_guest'] ?? false,
-                        'health_insurance_name' => $guestData['health_insurance_name'] ?? null,
-                        'health_insurance_type' => $guestData['health_insurance_type'] ?? null,
-                    ]);
+                    $reservation->guests()->create($this->guestPersistAttributes(
+                        $guestData,
+                        $request->check_in_date,
+                        ['is_primary_guest' => $guestData['is_primary_guest'] ?? false]
+                    ));
                 }
             }
 
@@ -1251,13 +1394,16 @@ class ReservationController extends Controller
             $request->merge(['check_out_date' => $request->check_in_date]);
         }
 
+        // Campos numéricos vacíos llegan como null (ConvertEmptyStringsToNull)
+        $this->normalizeOptionalGuestCounts($request);
+
         $rules = [
             'room_id' => 'nullable|exists:rooms,id',
             'check_in_date' => 'sometimes|date',
             'adults' => 'sometimes|integer|min:1',
-            'children' => 'integer|min:0',
-            'infants' => 'integer|min:0',
-            'courtesy_guests' => 'integer|min:0',
+            'children' => 'nullable|integer|min:0',
+            'infants' => 'nullable|integer|min:0',
+            'courtesy_guests' => 'nullable|integer|min:0',
             'total_price' => 'sometimes|numeric|min:0',
             'manual_price_override' => 'sometimes|boolean',
             'status' => 'sometimes|in:pending,confirmed,checked_in,checked_out,cancelled',
@@ -1360,31 +1506,40 @@ class ReservationController extends Controller
                     $newTotal = $dayPassCapacity->calculatePrice($updateAdults, $updateChildren);
                     $request->merge(['total_price' => $newTotal]);
                 }
-            } elseif ($request->has('room_id') || $request->has('check_in_date') || $request->has('check_out_date')) {
-                $roomId = $request->room_id ?? $reservation->room_id;
-                $checkIn = $request->check_in_date ?? $reservation->check_in_date;
-                $checkOut = $request->check_out_date ?? $reservation->check_out_date;
+            $roomIdChanged = $request->has('room_id') && ($request->room_id ?? null) !== ($reservation->room_id ?? null);
+                $checkInChanged = $request->has('check_in_date') && ($request->check_in_date ?? null) !== ($reservation->check_in_date ?? null);
+                $checkOutChanged = $request->has('check_out_date') && ($request->check_out_date ?? null) !== ($reservation->check_out_date ?? null);
 
-                if ($roomId) {
-                    $room = Room::findOrFail($roomId);
+                // Solo validar disponibilidad si cambiaron las fechas o el room_id
+                // Si nochanged nada, la reserva es la misma y no hay por qué validar solapamiento
+                $validateAvailability = $roomIdChanged || $checkInChanged || $checkOutChanged;
 
-                    $isAvailable = $room->reservations()
-                        ->where('id', '!=', $reservation->id)
-                        ->where('status', '!=', 'cancelled')
-                        ->where(function ($query) use ($checkIn, $checkOut) {
-                            $query->whereBetween('check_in_date', [$checkIn, $checkOut])
-                                ->orWhereBetween('check_out_date', [$checkIn, $checkOut])
-                                ->orWhere(function ($q) use ($checkIn, $checkOut) {
-                                    $q->where('check_in_date', '<=', $checkIn)
-                                        ->where('check_out_date', '>=', $checkOut);
-                                });
-                        })
-                        ->doesntExist();
+                if ($validateAvailability && $request->has('room_id') || $request->has('check_in_date') || $request->has('check_out_date')) {
+                    $actualRoomId = $request->room_id ?? $reservation->room_id;
+                    $checkIn = $request->check_in_date ?? $reservation->check_in_date;
+                    $checkOut = $request->check_out_date ?? $reservation->check_out_date;
 
-                    if (!$isAvailable) {
-                        return response()->json([
-                            'message' => 'La habitación no está disponible para las fechas seleccionadas'
-                        ], 409);
+                    if ($actualRoomId) {
+                        $room = Room::findOrFail($actualRoomId);
+
+                        $isAvailable = $room->reservations()
+                            ->where('id', '!=', $reservation->id)
+                            ->where('status', '!=', 'cancelled')
+                            ->where(function ($query) use ($checkIn, $checkOut) {
+                                $query->whereBetween('check_in_date', [$checkIn, $checkOut])
+                                    ->orWhereBetween('check_out_date', [$checkIn, $checkOut])
+                                    ->orWhere(function ($q) use ($checkIn, $checkOut) {
+                                        $q->where('check_in_date', '<=', $checkIn)
+                                            ->where('check_out_date', '>=', $checkOut);
+                                    });
+                            })
+                            ->doesntExist();
+
+                        if (!$isAvailable) {
+                            return response()->json([
+                                'message' => 'La habitación no está disponible para las fechas seleccionadas'
+                            ], 409);
+                        }
                     }
                 }
             }
@@ -1442,36 +1597,132 @@ class ReservationController extends Controller
                 'late_check_out_fee',
             ]);
 
-            if ($reservation->reservation_type === 'room' && !$reservation->is_group_reservation) {
+            if ($reservation->reservation_type === 'room') {
                 $newAdults = (int) ($updateData['adults'] ?? $reservation->adults);
                 $newChildren = (int) ($updateData['children'] ?? $reservation->children);
-                $roomId = $updateData['room_id'] ?? $reservation->room_id;
-                $room = $roomId ? Room::find($roomId) : null;
-                $roomType = $reservation->room_type_id
-                    ? RoomType::find($reservation->room_type_id)
-                    : null;
-                $totalGuests = $newAdults + $newChildren;
+                $totalSolicitado = $newAdults + $newChildren;
 
-                if ($room) {
-                    $capacityCheck = $this->validationService->validateGuestCapacity(
-                        $newAdults,
-                        $newChildren,
-                        $room
-                    );
-                } elseif ($roomType && $totalGuests <= $roomType->getMaxGuestCapacity()) {
-                    $capacityCheck = $this->validationService->validateGuestCapacity(
-                        $newAdults,
-                        $newChildren,
-                        null,
-                        $roomType
-                    );
+                // DETECTAR AUTOMÁTICAMENTE si es reserva grupal:
+                // 1. Si la bandera is_group_reservation es verdadera, ó
+                // 2. Si hay child_reservations (habitaciones secundarias) cargadas
+                $tiene_habitaciones_secundarias = !empty($reservation->child_reservations ?? $reservation->childReservations ?? []);
+                $es_grupal = $reservation->is_group_reservation || $tiene_habitaciones_secundarias;
+
+                if ($es_grupal) {
+                    // RESERVA MULTIHABITACIÓN: validar total contra suma de capacidades de todas las habitaciones
+                    $totalCapacidadHabitaciones = 0;
+                    
+                    // Sumar capacidad de la habitación principal (si existe)
+                    if (!empty($reservation->room_id)) {
+                        $room = Room::find($reservation->room_id);
+                        $totalCapacidadHabitaciones += $room->max_capacity ?? $room->capacity;
+                    }
+                    
+                    // Sumar capacidad de habitaciones secundarias (child_reservations)
+                    $childReservations = $reservation->child_reservations ?? $reservation->childReservations ?? [];
+                    if (!empty($childReservations)) {
+                        foreach ($childReservations as $childRes) {
+                            if (!empty($childRes->room_id)) {
+                                $childRoom = Room::find($childRes->room_id);
+                                $totalCapacidadHabitaciones += $childRoom->max_capacity ?? $childRoom->capacity;
+                            }
+                        }
+                    }
+                    
+                    // Siaún no se determinó capacidad y hay room_type_id, usar el tipo
+                    if ($totalCapacidadHabitaciones === 0 && !empty($roomType)) {
+                        $totalCapacidadHabitaciones = $roomType->max_capacity ?? $roomType->default_capacity;
+                    }
+                    
+                    // Validar que el total solicitado no exceda la capacidad combinada
+                    if ($totalCapacidadHabitaciones !== null && $totalSolicitado > $totalCapacidadHabitaciones) {
+                        DB::rollBack();
+                        return response()->json([
+                            'message' => "Las habitaciones de esta reserva admiten un máximo de {$totalCapacidadHabitaciones} huésped(es) en total. Solicitados: {$totalSolicitado}. Las tienes: " . count($reservation->guests ?? []) . " huésped(es) registrados."
+                        ], 422);
+                    }
+                    
+                    // Sincronizar lista de huéspedes con el total solicitado (mismo lógica que antes)
+                    $actuales = $reservation->guests ? count($reservation->guests) : 0;
+                    $deseados = $totalSolicitado;
+
+                    if ($deseados > $actuales) {
+                        for ($i = $actuales; $i < $deseados; $i++) {
+                            $reservation->guests[] = [
+                                'first_name' => '',
+                                'last_name' => '',
+                                'document_type' => 'CC',
+                                'document_number' => '',
+                                'birth_date' => null,
+                                'gender' => null,
+                                'nationality' => null,
+                                'email' => null,
+                                'phone' => null,
+                                'special_needs' => null,
+                                'is_primary_guest' => false,
+                                'is_infant' => false,
+                                'is_child' => false,
+                                'health_insurance_name' => null,
+                                'health_insurance_type' => null,
+                            ];
+                        }
+                    } elseif ($deseados < $actuales) {
+                        for ($i = $actuales - 1; $i >= $deseados; $i--) {
+                            if ($reservation->guests[$i]->is_primary_guest === false) {
+                                unset($reservation->guests[$i]);
+                            }
+                        }
+                        $reservation->guests = array_values($reservation->guests);
+                    }
                 } else {
-                    $capacityCheck = ['valid' => true];
-                }
+                    // RESERVA ÚNICA: validación contra la habitación individual (comportamiento anterior)
+                    $roomId = $updateData['room_id'] ?? $reservation->room_id;
+                    $room = $roomId ? Room::find($roomId) : null;
+                    $roomType = $reservation->room_type_id
+                        ? RoomType::find($reservation->room_type_id)
+                        : null;
+                    $maxCapacity = $room ? ($room->max_capacity ?? $room->capacity) : 
+                        ($roomType ? ($roomType->max_capacity ?? $roomType->default_capacity) : null);
 
-                if (!$capacityCheck['valid']) {
-                    DB::rollBack();
-                    return response()->json(['message' => $capacityCheck['message']], 422);
+                    if ($maxCapacity !== null && $totalSolicitado > $maxCapacity) {
+                        DB::rollBack();
+                        return response()->json([
+                            'message' => "La habitación admite un máximo de {$maxCapacity} huésped(es). Solicitados: {$totalSolicitado}."
+                        ], 422);
+                    }
+
+                    // Sincronizar lista de huéspedes (mismo código de antes)
+                    $actuales = $reservation->guests ? count($reservation->guests) : 0;
+                    $deseados = $totalSolicitado;
+
+                    if ($deseados > $actuales) {
+                        for ($i = $actuales; $i < $deseados; $i++) {
+                            $reservation->guests[] = [
+                                'first_name' => '',
+                                'last_name' => '',
+                                'document_type' => 'CC',
+                                'document_number' => '',
+                                'birth_date' => null,
+                                'gender' => null,
+                                'nationality' => null,
+                                'email' => null,
+                                'phone' => null,
+                                'special_needs' => null,
+                                'is_primary_guest' => false,
+                                'is_infant' => false,
+                                'is_child' => false,
+                                'health_insurance_name' => null,
+                                'health_insurance_type' => null,
+                            ];
+                        }
+                    } elseif ($deseados < $actuales) {
+                        for ($i = $actuales - 1; $i >= $deseados; $i--) {
+                            if ($reservation->guests[$i]->is_primary_guest === false) {
+                                unset($reservation->guests[$i]);
+                            }
+                        }
+                        $reservation->guests = array_values($reservation->guests);
+                    }
                 }
             }
 
@@ -1529,6 +1780,13 @@ class ReservationController extends Controller
                 } else {
                     $updateData['total_price'] = $reservation->total_price;
                 }
+                // Recalcular neto (cupón/descuento) sobre el subtotal manual
+                $tempReservation->total_price = $updateData['total_price'];
+                $tempReservation->manual_price_override = true;
+                $manualPriceCalculation = $this->priceCalculator->calculatePrice($tempReservation, false);
+                $newCalculatedPrice = $manualPriceCalculation['calculated_price'];
+                $updateData['calculated_price'] = $newCalculatedPrice;
+                $updateData['price_breakdown'] = $manualPriceCalculation['price_breakdown'];
             } else {
                 $updateData['manual_price_override'] = false;
                 $updateData['total_price'] = $newCalculatedPrice;
@@ -1693,12 +1951,15 @@ class ReservationController extends Controller
         }
         $request->replace($input);
 
+        // Campos numéricos vacíos llegan como null (ConvertEmptyStringsToNull)
+        $this->normalizeOptionalGuestCounts($request);
+
         $validator = Validator::make($request->all(), [
             'check_in_date' => 'required|date',
             'check_out_date' => 'nullable|date|after:check_in_date',
             'adults' => 'required|integer|min:1',
-            'children' => 'integer|min:0',
-            'infants' => 'integer|min:0',
+            'children' => 'nullable|integer|min:0',
+            'infants' => 'nullable|integer|min:0',
             'room_type_id' => 'nullable|exists:room_types,id',
             'reservation_type' => 'nullable|in:room,day_pass',
         ]);
@@ -2355,6 +2616,7 @@ class ReservationController extends Controller
                     $query->where('credit', true);
                 })
                 ->where('payed', false)
+                ->whereNull('cancelled_at')
                 ->with('details')
                 ->get();
 
@@ -2452,6 +2714,7 @@ class ReservationController extends Controller
                     $query->where('credit', true);
                 })
                 ->where('payed', false)
+                ->whereNull('cancelled_at')
                 ->with('details')
                 ->get();
 
@@ -2546,6 +2809,251 @@ class ReservationController extends Controller
     }
 
     /**
+     * Actualizar un pago de reserva ya registrado.
+     */
+    public function updatePayment(Request $request, Reservation $reservation, ReservationPayment $reservationPayment)
+    {
+        $payment = $reservationPayment;
+        if ($guard = $this->assertMutableReservationPayment($reservation, $payment)) {
+            return $guard;
+        }
+
+        // Compatibilidad payment_method → payment_type_id
+        $paymentMethodMap = [
+            'cash' => 'Efectivo',
+            'card' => 'Tarjeta',
+            'transfer' => 'Transferencia',
+            'check' => 'Cheque',
+            'other' => 'Otro',
+        ];
+        if ($request->has('payment_method') && !$request->has('payment_type_id')) {
+            $paymentMethod = $request->payment_method;
+            if (isset($paymentMethodMap[$paymentMethod])) {
+                $paymentType = \App\Models\PaymentType::where('name', $paymentMethodMap[$paymentMethod])->first();
+                if ($paymentType) {
+                    $request->merge(['payment_type_id' => $paymentType->id]);
+                }
+            }
+        }
+
+        $validator = Validator::make($request->all(), [
+            'amount' => 'required|numeric|min:0.01',
+            'concept' => 'nullable|string|max:200',
+            'payment_type_id' => 'required|exists:payment_types,id',
+            'payment_reference' => 'nullable|string|max:200',
+            'notes' => 'nullable|string|max:1000',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json($validator->errors(), 422);
+        }
+
+        $pendingContext = $this->computeGroupPaymentPending($reservation);
+        // Al editar, el monto actual se libera: puede reasignarse hasta pendiente + monto vigente.
+        $maxAllowed = (float) $pendingContext['total_pending'] + (float) $payment->amount;
+
+        if ((float) $request->amount > $maxAllowed + 0.0001) {
+            $formattedAmount = number_format((float) $request->amount, 2);
+            $formattedMax = number_format($maxAllowed, 2);
+
+            return response()->json([
+                'message' => "El monto del pago ({$formattedAmount}) excede el saldo pendiente permitido ({$formattedMax}) al actualizar este pago.",
+                'total_pending' => $pendingContext['total_pending'],
+                'payment_amount' => (float) $request->amount,
+                'max_payment_allowed' => $maxAllowed,
+            ], 422);
+        }
+
+        DB::beginTransaction();
+        try {
+            $oldPaymentType = $payment->paymentType;
+            $oldValues = [
+                'payment_id' => $payment->id,
+                'amount' => (float) $payment->amount,
+                'concept' => $payment->concept,
+                'payment_type_id' => $payment->payment_type_id,
+                'payment_method' => $oldPaymentType?->name,
+                'payment_reference' => $payment->payment_reference,
+                'notes' => $payment->notes,
+            ];
+
+            $payment->update([
+                'amount' => $request->amount,
+                'concept' => $request->concept,
+                'payment_type_id' => $request->payment_type_id,
+                'payment_reference' => $request->payment_reference,
+                'notes' => $request->notes,
+            ]);
+
+            $this->syncPaymentStatusAfterPriceChange($reservation);
+
+            $newPaymentType = \App\Models\PaymentType::find($request->payment_type_id);
+            $newValues = [
+                'payment_id' => $payment->id,
+                'amount' => (float) $payment->amount,
+                'concept' => $payment->concept,
+                'payment_type_id' => $payment->payment_type_id,
+                'payment_method' => $newPaymentType?->name,
+                'payment_reference' => $payment->payment_reference,
+                'notes' => $payment->notes,
+            ];
+
+            $this->auditService->logPaymentUpdate($reservation, $oldValues, $newValues, $request);
+
+            DB::commit();
+
+            $this->syncReservationToGoogleCalendar($reservation);
+
+            return response()->json([
+                'message' => 'Pago actualizado exitosamente',
+                'payment' => $payment->fresh('paymentType'),
+                'reservation' => $reservation->fresh(['payments.paymentType', 'customer']),
+            ]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json([
+                'message' => 'Error al actualizar el pago',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Eliminar un pago de reserva ya registrado.
+     */
+    public function deletePayment(Request $request, Reservation $reservation, ReservationPayment $reservationPayment)
+    {
+        $payment = $reservationPayment;
+        if ($guard = $this->assertMutableReservationPayment($reservation, $payment)) {
+            return $guard;
+        }
+
+        DB::beginTransaction();
+        try {
+            $payment->load('paymentType');
+            $paymentValues = [
+                'payment_id' => $payment->id,
+                'amount' => (float) $payment->amount,
+                'concept' => $payment->concept,
+                'payment_type_id' => $payment->payment_type_id,
+                'payment_method' => $payment->paymentType?->name,
+                'payment_reference' => $payment->payment_reference,
+                'notes' => $payment->notes,
+            ];
+
+            $payment->delete();
+
+            $this->syncPaymentStatusAfterPriceChange($reservation);
+            $this->auditService->logPaymentDeletion($reservation, $paymentValues, $request);
+
+            DB::commit();
+
+            $this->syncReservationToGoogleCalendar($reservation);
+
+            return response()->json([
+                'message' => 'Pago eliminado exitosamente',
+                'reservation' => $reservation->fresh(['payments.paymentType', 'customer']),
+            ]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json([
+                'message' => 'Error al eliminar el pago',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Valida que el pago pueda editarse o eliminarse.
+     */
+    protected function assertMutableReservationPayment(Reservation $reservation, ReservationPayment $payment): ?\Illuminate\Http\JsonResponse
+    {
+        if ((int) $payment->reservation_id !== (int) $reservation->id) {
+            return response()->json(['message' => 'El pago no pertenece a esta reserva.'], 422);
+        }
+
+        if (in_array($reservation->payment_status, ['refunded', 'free'], true)) {
+            return response()->json([
+                'message' => 'No se pueden modificar pagos de una reserva con estado de pago reembolsado o cortesía.',
+            ], 403);
+        }
+
+        $isKioskCredit = $payment->payment_type_id === null
+            || $payment->concept === 'Compra en kiosko (a crédito)';
+
+        if ($isKioskCredit) {
+            return response()->json([
+                'message' => 'No se pueden modificar cargos automáticos de kiosko a crédito.',
+            ], 403);
+        }
+
+        return null;
+    }
+
+    /**
+     * Calcula el saldo pendiente del grupo (reserva + minibar + kiosko).
+     *
+     * @return array{total_pending: float, final_price: float, total_paid: float}
+     */
+    protected function computeGroupPaymentPending(Reservation $reservation): array
+    {
+        $mainReservation = $reservation->parent_reservation_id ? $reservation->parentReservation : $reservation;
+        $mainReservation->load('childReservations');
+        $groupReservationIds = $reservation->parent_reservation_id
+            ? $reservation->allGroupReservations()->pluck('id')->toArray()
+            : array_merge([$mainReservation->id], $mainReservation->childReservations->pluck('id')->toArray());
+
+        $groupReservations = \App\Models\Reservation::whereIn('id', $groupReservationIds)->get();
+
+        $finalPrice = $groupReservations->sum(function ($r) {
+            return (float) ($r->final_price ?? $r->total_price ?? 0);
+        });
+
+        $totalPaid = (float) \App\Models\ReservationPayment::whereIn('reservation_id', $groupReservationIds)
+            ->whereNotNull('payment_type_id')
+            ->where(function ($q) {
+                $q->where('concept', '!=', 'Compra en kiosko (a crédito)')->orWhereNull('concept');
+            })
+            ->sum('amount');
+
+        $minibarChargesTotal = $groupReservations->sum(function ($r) {
+            return (float) $r->minibarCharges()->sum('total');
+        });
+        $minibarPaid = (float) \App\Models\ReservationPayment::whereIn('reservation_id', $groupReservationIds)
+            ->whereRaw('LOWER(concept) LIKE ?', ['%minibar%'])
+            ->sum('amount');
+
+        $basePrice = $finalPrice - $minibarChargesTotal;
+        $reservationBalance = max(0, $basePrice - $totalPaid);
+        $excess = max(0, $totalPaid - $basePrice);
+        $amountToMinibar = min($excess, max(0, $minibarChargesTotal - $minibarPaid));
+        $remainingMinibarBalance = max(0, $minibarChargesTotal - $minibarPaid - $amountToMinibar);
+
+        $pendingKioskInvoices = \App\Models\KioskInvoice::whereIn('reservation_id', $groupReservationIds)
+            ->whereHas('payment_type', function ($query) {
+                $query->where('credit', true);
+            })
+            ->where('payed', false)
+            ->whereNull('cancelled_at')
+            ->with('details')
+            ->get();
+
+        $totalPendingKiosk = $pendingKioskInvoices->sum(function ($invoice) {
+            return $invoice->details->sum('price');
+        });
+
+        $amountToKiosk = min(max(0, $excess - $amountToMinibar), $totalPendingKiosk);
+        $remainingRoomCharges = max(0, $totalPendingKiosk - $amountToKiosk);
+        $totalPending = $reservationBalance + $remainingMinibarBalance + $remainingRoomCharges;
+
+        return [
+            'total_pending' => (float) $totalPending,
+            'final_price' => (float) $finalPrice,
+            'total_paid' => (float) $totalPaid,
+        ];
+    }
+
+    /**
      * Valida huéspedes contra capacidad mínima/máxima cuando aplica una sola habitación.
      */
     private function validateRequestedRoomGuestCapacity(Request $request, int $totalGuests): ?\Illuminate\Http\JsonResponse
@@ -2633,9 +3141,9 @@ class ReservationController extends Controller
      */
     public function addAdditionalService(Request $request, Reservation $reservation)
     {
-        if (in_array($reservation->status, ['checked_in', 'checked_out'], true)) {
+        if ($reservation->status === 'checked_out') {
             return response()->json([
-                'message' => 'No se pueden modificar servicios adicionales en una reserva con check-in o check-out realizado.',
+                'message' => 'No se pueden modificar servicios adicionales en una reserva con check-out realizado.',
             ], 403);
         }
 
@@ -2663,7 +3171,8 @@ class ReservationController extends Controller
             : $this->additionalServiceCalculator->getDefaultItemQuantity($reservation);
         $ras = $this->additionalServiceCalculator->addServiceToReservation($reservation, $svc, $itemQuantity);
         $reservation->recomputeFinalPrice();
-        $reservation->load(['additionalServices.additionalService']);
+        $this->syncPaymentStatusAfterPriceChange($reservation);
+        $this->loadReservationDetailRelations($reservation);
         $this->syncReservationToGoogleCalendar($reservation);
 
         return response()->json([
@@ -2674,13 +3183,55 @@ class ReservationController extends Controller
     }
 
     /**
+     * Actualizar cantidad de un servicio adicional ya contratado
+     */
+    public function updateAdditionalService(
+        Request $request,
+        Reservation $reservation,
+        ReservationAdditionalService $reservationAdditionalService
+    ) {
+        if ($reservation->status === 'checked_out') {
+            return response()->json([
+                'message' => 'No se pueden modificar servicios adicionales en una reserva con check-out realizado.',
+            ], 403);
+        }
+
+        if ((int) $reservationAdditionalService->reservation_id !== (int) $reservation->id) {
+            return response()->json(['message' => 'El servicio no pertenece a esta reserva.'], 422);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'quantity' => 'required|integer|min:1',
+        ]);
+        if ($validator->fails()) {
+            return response()->json($validator->errors(), 422);
+        }
+
+        $ras = $this->additionalServiceCalculator->updateServiceQuantity(
+            $reservationAdditionalService,
+            $reservation,
+            (int) $request->input('quantity')
+        );
+        $reservation->recomputeFinalPrice();
+        $this->syncPaymentStatusAfterPriceChange($reservation);
+        $this->loadReservationDetailRelations($reservation);
+        $this->syncReservationToGoogleCalendar($reservation);
+
+        return response()->json([
+            'message' => 'Cantidad de servicio actualizada.',
+            'reservation' => $reservation,
+            'item' => $ras,
+        ]);
+    }
+
+    /**
      * Quitar servicio adicional de una reserva
      */
     public function removeAdditionalService(Reservation $reservation, ReservationAdditionalService $reservationAdditionalService)
     {
-        if (in_array($reservation->status, ['checked_in', 'checked_out'], true)) {
+        if ($reservation->status === 'checked_out') {
             return response()->json([
-                'message' => 'No se pueden modificar servicios adicionales en una reserva con check-in o check-out realizado.',
+                'message' => 'No se pueden modificar servicios adicionales en una reserva con check-out realizado.',
             ], 403);
         }
 
@@ -2690,7 +3241,8 @@ class ReservationController extends Controller
 
         $reservationAdditionalService->delete();
         $reservation->recomputeFinalPrice();
-        $reservation->load(['additionalServices.additionalService']);
+        $this->syncPaymentStatusAfterPriceChange($reservation);
+        $this->loadReservationDetailRelations($reservation);
         $this->syncReservationToGoogleCalendar($reservation);
 
         return response()->json([
@@ -2774,41 +3326,27 @@ class ReservationController extends Controller
                         if (isset($guestData['is_primary_guest']) && $guestData['is_primary_guest']) {
                             $reservation->guests()->where('id', '!=', $existingGuest->id)->update(['is_primary_guest' => false]);
                         }
-                        $existingGuest->update([
-                            'first_name' => $guestData['first_name'],
-                            'last_name' => $guestData['last_name'],
-                            'document_type' => $guestData['document_type'] ?? 'CC',
-                            'document_number' => $guestData['document_number'],
-                            'birth_date' => $guestData['birth_date'] ?? null,
-                            'gender' => $guestData['gender'] ?? null,
-                            'nationality' => $guestData['nationality'] ?? null,
-                            'email' => $guestData['email'] ?? null,
-                            'phone' => $guestData['phone'] ?? null,
-                            'special_needs' => $guestData['special_needs'] ?? null,
-                            'is_primary_guest' => $guestData['is_primary_guest'] ?? false,
-                            'health_insurance_name' => $guestData['health_insurance_name'] ?? null,
-                            'health_insurance_type' => $guestData['health_insurance_type'] ?? null,
-                        ]);
+                        $existingGuest->update($this->guestPersistAttributes(
+                            $guestData,
+                            $reservation->check_in_date,
+                            [
+                                'document_type' => $guestData['document_type'] ?? 'CC',
+                                'is_primary_guest' => $guestData['is_primary_guest'] ?? false,
+                            ]
+                        ));
                     } else {
                         // Crear nuevo huésped
                         if (isset($guestData['is_primary_guest']) && $guestData['is_primary_guest']) {
                             $reservation->guests()->update(['is_primary_guest' => false]);
                         }
-                        $reservation->guests()->create([
-                            'first_name' => $guestData['first_name'],
-                            'last_name' => $guestData['last_name'],
-                            'document_type' => $guestData['document_type'] ?? 'CC',
-                            'document_number' => $guestData['document_number'],
-                            'birth_date' => $guestData['birth_date'] ?? null,
-                            'gender' => $guestData['gender'] ?? null,
-                            'nationality' => $guestData['nationality'] ?? null,
-                            'email' => $guestData['email'] ?? null,
-                            'phone' => $guestData['phone'] ?? null,
-                            'special_needs' => $guestData['special_needs'] ?? null,
-                            'is_primary_guest' => $guestData['is_primary_guest'] ?? false,
-                            'health_insurance_name' => $guestData['health_insurance_name'] ?? null,
-                            'health_insurance_type' => $guestData['health_insurance_type'] ?? null,
-                        ]);
+                        $reservation->guests()->create($this->guestPersistAttributes(
+                            $guestData,
+                            $reservation->check_in_date,
+                            [
+                                'document_type' => $guestData['document_type'] ?? 'CC',
+                                'is_primary_guest' => $guestData['is_primary_guest'] ?? false,
+                            ]
+                        ));
                     }
                 }
             }
@@ -2834,16 +3372,43 @@ class ReservationController extends Controller
             }
 
             // Registrar inventario inicial del minibar si se proporciona
-            if ($reservation->room_id && $request->has('minibar_products')) {
-                try {
-                    $minibarService = app(\App\Services\MinibarInventoryService::class);
-                    $minibarService->recordCheckInInventory(
-                        $reservation,
-                        $request->minibar_products,
-                        auth()->id()
-                    );
-                } catch (\Exception $e) {
-                    \Log::warning('Error registrando inventario del minibar en check-in: ' . $e->getMessage());
+            // Para reservas grupales, procesar minibar en TODAS las habitaciones
+            $reservationsForMinibar = collect([$reservation]);
+            if ($reservation->is_group_reservation && !$reservation->parent_reservation_id) {
+                $reservation->load('childReservations');
+                $reservationsForMinibar = $reservationsForMinibar->merge($reservation->childReservations);
+            }
+            
+            foreach ($reservationsForMinibar as $res) {
+                if ($res->room_id && $request->has('minibar_products') && is_array($request->minibar_products)) {
+                    // Si se envían productos específicos por habitación (array indexado por room_id)
+                    $productsForRoom = $request->minibar_products[$res->room_id] ?? 
+                        ($res === $reservation ? $request->minibar_products : []);
+                    
+                    if (!empty($productsForRoom) && is_array($productsForRoom)) {
+                        try {
+                            $minibarService = app(\App\Services\MinibarInventoryService::class);
+                            $minibarService->recordCheckInInventory(
+                                $res,
+                                $productsForRoom,
+                                auth()->id()
+                            );
+                        } catch (\Exception $e) {
+                            \Log::warning('Error registrando inventario del minibar en check-in (habitación ' . $res->room_id . '): ' . $e->getMessage());
+                        }
+                    } elseif (empty($request->minibar_products) && $res->room_id) {
+                        // Si no se envían productos, usar stock actual de la habitación
+                        try {
+                            $minibarService = app(\App\Services\MinibarInventoryService::class);
+                            $minibarService->recordCheckInInventory(
+                                $res,
+                                [],
+                                auth()->id()
+                            );
+                        } catch (\Exception $e) {
+                            \Log::warning('Error registrando inventario del minibar en check-in (habitación ' . $res->room_id . '): ' . $e->getMessage());
+                        }
+                    }
                 }
             }
 
@@ -3014,6 +3579,7 @@ class ReservationController extends Controller
                 $query->where('credit', true);
             })
             ->where('payed', false)
+            ->whereNull('cancelled_at')
             ->with(['details.kiosk_unit.product'])
             ->get();
 
@@ -3102,21 +3668,35 @@ class ReservationController extends Controller
                 }
             }
 
-            // Registrar inventario final del minibar si se proporciona (solo reserva principal)
-            if ($reservation->room_id && $request->has('minibar_products')) {
-                try {
-                    $minibarService = app(\App\Services\MinibarInventoryService::class);
-                    $minibarService->recordInventoryUpdate(
-                        $reservation,
-                        $request->minibar_products,
-                        'check_out',
-                        auth()->id()
-                    );
-                    // Recalcular precio final después de agregar cargos del minibar
-                    $reservation->refresh();
-                    $reservation->recomputeFinalPrice();
-                } catch (\Exception $e) {
-                    \Log::warning('Error registrando inventario final del minibar en check-out: ' . $e->getMessage());
+            // Registrar inventario final del minibar si se proporciona (TODAS las habitaciones del grupo)
+            $reservationsForMinibar = collect([$reservation]);
+            if ($reservation->is_group_reservation && !$reservation->parent_reservation_id) {
+                $reservation->load('childReservations');
+                $reservationsForMinibar = $reservationsForMinibar->merge($reservation->childReservations);
+            }
+            
+            foreach ($reservationsForMinibar as $res) {
+                if ($res->room_id && $request->has('minibar_products') && is_array($request->minibar_products)) {
+                    // Si se envían productos específicos por habitación (array indexado por room_id)
+                    $productsForRoom = $request->minibar_products[$res->room_id] ?? 
+                        ($res === $reservation ? $request->minibar_products : []);
+                    
+                    if (!empty($productsForRoom) && is_array($productsForRoom)) {
+                        try {
+                            $minibarService = app(\App\Services\MinibarInventoryService::class);
+                            $minibarService->recordInventoryUpdate(
+                                $res,
+                                $productsForRoom,
+                                'check_out',
+                                auth()->id()
+                            );
+                            // Recalcular precio final después de agregar cargos del minibar
+                            $res->refresh();
+                            $res->recomputeFinalPrice();
+                        } catch (\Exception $e) {
+                            \Log::warning('Error registrando inventario final del minibar en check-out (habitación ' . $res->room_id . '): ' . $e->getMessage());
+                        }
+                    }
                 }
             }
 
@@ -3345,8 +3925,18 @@ class ReservationController extends Controller
             return response()->json($validator->errors(), 422);
         }
 
+        // Filtro de solapamiento: una reserva ocupa el período si su check-in es
+        // anterior o igual al fin del rango y su check-out es posterior o igual al
+        // inicio del rango (una reserva que inició antes de date_from también ocupa).
+        // La precisión por fecha (día de check-out libre) la aplica el filtro de abajo.
         $query = Reservation::where('status', '!=', 'cancelled')
-            ->whereBetween('check_in_date', [$request->date_from, $request->date_to]);
+            ->where(function ($q) use ($request) {
+                $q->where('check_in_date', '<=', $request->date_to)
+                    ->where(function ($q2) use ($request) {
+                        $q2->where('check_out_date', '>=', $request->date_from)
+                            ->orWhereNull('check_out_date');
+                    });
+            });
 
         if ($request->room_type_id) {
             $query->where('room_type_id', $request->room_type_id);
@@ -3360,7 +3950,18 @@ class ReservationController extends Controller
 
         for ($date = $dateFrom->copy(); $date->lte($dateTo); $date->addDay()) {
             $dayReservations = $reservations->filter(function ($reservation) use ($date) {
-                return $date->between($reservation->check_in_date, $reservation->check_out_date ?? $reservation->check_in_date);
+                // Pasadía: ocupa únicamente su propio día.
+                if ($reservation->reservation_type === 'day_pass') {
+                    return $date->eq($reservation->check_in_date->startOfDay());
+                }
+
+                // Habitación: ocupa [check_in, check_out); el día de check-out queda libre
+                // (coherente con Room::isAvailable).
+                $checkIn = $reservation->check_in_date->startOfDay();
+                if (!$reservation->check_out_date) {
+                    return $date->gte($checkIn);
+                }
+                return $date->gte($checkIn) && $date->lt($reservation->check_out_date->startOfDay());
             });
 
             $occupancyByDate[] = [
@@ -3385,6 +3986,155 @@ class ReservationController extends Controller
                 'total_day_passes' => $reservations->where('reservation_type', 'day_pass')->count(),
             ],
         ]);
+    }
+
+    /**
+     * Reporte de ocupación por habitación: matriz habitación × fecha para un rango.
+     *
+     * Muestra qué habitación está ocupada (y por qué reserva), disponible o en
+     * mantenimiento en cada fecha del rango. Usa el mismo criterio de solapamiento
+     * que Room::isAvailable: una habitación ocupa [check_in, check_out) y el día de
+     * check-out queda libre.
+     */
+    public function roomOccupancyReport(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'date_from' => 'required|date',
+            'date_to' => 'required|date|after_or_equal:date_from',
+            'room_type_id' => 'nullable|exists:room_types,id',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json($validator->errors(), 422);
+        }
+
+        $dateFrom = Carbon::parse($request->date_from)->startOfDay();
+        $dateTo = Carbon::parse($request->date_to)->startOfDay();
+
+        $roomsQuery = Room::where('active', true);
+        if ($request->room_type_id) {
+            $roomsQuery->where('room_type_id', (int) $request->room_type_id);
+        }
+        $rooms = $roomsQuery->with('roomType')->orderBy('room_type_id')->orderBy('number')->get();
+
+        // Reservas de habitación que ocupan al menos una noche dentro del rango.
+        $overlappingReservations = Reservation::where('reservation_type', 'room')
+            ->whereIn('status', ['confirmed', 'checked_in'])
+            ->where('check_in_date', '<=', $dateTo->format('Y-m-d'))
+            ->where(function ($q) use ($dateFrom) {
+                $q->where('check_out_date', '>', $dateFrom->format('Y-m-d'))
+                    ->orWhereNull('check_out_date');
+            })
+            ->with('customer')
+            ->get()
+            ->groupBy('room_id');
+
+        $dates = [];
+        for ($date = $dateFrom->copy(); $date->lte($dateTo); $date->addDay()) {
+            $dates[] = $date->copy();
+        }
+
+        $dailyCounts = [];
+        foreach ($dates as $date) {
+            $dailyCounts[$date->format('Y-m-d')] = [
+                'occupied' => 0,
+                'available' => 0,
+                'maintenance' => 0,
+            ];
+        }
+
+        $roomsMatrix = [];
+
+        foreach ($rooms as $room) {
+            $roomDates = [];
+            $inMaintenance = $room->status === 'maintenance'
+                || $room->status === 'out_of_order'
+                || $room->hasBlockingMaintenance();
+
+            foreach ($dates as $date) {
+                $dateStr = $date->format('Y-m-d');
+                $cell = ['date' => $dateStr, 'status' => 'available', 'reservation' => null];
+
+                if ($inMaintenance) {
+                    $cell['status'] = 'maintenance';
+                } else {
+                    $reservation = $this->reservationOccupyingDate($room, $date, $overlappingReservations);
+                    if ($reservation) {
+                        $cell['status'] = 'occupied';
+                        $cell['reservation'] = $this->formatOccupyingReservation($reservation);
+                    }
+                }
+
+                $dailyCounts[$dateStr][$cell['status']]++;
+                $roomDates[] = $cell;
+            }
+
+            $roomsMatrix[] = [
+                'id' => $room->id,
+                'room_type_id' => $room->room_type_id,
+                'room_type_name' => $room->roomType->name ?? '',
+                'display_name' => $room->display_name,
+                'number' => $room->number,
+                'capacity' => (int) $room->capacity,
+                'max_capacity' => (int) ($room->max_capacity ?? $room->capacity),
+                'status' => $room->status,
+                'dates' => $roomDates,
+            ];
+        }
+
+        $occupancyByDate = [];
+        foreach ($dailyCounts as $dateStr => $counts) {
+            $total = $counts['occupied'] + $counts['available'] + $counts['maintenance'];
+            $occupancyByDate[] = [
+                'date' => $dateStr,
+                'total_rooms' => $total,
+                'occupied_rooms' => $counts['occupied'],
+                'available_rooms' => $counts['available'],
+                'maintenance_rooms' => $counts['maintenance'],
+                'occupancy_percentage' => $total > 0 ? round(($counts['occupied'] / $total) * 100, 1) : 0,
+            ];
+        }
+
+        return response()->json([
+            'period' => [
+                'from' => $request->date_from,
+                'to' => $request->date_to,
+            ],
+            'room_type_id' => $request->room_type_id ? (int) $request->room_type_id : null,
+            'occupancy_by_date' => $occupancyByDate,
+            'rooms' => $roomsMatrix,
+        ]);
+    }
+
+    /**
+     * Retorna la reserva que ocupa la habitación en la fecha dada, o null si está libre.
+     */
+    protected function reservationOccupyingDate(Room $room, Carbon $date, $overlappingReservations): ?Reservation
+    {
+        $reservations = $overlappingReservations->get($room->id) ?? collect();
+
+        foreach ($reservations as $reservation) {
+            $checkIn = $reservation->check_in_date;
+            $checkOut = $reservation->check_out_date ?? $checkIn;
+
+            if ($date->gte($checkIn) && $date->lt($checkOut)) {
+                return $reservation;
+            }
+        }
+
+        return null;
+    }
+
+    protected function formatOccupyingReservation(Reservation $reservation): array
+    {
+        return [
+            'id' => $reservation->id,
+            'reservation_number' => $reservation->reservation_number,
+            'customer_name' => $reservation->customer?->display_name ?? null,
+            'check_in_date' => $reservation->check_in_date?->format('Y-m-d'),
+            'check_out_date' => $reservation->check_out_date?->format('Y-m-d'),
+            'reservation_status' => $reservation->status,
+        ];
     }
 
     /**
@@ -3838,7 +4588,34 @@ class ReservationController extends Controller
     /**
      * Distribuye huéspedes de manera inteligente manteniendo familias juntas
      */
-    private function distributeGuestsIntelligently($availableRooms, $totalGuests, $adults, $children, $infants, $guestsData = [])
+    /**
+     * @param array<string, mixed> $guestData
+     * @param array<string, mixed> $overrides
+     * @return array<string, mixed>
+     */
+    private function guestPersistAttributes(array $guestData, $checkInDate, array $overrides = []): array
+    {
+        $classified = app(GuestAgeClassifier::class)->applyToGuestPayload($guestData, $checkInDate);
+
+        return array_merge([
+            'first_name' => $classified['first_name'] ?? null,
+            'last_name' => $classified['last_name'] ?? null,
+            'document_type' => $classified['document_type'] ?? null,
+            'document_number' => $classified['document_number'] ?? null,
+            'birth_date' => $classified['birth_date'] ?? null,
+            'gender' => $classified['gender'] ?? null,
+            'nationality' => $classified['nationality'] ?? null,
+            'email' => $classified['email'] ?? null,
+            'phone' => $classified['phone'] ?? null,
+            'special_needs' => $classified['special_needs'] ?? null,
+            'is_primary_guest' => $classified['is_primary_guest'] ?? false,
+            'is_infant' => $classified['is_infant'],
+            'is_child' => $classified['is_child'],
+            'health_insurance_name' => $classified['health_insurance_name'] ?? null,
+            'health_insurance_type' => $classified['health_insurance_type'] ?? null,
+        ], $overrides);
+    }
+    private function distributeGuestsIntelligently($availableRooms, $totalGuests, $adults, $children, $infants, $guestsData = [], $checkInDate = null)
     {
         $roomsNeeded = [];
         $remainingGuests = $totalGuests;
@@ -3861,8 +4638,8 @@ class ReservationController extends Controller
                 }
             }
 
-            // Calcular edad de cada huésped para clasificar
-            $now = now();
+            // Bebé por edad (< 4); niño solo por flag manual; resto adulto
+            $classifier = app(GuestAgeClassifier::class);
             foreach ($familiesByLastName as $lastName => $familyMembers) {
                 $familyAdults = 0;
                 $familyChildren = 0;
@@ -3870,30 +4647,22 @@ class ReservationController extends Controller
                 $familyMembersWithAge = [];
 
                 foreach ($familyMembers as $member) {
-                    $age = null;
-                    if (isset($member['birth_date']) && $member['birth_date']) {
-                        try {
-                            $birthDate = \Carbon\Carbon::parse($member['birth_date']);
-                            $age = $now->diffInYears($birthDate);
-                        } catch (\Exception $e) {
-                            // Si no se puede calcular la edad, asumir adulto
-                            $age = 18;
-                        }
-                    }
+                    $resolved = $classifier->resolve(
+                        $member['birth_date'] ?? null,
+                        filter_var($member['is_infant'] ?? false, FILTER_VALIDATE_BOOLEAN),
+                        filter_var($member['is_child'] ?? false, FILTER_VALIDATE_BOOLEAN),
+                        $checkInDate
+                    );
 
-                    // Clasificar: bebé (0-2), niño (3-12), adulto (13+)
-                    if ($age === null || $age >= 13) {
-                        $familyAdults++;
-                        $member['calculated_age'] = $age ?? 18;
-                        $member['guest_type'] = 'adult';
-                    } elseif ($age >= 3) {
-                        $familyChildren++;
-                        $member['calculated_age'] = $age;
-                        $member['guest_type'] = 'child';
-                    } else {
+                    $member['calculated_age'] = $resolved['age'];
+                    $member['guest_type'] = $resolved['age_category'];
+
+                    if ($resolved['age_category'] === GuestAgeClassifier::CATEGORY_INFANT) {
                         $familyInfants++;
-                        $member['calculated_age'] = $age;
-                        $member['guest_type'] = 'infant';
+                    } elseif ($resolved['age_category'] === GuestAgeClassifier::CATEGORY_CHILD) {
+                        $familyChildren++;
+                    } else {
+                        $familyAdults++;
                     }
 
                     $familyMembersWithAge[] = $member;
@@ -4110,6 +4879,86 @@ class ReservationController extends Controller
         ]);
 
         return $roomsNeeded;
+    }
+
+    /**
+     * Distribución simple y flexible para habitaciones seleccionadas manualmente.
+     * Llena cada habitación hasta su capacidad máxima sin restricciones de mínimo
+     * ni agrupación familiar. Ideal cuando el usuario selecciona explícitamente
+     * las habitaciones que quiere usar.
+     */
+    private function distributeGuestsSimple($availableRooms, $totalGuests, $adults, $children, $infants, $guestsData = [], $checkInDate = null)
+    {
+        $roomsNeeded = [];
+        $remainingGuests = $totalGuests;
+        $remainingAdults = $adults;
+        $remainingChildren = $children;
+        $remainingInfants = $infants;
+
+        \Log::info('Usando distribución simple para habitaciones seleccionadas manualmente', [
+            'total_guests' => $totalGuests,
+            'rooms_available' => $availableRooms->count(),
+            'rooms_capacity' => $availableRooms->sum(fn($r) => $r->max_capacity ?? $r->capacity),
+        ]);
+
+        foreach ($availableRooms as $room) {
+            if ($remainingGuests <= 0) {
+                break;
+            }
+
+            $roomMax = (int) ($room->max_capacity ?? $room->capacity);
+            $guestsForThisRoom = min($remainingGuests, $roomMax);
+
+            // Distribución proporcional de adultos/niños/bebés
+            $adultsForRoom = min($remainingAdults, $guestsForThisRoom);
+            $remainingAdults -= $adultsForRoom;
+            $guestsForThisRoom -= $adultsForRoom;
+
+            $childrenForRoom = min($remainingChildren, $guestsForThisRoom);
+            $remainingChildren -= $childrenForRoom;
+            $guestsForThisRoom -= $childrenForRoom;
+
+            $infantsForRoom = min($remainingInfants, $guestsForThisRoom);
+            $remainingInfants -= $infantsForRoom;
+
+            $roomsNeeded[] = [
+                'room' => $room,
+                'guests_count' => $adultsForRoom + $childrenForRoom + $infantsForRoom,
+                'adults' => $adultsForRoom,
+                'children' => $childrenForRoom,
+                'infants' => $infantsForRoom,
+            ];
+
+            $remainingGuests -= ($adultsForRoom + $childrenForRoom + $infantsForRoom);
+        }
+
+        \Log::info('Distribución simple completada', [
+            'rooms_assigned' => count($roomsNeeded),
+            'total_guests_distributed' => $totalGuests - $remainingGuests,
+            'remaining_guests' => $remainingGuests,
+        ]);
+
+        return $roomsNeeded;
+    }
+
+    /**
+     * Convierte conteos de huéspedes opcionales vacíos/null a 0.
+     * Evita fallos de la regla "integer" cuando el input number se deja vacío.
+     */
+    private function normalizeOptionalGuestCounts(Request $request): void
+    {
+        $fields = ['children', 'infants', 'courtesy_guests', 'extra_beds'];
+        $normalized = [];
+
+        foreach ($fields as $field) {
+            if ($request->exists($field) && $request->input($field) === null) {
+                $normalized[$field] = 0;
+            }
+        }
+
+        if (!empty($normalized)) {
+            $request->merge($normalized);
+        }
     }
 
     private function validateCourtesyGuestsRequest(Request $request)

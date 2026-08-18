@@ -248,7 +248,7 @@ class ReservationCertificateService
 
         $reservation->loadMissing([
             'customer', 'room', 'roomType', 'guests', 'additionalServices.additionalService',
-            'promotion',
+            'promotion', 'createdBy',
             'childReservations.room', 'childReservations.guests',
         ]);
 
@@ -274,6 +274,7 @@ class ReservationCertificateService
             'totalPaid' => $financial['totalPaid'],
             'remainingBalance' => $financial['remainingBalance'],
             'priceBreakdown' => $priceBreakdown,
+            'advisorName' => $reservation->createdBy?->name,
         ];
 
         $pdf = Pdf::loadView('reservations.certificate', $data);
@@ -309,7 +310,7 @@ class ReservationCertificateService
 
         $reservation->loadMissing([
             'customer', 'room', 'roomType', 'guests', 'payments.paymentType', 'additionalServices.additionalService',
-            'promotion',
+            'promotion', 'createdBy',
             'minibarCharges.product', 'kioskInvoices.details.kiosk_unit.product', 'kioskInvoices.payment_type',
             'childReservations.room', 'childReservations.guests',
             'childReservations.minibarCharges.product',
@@ -371,6 +372,7 @@ class ReservationCertificateService
             'totalInfants' => $multi['totalInfants'],
             'isMultiRoom' => $multi['isMultiRoom'],
             'priceBreakdown' => $priceBreakdown,
+            'advisorName' => $reservation->createdBy?->name,
         ];
 
         $pdf = Pdf::loadView('reservations.checkout_certificate', $data);

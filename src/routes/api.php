@@ -37,6 +37,19 @@ Route::prefix('public/site')->middleware('throttle:60,1')->group(function () {
     Route::get('/content', [\App\Http\Controllers\PublicSiteController::class, 'content']);
 });
 
+// Portal público de huéspedes (OTP, sin crear usuarios)
+Route::prefix('public/guest-portal')->group(function () {
+    Route::controller(\App\Http\Controllers\GuestPortalController::class)->group(function () {
+        Route::get('/{token}', 'show')->middleware('throttle:60,1');
+        Route::post('/{token}/otp/request', 'requestOtp')->middleware('throttle:12,1');
+        Route::post('/{token}/otp/verify', 'verifyOtp')->middleware('throttle:20,1');
+        Route::get('/{token}/guests', 'guests')->middleware('throttle:60,1');
+        Route::post('/{token}/guests', 'storeGuest')->middleware('throttle:30,1');
+        Route::put('/{token}/guests/{guest}', 'updateGuest')->middleware('throttle:30,1');
+        Route::delete('/{token}/guests/{guest}', 'destroyGuest')->middleware('throttle:30,1');
+    });
+});
+
 // Mantenimiento de deploy (solo si DEPLOY_MIGRATE_TOKEN está configurado en .env)
 Route::get('/public/deploy/migrate', function (Request $request) {
     $expected = (string) env('DEPLOY_MIGRATE_TOKEN', '');
@@ -326,6 +339,23 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::post('/kiosk/products/unit/bulk-delete', 'bulkDelete')->middleware('permission:kiosk_products.edit,kioskinvetario');
     });
 
+    Route::controller(\App\Http\Controllers\KioskMinibarTransferController::class)->group(function () {
+        Route::get('/kiosk/minibar/mappings', 'mappings')->middleware('permission:kiosk_products.list,kioskinvetario');
+        Route::get('/kiosk/minibar/suggestions', 'suggestions')->middleware('permission:kiosk_products.list,kioskinvetario');
+        Route::get('/kiosk/minibar/products', 'minibarProducts')->middleware('permission:kiosk_products.list,kioskinvetario');
+        Route::post('/kiosk/minibar/map', 'setMapping')->middleware('permission:kiosk_products.edit,kioskinvetario');
+        Route::post('/kiosk/units/transfer-to-minibar', 'transfer')->middleware('permission:kiosk_products.edit,kioskinvetario');
+    });
+
+    Route::controller(\App\Http\Controllers\KioskCouponController::class)->group(function () {
+        Route::get('/kiosk/coupons', 'index')->middleware('permission:kiosk_coupons.list,kioskcaja');
+        Route::post('/kiosk/coupons/validate', 'validateCode')->middleware('permission:compras.list,kioskcaja');
+        Route::post('/kiosk/coupons', 'store')->middleware('permission:kiosk_coupons.create,kioskcaja');
+        Route::get('/kiosk/coupons/{kioskCoupon}', 'show')->middleware('permission:kiosk_coupons.list,kioskcaja');
+        Route::put('/kiosk/coupons/{kioskCoupon}', 'update')->middleware('permission:kiosk_coupons.edit,kioskcaja');
+        Route::delete('/kiosk/coupons/{kioskCoupon}', 'destroy')->middleware('permission:kiosk_coupons.delete,kioskcaja');
+    });
+
     Route::controller(\App\Http\Controllers\KioskInvoiceController::class)->group(function () {
         Route::get('/kiosk/caja', 'index')->name('index')->middleware('permission:caja.list,kioskcaja');
         Route::post('/kiosk/caja', 'store')->name('store')->middleware('permission:caja.create,kioskcaja');
@@ -370,6 +400,9 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::post('/kiosk/invoice/{kioskInvoice}/verify-otp', 'verifyOtpAndComplete')->name('verifyOtpAndComplete')->middleware('permission:compras.create,kioskcaja');
         Route::post('/kiosk/invoice', 'store')->name('store')->middleware('permission:compras.create,kioskcaja');
         Route::get('/kiosk/invoice/{kioskInvoice}', 'show')->name('show')->middleware('permission:compras.list,kioskcaja');
+        Route::put('/kiosk/invoice/{kioskInvoice}/details', 'syncDetails')->name('syncDetails')->middleware('permission:compras.edit,kioskcaja');
+        Route::post('/kiosk/invoice/{kioskInvoice}/pay', 'pay')->name('pay')->middleware('permission:compras.edit,kioskcaja');
+        Route::post('/kiosk/invoice/{kioskInvoice}/cancel', 'cancel')->name('cancel')->middleware('permission:compras.edit,kioskcaja');
         Route::put('/kiosk/invoice/{kioskInvoice}', 'update')->name('update')->middleware('permission:compras.edit,kioskcaja');
         Route::delete('/kiosk/invoice/{kioskInvoice}', 'destroy')->name('destroy')->middleware('permission:compras.edit,kioskcaja');
     });
@@ -415,7 +448,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
 
     // Rutas de métodos de pago accesibles desde el módulo de reservas (debe ir ANTES de /reservations/{reservation})
     Route::controller(\App\Http\Controllers\PaymentTypeController::class)->group(function () {
-        Route::get('/reservations/payment-methods', 'indexForReservations')->middleware('permission:reservation.edit,reservas');
+        Route::get('/reservations/payment-methods', 'indexForReservations')->middleware('permission:reservation.edit|reservation.payment-register,reservas');
     });
 
     Route::controller(\App\Http\Controllers\ReservationController::class)->group(function () {
@@ -425,6 +458,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::get('/reservations/daily-dashboard', 'dailyDashboard')->middleware('permission:reservation.list,reservas');
         Route::get('/reservations/marketing/report', 'marketingReport')->middleware('permission:reservation.report,reservas');
         Route::get('/reservations/occupancy/report', 'occupancyReport')->middleware('permission:reservation.report,reservas');
+        Route::get('/reservations/room-occupancy/report', 'roomOccupancyReport')->middleware('permission:reservation.report,reservas');
         Route::get('/reservations/revenue/report', 'revenueReport')->middleware('permission:reservation.report,reservas');
         Route::get('/reservations/cancellations/report', 'cancellationsReport')->middleware('permission:reservation.report,reservas');
         Route::get('/reservations/group-reservations/report', 'groupReservationsReport')->middleware('permission:reservation.report,reservas');
@@ -436,16 +470,20 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::post('/reservations/{reservation}/certificate', 'generateCertificate')->middleware('permission:reservation.view,reservas');
         Route::get('/reservations/{reservation}/certificate/download', 'downloadCertificate')->middleware('permission:reservation.view,reservas');
         Route::post('/reservations/{reservation}/resend-email', 'resendEmail')->middleware('permission:reservation.edit,reservas');
-        Route::post('/reservations/{reservation}/payments', 'addPayment')->middleware('permission:reservation.edit,reservas');
+        Route::post('/reservations/{reservation}/payments', 'addPayment')->middleware('permission:reservation.payment-register,reservas');
+        Route::put('/reservations/{reservation}/payments/{reservationPayment}', 'updatePayment')->middleware('permission:reservation.payment-register,reservas');
+        Route::delete('/reservations/{reservation}/payments/{reservationPayment}', 'deletePayment')->middleware('permission:reservation.payment-register,reservas');
         Route::get('/reservations/{reservation}/audits', 'getAuditHistory')->middleware('permission:reservation.view,reservas');
         Route::post('/reservations/{reservation}/recalculate-price', 'recalculatePrice')->middleware('permission:reservation.edit,reservas');
         Route::post('/reservations/{reservation}/additional-services', 'addAdditionalService')->middleware('permission:reservation.edit,reservas');
+        Route::put('/reservations/{reservation}/additional-services/{reservationAdditionalService}', 'updateAdditionalService')->middleware('permission:reservation.edit,reservas');
         Route::delete('/reservations/{reservation}/additional-services/{reservationAdditionalService}', 'removeAdditionalService')->middleware('permission:reservation.edit,reservas');
         Route::get('/reservations/{reservation}/meal-consumption', 'getMealConsumption')->middleware('permission:reservation.view,reservas');
-        Route::post('/reservations/{reservation}/check-in', 'checkIn')->middleware('permission:reservation.edit,reservas');
-        Route::post('/reservations/{reservation}/check-out', 'checkOut')->middleware('permission:reservation.edit,reservas');
+        Route::post('/reservations/{reservation}/check-in', 'checkIn')->middleware('permission:reservation.check-in,reservas');
+        Route::post('/reservations/{reservation}/check-out', 'checkOut')->middleware('permission:reservation.check-out,reservas');
         Route::get('/reservations/{reservation}/checkout-certificate/download', 'downloadCheckoutCertificate')->middleware('permission:reservation.view,reservas');
         Route::post('/reservations/{reservation}/resend-checkout-email', 'resendCheckoutEmail')->middleware('permission:reservation.edit,reservas');
+        Route::post('/reservations/{reservation}/transfer-client', 'transferClient')->middleware('permission:reservation.edit,reservas');
     });
 
     Route::controller(\App\Http\Controllers\ReservationSettingController::class)->group(function () {
@@ -481,9 +519,15 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::delete('/google-calendar/config/{id}', 'destroy')->middleware('permission:reservation.edit,reservas');
     });
 
+    Route::controller(\App\Http\Controllers\ReservationGuestPortalController::class)->group(function () {
+        Route::get('/reservations/{reservation}/guest-portal/link', 'show')->middleware('permission:reservation.list,reservas');
+        Route::post('/reservations/{reservation}/guest-portal/link', 'store')->middleware('permission:reservation.edit,reservas');
+    });
+
     Route::controller(\App\Http\Controllers\ReservationGuestController::class)->group(function () {
         Route::get('/guests/import/template', 'downloadTemplate')->middleware('permission:reservation.list,reservas');
         Route::post('/guests/import/preview', 'previewImport')->middleware('permission:reservation.edit,reservas');
+        Route::get('/guests/lookup', 'lookup')->middleware('permission:reservation.list,reservas');
         Route::get('/reservations/{reservation}/guests', 'index')->middleware('permission:reservation.list,reservas');
         Route::post('/reservations/{reservation}/guests', 'store')->middleware('permission:reservation.edit,reservas');
         Route::post('/reservations/{reservation}/guests/import', 'import')->middleware('permission:reservation.edit,reservas');
@@ -578,10 +622,23 @@ Route::middleware(['auth:sanctum'])->group(function () {
     // Artículos de inventario
     Route::controller(\App\Http\Controllers\RoomInventoryItemController::class)->group(function () {
         Route::get('/room-inventory/items', 'index')->middleware('permission:room_inventory.item.list,reservas');
-        Route::get('/room-inventory/items/{roomInventoryItem}', 'show')->middleware('permission:room_inventory.item.list,reservas');
+        Route::get('/room-inventory/items/{roomInventoryItem}', 'show')->middleware('permission:room_inventory.item.list,reservas')->name('room-inventory.item.show');
         Route::post('/room-inventory/items', 'store')->middleware('permission:room_inventory.item.create,reservas');
         Route::put('/room-inventory/items/{roomInventoryItem}', 'update')->middleware('permission:room_inventory.item.edit,reservas');
         Route::delete('/room-inventory/items/{roomInventoryItem}', 'destroy')->middleware('permission:room_inventory.item.delete,reservas');
+    });
+
+    // QR Codes para artículos de inventario
+    Route::prefix('room-inventory/qr')->middleware('permission:room_inventory.item.list,reservas')->group(function () {
+        Route::get('/items/{roomInventoryItem}', [\App\Http\Controllers\Api\RoomInventory\QrCodeController::class, 'generate'])
+            ->name('room-inventory.qr.generate');
+        Route::get('/items/{roomInventoryItem}/svg', [\App\Http\Controllers\Api\RoomInventory\QrCodeController::class, 'downloadSvg'])
+            ->name('room-inventory.qr.download-svg');
+        Route::get('/items/{roomInventoryItem}/png', [\App\Http\Controllers\Api\RoomInventory\QrCodeController::class, 'downloadPng'])
+            ->name('room-inventory.qr.download-png');
+        Route::post('/items/{roomInventoryItem}/regenerate', [\App\Http\Controllers\Api\RoomInventory\QrCodeController::class, 'regenerate'])
+            ->middleware('permission:room_inventory.item.edit,reservas')
+            ->name('room-inventory.qr.regenerate');
     });
 
     // Zonas comunes
@@ -645,9 +702,9 @@ Route::middleware(['auth:sanctum'])->group(function () {
     // Stock de minibar por habitación
     Route::controller(\App\Http\Controllers\RoomMinibarStockController::class)->group(function () {
         Route::get('/rooms/{room}/minibar/stock', 'index')->middleware('permission:minibar.inventory.view,reservas');
-        Route::post('/rooms/{room}/minibar/stock', 'store')->middleware('permission:minibar.inventory.record,reservas');
-        Route::put('/rooms/{room}/minibar/stock/{stock}', 'update')->middleware('permission:minibar.inventory.record,reservas');
-        Route::post('/rooms/{room}/minibar/restock', 'restock')->middleware('permission:minibar.inventory.record,reservas');
+        Route::post('/rooms/{room}/minibar/stock', 'store')->middleware('permission:minibar.warehouse.record,reservas');
+        Route::put('/rooms/{room}/minibar/stock/{stock}', 'update')->middleware('permission:minibar.warehouse.record,reservas');
+        Route::post('/rooms/{room}/minibar/restock', 'restock')->middleware('permission:minibar.warehouse.record,reservas');
         Route::get('/rooms/{room}/minibar/stock/needing-restock', 'needingRestock')->middleware('permission:minibar.inventory.view,reservas');
     });
 
@@ -676,8 +733,8 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::controller(\App\Http\Controllers\MinibarWarehouseController::class)->group(function () {
         Route::get('/minibar/warehouse', 'index')->middleware('permission:minibar.inventory.view,reservas');
         Route::get('/minibar/warehouse/expired-log', 'expiredLog')->middleware('permission:minibar.inventory.view,reservas');
-        Route::post('/minibar/warehouse/add', 'addUnits')->middleware('permission:minibar.inventory.record,reservas');
-        Route::post('/minibar/warehouse/register-expired', 'registerExpired')->middleware('permission:minibar.inventory.record,reservas');
+        Route::post('/minibar/warehouse/add', 'addUnits')->middleware('permission:minibar.warehouse.record,reservas');
+        Route::post('/minibar/warehouse/register-expired', 'registerExpired')->middleware('permission:minibar.warehouse.record,reservas');
     });
 
     // ============================================

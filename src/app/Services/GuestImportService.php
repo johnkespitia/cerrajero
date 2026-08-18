@@ -23,6 +23,8 @@ class GuestImportService
         'Principal',
         'EPS/Aseguradora',
         'Tipo EPS',
+        'Es bebé',
+        'Es niño',
     ];
 
     private const HEADER_ALIASES = [
@@ -60,6 +62,12 @@ class GuestImportService
         'health_insurance_name' => 'health_insurance_name',
         'tipo eps' => 'health_insurance_type',
         'health_insurance_type' => 'health_insurance_type',
+        'es bebe' => 'is_infant',
+        'es bebé' => 'is_infant',
+        'is_infant' => 'is_infant',
+        'es nino' => 'is_child',
+        'es niño' => 'is_child',
+        'is_child' => 'is_child',
     ];
 
     public function buildTemplate(): string
@@ -84,6 +92,8 @@ class GuestImportService
                 'Sí',
                 'Sanitas',
                 'Nacional',
+                'No',
+                'No',
             ],
         ], null, 'A2');
 
@@ -312,6 +322,8 @@ class GuestImportService
             'is_primary_guest' => $this->normalizeBoolean($get('is_primary_guest')),
             'health_insurance_name' => $get('health_insurance_name'),
             'health_insurance_type' => $this->normalizeHealthInsuranceType($get('health_insurance_type')),
+            'is_infant' => $this->normalizeBoolean($get('is_infant')),
+            'is_child' => $this->normalizeBoolean($get('is_child')),
         ];
     }
 

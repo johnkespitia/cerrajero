@@ -23,7 +23,40 @@ class CustomerController extends Controller
             })->with('kiosk_invoices')->first();
         }
 
-        return Customer::with("kiosk_invoices")->get();
+        $query = Customer::query();
+
+        if ($request->filled('search_id')) {
+            $query->where('id', (int) $request->search_id);
+        }
+
+        if ($request->filled('exclude_id')) {
+            $query->where('id', '!=', (int) $request->exclude_id);
+        }
+
+        if ($request->filled('search')) {
+            $term = trim((string) $request->search);
+            if ($term !== '') {
+                $like = '%' . str_replace(['%', '_'], ['\\%', '\\_'], $term) . '%';
+                $query->where(function ($q) use ($like) {
+                    $q->where('dni', 'like', $like)
+                      ->orWhere('name', 'like', $like)
+                      ->orWhere('last_name', 'like', $like)
+                      ->orWhere('company_name', 'like', $like)
+                      ->orWhere('company_nit', 'like', $like)
+                      ->orWhere('email', 'like', $like);
+                });
+            }
+        }
+
+        $perPage = (int) $request->input('per_page', 25);
+        $perPage = max(1, min($perPage, 100));
+
+        $customers = $query->orderBy('name')
+            ->orderBy('last_name')
+            ->limit($perPage)
+            ->get();
+
+        return $customers;
     }
 
     /**

@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Services\CourtesyGuestDiscountCalculator;
+use App\Services\ReservationPriceCalculator;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Carbon\Carbon;
@@ -70,6 +71,14 @@ class Reservation extends Model
         'campaign_name',
         'tracking_code',
         'marketing_notes',
+        // Portal público de huéspedes (OTP)
+        'guest_portal_token',
+        'guest_portal_otp_hash',
+        'guest_portal_otp_expires_at',
+        'guest_portal_otp_attempts',
+        'guest_portal_session_hash',
+        'guest_portal_session_expires_at',
+        'guest_portal_enabled_at',
         // Campos para reservas agrupadas (múltiples habitaciones)
         'parent_reservation_id',
         'is_group_reservation',
@@ -111,6 +120,15 @@ class Reservation extends Model
         'late_check_out' => 'boolean',
         'price_breakdown' => 'array',
         'fiscal_due_date' => 'date',
+        'guest_portal_otp_expires_at' => 'datetime',
+        'guest_portal_otp_attempts' => 'integer',
+        'guest_portal_session_expires_at' => 'datetime',
+        'guest_portal_enabled_at' => 'datetime',
+    ];
+
+    protected $hidden = [
+        'guest_portal_otp_hash',
+        'guest_portal_session_hash',
     ];
 
     public function electronicDocument()
@@ -356,7 +374,20 @@ class Reservation extends Model
     public function getEffectiveLodgingPrice(): float
     {
         if ($this->manual_price_override) {
-            return (float) ($this->total_price ?? 0);
+            $gross = (float) ($this->total_price ?? 0);
+            $breakdown = $this->price_breakdown ?? [];
+            $discount = (float) ($breakdown['discount'] ?? 0);
+
+            // Si el breakdown no trae descuento pero hay cupón/descuento manual, recalcular neto.
+            if (
+                $discount <= 0 &&
+                (!empty($this->promotion_code) || (float) ($this->discount_amount ?? 0) > 0)
+            ) {
+                $result = app(ReservationPriceCalculator::class)->calculatePrice($this, false);
+                return (float) ($result['calculated_price'] ?? max(0, $gross));
+            }
+
+            return max(0.0, round($gross - $discount, 2));
         }
 
         return (float) ($this->calculated_price ?? $this->total_price ?? 0);
@@ -390,6 +421,7 @@ class Reservation extends Model
                 $query->where('credit', true);
             })
             ->where('payed', false)
+            ->whereNull('cancelled_at')
             ->with(['payment_type', 'details.kiosk_unit.product'])
             ->get();
     }

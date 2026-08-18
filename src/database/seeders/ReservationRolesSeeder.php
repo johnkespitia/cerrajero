@@ -54,6 +54,9 @@ class ReservationRolesSeeder extends Seeder
             'reservation.list',
             'reservation.create',
             'reservation.edit',
+            'reservation.check-in',
+            'reservation.check-out',
+            'reservation.payment-register',
             'reservation.delete',
             'reservation.view',
             'reservation.report',
@@ -63,6 +66,21 @@ class ReservationRolesSeeder extends Seeder
             // Permisos de tipos de habitación
             'room_type.list',
             'room_type.view',
+            // Permisos de minibar (gestión administrativa completa)
+            'minibar.list',
+            'minibar.category.list',
+            'minibar.category.create',
+            'minibar.category.edit',
+            'minibar.category.delete',
+            'minibar.product.list',
+            'minibar.product.create',
+            'minibar.product.edit',
+            'minibar.product.delete',
+            'minibar.inventory.view',
+            'minibar.inventory.record',
+            'minibar.warehouse.record',
+            'minibar.charge.view',
+            'minibar.charge.delete',
         ]);
 
         $this->command->info('  ✓ Rol reservas_admin creado');
@@ -82,14 +100,30 @@ class ReservationRolesSeeder extends Seeder
             // Permisos de reservas (sin delete ni report)
             'reservation.list',
             'reservation.create',
-            'reservation.edit',
+            'reservation.check-in',
+            'reservation.check-out',
+            'reservation.payment-register',
             'reservation.view',
             // Permisos de habitaciones
             'room.list',
             'room.view',
-            // Permisos de tipos de habitación
             'room_type.list',
             'room_type.view',
+            // Permisos de formas de pago
+            'payment_type.list',
+            // Permisos de minibar
+            'minibar.list',
+            'minibar.category.list',
+            'minibar.product.list',
+            'minibar.inventory.view',
+            'minibar.inventory.record',
+            'minibar.charge.view',
+            // Permisos de cleaning
+            'cleaning.list',
+            'cleaning.create',
+            'cleaning.edit',
+            'cleaning.schedule',
+            'cleaning.report',
         ]);
 
         $this->command->info('  ✓ Rol recepcionista creado');

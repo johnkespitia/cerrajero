@@ -197,9 +197,8 @@ class GoogleCalendarService
 
             $service = new Google_Service_Calendar($this->client);
 
-            $typeLabel = $this->isDayPass($reservation) ? 'Pasadía' : 'Habitación';
             $event = new Google_Service_Calendar_Event([
-                'summary' => "Reserva #{$reservation->reservation_number} ({$typeLabel}) - {$reservation->customer->display_name}",
+                'summary' => $this->buildEventSummary($reservation),
                 'description' => $this->buildEventDescription($reservation),
                 'start' => new Google_Service_Calendar_EventDateTime([
                     'dateTime' => $reservation->check_in_date->format('Y-m-d') . 'T' . ($reservation->check_in_time 
@@ -253,8 +252,7 @@ class GoogleCalendarService
             $service = new Google_Service_Calendar($this->client);
             $event = $service->events->get($this->calendarId, $reservation->google_calendar_event_id);
 
-            $typeLabel = $this->isDayPass($reservation) ? 'Pasadía' : 'Habitación';
-            $event->setSummary("Reserva #{$reservation->reservation_number} ({$typeLabel}) - {$reservation->customer->display_name}");
+            $event->setSummary($this->buildEventSummary($reservation));
             $event->setDescription($this->buildEventDescription($reservation));
             
             $startDateTime = $reservation->check_in_date->format('Y-m-d') . 'T' . ($reservation->check_in_time 
@@ -502,6 +500,37 @@ class GoogleCalendarService
         }
 
         return $description;
+    }
+
+    /**
+     * Genera el título (summary) del evento de Google Calendar.
+     *
+     * Formato: "Nombre Apellido (Pasadía|Tipo de habitación) [Número de reserva]".
+     * El nombre se muestra corto (primer nombre y primer apellido); para
+     * reservas de habitación se muestra el tipo de habitación en lugar de
+     * la palabra "Habitación".
+     */
+    protected function buildEventSummary(Reservation $reservation): string
+    {
+        $customer = $reservation->customer;
+
+        if ($customer && $customer->customer_type === 'company') {
+            $shortName = $customer->company_name ?? "Empresa #{$customer->id}";
+        } else {
+            $firstName = trim(explode(' ', $customer->name ?? '')[0] ?? '');
+            $firstSurname = trim(explode(' ', $customer->last_name ?? '')[0] ?? '');
+            $shortName = trim("{$firstName} {$firstSurname}");
+        }
+
+        if (empty($shortName) && $customer) {
+            $shortName = $customer->display_name;
+        }
+
+        $typeLabel = $this->isDayPass($reservation)
+            ? 'Pasadía'
+            : ($reservation->roomType->name ?? 'Habitación');
+
+        return "{$shortName} ({$typeLabel}) [{$reservation->reservation_number}]";
     }
 
     protected function isDayPass(Reservation $reservation): bool

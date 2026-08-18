@@ -160,6 +160,7 @@ class ModuleRolesSeeder extends Seeder
             'caja.list', 'caja.create', 'caja.view',
             'payment_type.list', 'payment_type.view',
             'tax.list', 'tax.view',
+            'kiosk_coupons.list', 'kiosk_coupons.view',
         ]);
         $this->command->info('  ✓ Rol cajero_kiosko creado');
 
@@ -173,6 +174,7 @@ class ModuleRolesSeeder extends Seeder
             'payment_type.list', 'payment_type.create', 'payment_type.edit', 'payment_type.view',
             'tax.list', 'tax.create', 'tax.edit', 'tax.view',
             'compras.list', 'compras.create', 'compras.edit', 'compras.view',
+            'kiosk_coupons.list', 'kiosk_coupons.create', 'kiosk_coupons.edit', 'kiosk_coupons.view',
         ]);
         $this->command->info('  ✓ Rol supervisor_caja_kiosko creado');
 
@@ -186,6 +188,7 @@ class ModuleRolesSeeder extends Seeder
             'payment_type.list', 'payment_type.create', 'payment_type.edit', 'payment_type.delete', 'payment_type.view',
             'tax.list', 'tax.create', 'tax.edit', 'tax.delete', 'tax.view',
             'compras.list', 'compras.create', 'compras.edit', 'compras.delete', 'compras.view',
+            'kiosk_coupons.list', 'kiosk_coupons.create', 'kiosk_coupons.edit', 'kiosk_coupons.delete', 'kiosk_coupons.view',
         ]);
         $this->command->info('  ✓ Rol admin_caja_kiosko creado');
     }

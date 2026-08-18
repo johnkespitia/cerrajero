@@ -127,19 +127,13 @@ class MinibarInventoryService
             foreach ($products as $productId => $quantity) {
                 $product = MinibarProduct::findOrFail($productId);
 
-                // Validar que la suma en habitaciones no supere bodega y ajustar bodega
+                // Validar que el delta a asignar no supere bodega y ajustar bodega
                 $stock = RoomMinibarStock::where('room_id', $reservation->room_id)
                     ->where('product_id', $productId)
                     ->first();
                 $currentInThisRoom = $stock ? (int) $stock->current_quantity : 0;
-                $totalInOtherRooms = $this->getTotalInRoomsForProduct($productId) - $currentInThisRoom;
-                $this->ensureWarehouseAvailableForAssignment(
-                    $productId,
-                    $currentInThisRoom,
-                    $quantity,
-                    $totalInOtherRooms
-                );
                 $delta = $quantity - $currentInThisRoom;
+                $this->ensureWarehouseAvailableForDelta($productId, $delta);
                 if ($delta > 0) {
                     $this->deductFromWarehouse($productId, $delta);
                 } elseif ($delta < 0) {
@@ -419,22 +413,25 @@ class MinibarInventoryService
     }
 
     /**
-     * Validar que se puede asignar cantidad a habitaciones sin superar bodega.
+     * Validar que se puede asignar cantidad a una habitación sin exceder lo disponible
+     * en bodega. La bodega representa el stock central disponible: al asignar a una
+     * habitación se descuenta de bodega. Solo aplica cuando el delta es positivo
+     * (se asigna más de lo que la habitación ya tiene).
+     *
      * Lanza \InvalidArgumentException si no hay disponibilidad.
      */
-    public function ensureWarehouseAvailableForAssignment(
-        int $productId,
-        int $currentInThisRoom,
-        int $newQuantityInThisRoom,
-        int $totalInOtherRooms
-    ): void {
+    public function ensureWarehouseAvailableForDelta(int $productId, int $delta): void
+    {
+        if ($delta <= 0) {
+            return;
+        }
+
         $warehouseQty = $this->getWarehouseQuantity($productId);
-        $totalInRoomsAfter = $totalInOtherRooms + $newQuantityInThisRoom;
-        if ($totalInRoomsAfter > $warehouseQty) {
+        if ($delta > $warehouseQty) {
             $product = MinibarProduct::find($productId);
             $name = $product ? $product->name : "Producto #{$productId}";
             throw new \InvalidArgumentException(
-                "No hay suficiente inventario en bodega para {$name}. En bodega: {$warehouseQty}, total que quedaría en habitaciones: {$totalInRoomsAfter}. La suma en habitaciones no puede superar lo disponible en bodega."
+                "No hay suficiente inventario en bodega para {$name}. Disponible en bodega: {$warehouseQty}, solicitado: {$delta}."
             );
         }
     }

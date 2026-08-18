@@ -30,4 +30,14 @@ return [
         'region' => env('AWS_DEFAULT_REGION', 'us-east-1'),
     ],
 
+    'guest_portal' => [
+        // Nunca usar APP_URL (API) como fallback del sitio público.
+        'public_site_url' => rtrim(env('PUBLIC_SITE_URL', 'https://centrovacacionalcampoverde.com'), '/'),
+        'otp_ttl_minutes' => (int) env('GUEST_PORTAL_OTP_TTL_MINUTES', 10),
+        'otp_max_attempts' => (int) env('GUEST_PORTAL_OTP_MAX_ATTEMPTS', 5),
+        'otp_request_limit' => (int) env('GUEST_PORTAL_OTP_REQUEST_LIMIT', 3),
+        'otp_request_window_minutes' => (int) env('GUEST_PORTAL_OTP_REQUEST_WINDOW_MINUTES', 10),
+        'session_ttl_hours' => (int) env('GUEST_PORTAL_SESSION_TTL_HOURS', 2),
+    ],
+
 ];
