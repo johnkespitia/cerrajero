@@ -29,7 +29,8 @@ class RoomInventoryItemController extends Controller
                   ->orWhere('brand', 'like', "%{$search}%")
                   ->orWhere('model', 'like', "%{$search}%")
                   ->orWhere('serial_number', 'like', "%{$search}%")
-                  ->orWhere('barcode', 'like', "%{$search}%");
+                  ->orWhere('barcode', 'like', "%{$search}%")
+                  ->orWhere('qr_code', 'like', "%{$search}%");
             });
         }
 
