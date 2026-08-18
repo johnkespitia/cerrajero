@@ -622,7 +622,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
     // Artículos de inventario
     Route::controller(\App\Http\Controllers\RoomInventoryItemController::class)->group(function () {
         Route::get('/room-inventory/items', 'index')->middleware('permission:room_inventory.item.list,reservas');
-        Route::get('/room-inventory/items/{roomInventoryItem}', 'show')->middleware('permission:room_inventory.item.list,reservas');
+        Route::get('/room-inventory/items/{roomInventoryItem}', 'show')->middleware('permission:room_inventory.item.list,reservas')->name('room-inventory.item.show');
         Route::post('/room-inventory/items', 'store')->middleware('permission:room_inventory.item.create,reservas');
         Route::put('/room-inventory/items/{roomInventoryItem}', 'update')->middleware('permission:room_inventory.item.edit,reservas');
         Route::delete('/room-inventory/items/{roomInventoryItem}', 'destroy')->middleware('permission:room_inventory.item.delete,reservas');
@@ -636,6 +636,9 @@ Route::middleware(['auth:sanctum'])->group(function () {
             ->name('room-inventory.qr.download-svg');
         Route::get('/items/{roomInventoryItem}/png', [\App\Http\Controllers\Api\RoomInventory\QrCodeController::class, 'downloadPng'])
             ->name('room-inventory.qr.download-png');
+        Route::post('/items/{roomInventoryItem}/regenerate', [\App\Http\Controllers\Api\RoomInventory\QrCodeController::class, 'regenerate'])
+            ->middleware('permission:room_inventory.item.edit,reservas')
+            ->name('room-inventory.qr.regenerate');
     });
 
     // Zonas comunes

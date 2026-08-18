@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Str;
 
 class RoomInventoryItem extends Model
 {
@@ -17,6 +18,7 @@ class RoomInventoryItem extends Model
         'model',
         'serial_number',
         'barcode',
+        'qr_code',
         'purchase_price',
         'current_value',
         'purchase_date',
@@ -31,20 +33,21 @@ class RoomInventoryItem extends Model
         'purchase_date' => 'date',
         'warranty_expires_at' => 'date',
         'active' => 'boolean',
-        'qr_code' => 'string'
     ];
 
-    public function getQrCodeAttribute()
+    protected static function booted(): void
     {
-        if ($this->qr_code) {
-            return $this->qr_code;
-        }
-        return null;
-    }
+        static::creating(function (self $item) {
+            if (empty($item->qr_code)) {
+                $item->qr_code = (string) Str::uuid();
+            }
+        });
 
-    public function setQrCodeAttribute($value)
-    {
-        $this->attributes['qr_code'] = $value;
+        static::updating(function (self $item) {
+            if ($item->isDirty('qr_code') && empty($item->qr_code)) {
+                $item->qr_code = (string) Str::uuid();
+            }
+        });
     }
 
     public function category()
