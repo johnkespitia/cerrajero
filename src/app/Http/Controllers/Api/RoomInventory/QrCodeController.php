@@ -20,53 +20,53 @@ class QrCodeController extends Controller
     {
     }
 
-    public function generate(RoomInventoryItem $item): JsonResponse
+    public function generate(RoomInventoryItem $roomInventoryItem): JsonResponse
     {
-        $payload = $this->resolvePayload($item);
+        $payload = $this->resolvePayload($roomInventoryItem);
 
         $writer = new Writer(new SvgImageRenderer(new BasicStyle(300, 300)));
         $svg = $writer->write($payload, 3);
 
         return response()->json([
-            'id' => $item->id,
-            'name' => $item->name,
+            'id' => $roomInventoryItem->id,
+            'name' => $roomInventoryItem->name,
             'qr_code' => $svg,
             'url' => $payload,
         ]);
     }
 
-    public function downloadSvg(RoomInventoryItem $item): Response
+    public function downloadSvg(RoomInventoryItem $roomInventoryItem): Response
     {
-        $payload = $this->resolvePayload($item);
+        $payload = $this->resolvePayload($roomInventoryItem);
 
         $writer = new Writer(new SvgImageRenderer(new BasicStyle(300, 300)));
         $svg = $writer->write($payload, 3);
 
         return response($svg, 200)
             ->header('Content-Type', 'image/svg+xml')
-            ->header('Content-Disposition', 'attachment; filename="qr-' . $item->id . '.svg"');
+            ->header('Content-Disposition', 'attachment; filename="qr-' . $roomInventoryItem->id . '.svg"');
     }
 
-    public function downloadPng(RoomInventoryItem $item): Response
+    public function downloadPng(RoomInventoryItem $roomInventoryItem): Response
     {
-        $payload = $this->resolvePayload($item);
+        $payload = $this->resolvePayload($roomInventoryItem);
 
         $writer = new Writer(new PngImageRenderer());
         $png = $writer->write($payload, 3);
 
         return response($png, 200)
             ->header('Content-Type', 'image/png')
-            ->header('Content-Disposition', 'attachment; filename="qr-' . $item->id . '.png"');
+            ->header('Content-Disposition', 'attachment; filename="qr-' . $roomInventoryItem->id . '.png"');
     }
 
-    public function regenerate(Request $request, RoomInventoryItem $item): JsonResponse
+    public function regenerate(Request $request, RoomInventoryItem $roomInventoryItem): JsonResponse
     {
-        $previous = $item->qr_code;
-        $item->forceFill(['qr_code' => (string) Str::uuid()])->save();
-        $item->refresh();
+        $previous = $roomInventoryItem->qr_code;
+        $roomInventoryItem->update(['qr_code' => (string) Str::uuid()]);
+        $roomInventoryItem->refresh();
 
         $this->auditService->log('qr_regenerated', [
-            'item_id' => $item->id,
+            'item_id' => $roomInventoryItem->id,
             'assignable_type' => null,
             'assignable_id' => null,
             'notes' => 'QR regenerado' . ($previous ? " (anterior: {$previous})" : ''),
@@ -74,16 +74,16 @@ class QrCodeController extends Controller
 
         return response()->json([
             'message' => 'QR regenerado exitosamente',
-            'item' => $item,
+            'item' => $roomInventoryItem,
         ]);
     }
 
-    protected function resolvePayload(RoomInventoryItem $item): string
+    protected function resolvePayload(RoomInventoryItem $roomInventoryItem): string
     {
-        if (! empty($item->qr_code)) {
-            return (string) $item->qr_code;
+        if (! empty($roomInventoryItem->qr_code)) {
+            return (string) $roomInventoryItem->qr_code;
         }
 
-        return route('room-inventory.item.show', $item->id, false);
+        return route('room-inventory.item.show', $roomInventoryItem->id, false);
     }
 }
