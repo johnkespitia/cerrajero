@@ -78,6 +78,55 @@ class QrCodeController extends Controller
         ]);
     }
 
+    public function printSheet(Request $request): \Symfony\Component\HttpFoundation\Response
+    {
+        $idsParam = $request->query('ids', '');
+        $ids = array_values(array_filter(array_map('intval', explode(',', (string) $idsParam))));
+
+        if (empty($ids)) {
+            return response([
+                'message' => 'Debes indicar al menos un id de artículo.',
+                'errors' => ['ids' => ['El parámetro ids es obligatorio y debe contener al menos un id.']],
+            ], 422);
+        }
+
+        if (count($ids) > 240) {
+            return response([
+                'message' => 'Máximo 240 artículos por hoja (10 páginas × 24 etiquetas).',
+                'errors' => ['ids' => ['Excede el máximo permitido.']],
+            ], 422);
+        }
+
+        $items = RoomInventoryItem::with('category')
+            ->whereIn('id', $ids)
+            ->orderBy('name')
+            ->get();
+
+        if ($items->isEmpty()) {
+            return response([
+                'message' => 'Ninguno de los ids indicados existe.',
+            ], 404);
+        }
+
+        $qrWriter = new Writer(new SvgImageRenderer(new BasicStyle(150, 150)));
+
+        $labels = $items->map(function (RoomInventoryItem $item) use ($qrWriter) {
+            $payload = $this->resolvePayload($item);
+            return [
+                'id' => $item->id,
+                'name' => $item->name,
+                'qr_code' => $item->qr_code,
+                'barcode' => $item->barcode,
+                'category' => $item->category?->name,
+                'svg' => $qrWriter->write($payload, 2),
+            ];
+        })->values()->all();
+
+        return response()
+            ->view('room_inventory.print_sheet', ['labels' => $labels])
+            ->header('Content-Type', 'text/html; charset=UTF-8');
+    }
+
     protected function resolvePayload(RoomInventoryItem $roomInventoryItem): string
     {
         if (! empty($roomInventoryItem->qr_code)) {

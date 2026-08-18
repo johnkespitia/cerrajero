@@ -622,6 +622,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
     // Artículos de inventario
     Route::controller(\App\Http\Controllers\RoomInventoryItemController::class)->group(function () {
         Route::get('/room-inventory/items', 'index')->middleware('permission:room_inventory.item.list,reservas');
+        Route::get('/room-inventory/items/lookup', 'lookup')->middleware('permission:room_inventory.item.list,reservas');
         Route::get('/room-inventory/items/{roomInventoryItem}', 'show')->middleware('permission:room_inventory.item.list,reservas')->name('room-inventory.item.show');
         Route::post('/room-inventory/items', 'store')->middleware('permission:room_inventory.item.create,reservas');
         Route::put('/room-inventory/items/{roomInventoryItem}', 'update')->middleware('permission:room_inventory.item.edit,reservas');
@@ -639,6 +640,8 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::post('/items/{roomInventoryItem}/regenerate', [\App\Http\Controllers\Api\RoomInventory\QrCodeController::class, 'regenerate'])
             ->middleware('permission:room_inventory.item.edit,reservas')
             ->name('room-inventory.qr.regenerate');
+        Route::get('/print-sheet', [\App\Http\Controllers\Api\RoomInventory\QrCodeController::class, 'printSheet'])
+            ->name('room-inventory.qr.print-sheet');
     });
 
     // Zonas comunes

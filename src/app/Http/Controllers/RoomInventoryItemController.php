@@ -38,6 +38,52 @@ class RoomInventoryItemController extends Controller
         return response($items, Response::HTTP_OK);
     }
 
+    public function lookup(Request $request, \App\Services\RoomInventoryAuditService $auditService)
+    {
+        $request->validate([
+            'qr' => 'required|string|max:500',
+        ]);
+
+        $value = trim((string) $request->query('qr'));
+
+        $item = $this->resolveByQr($value);
+
+        if (! $item) {
+            return response([
+                'message' => 'No se encontró ningún artículo con ese código QR.',
+            ], Response::HTTP_NOT_FOUND);
+        }
+
+        $auditService->log('qr_scanned', [
+            'item_id' => $item->id,
+            'assignable_type' => null,
+            'assignable_id' => null,
+            'notes' => 'Búsqueda por QR' . ($value !== $item->qr_code ? " (valor decodificado: {$value})" : ''),
+        ], null, $request);
+
+        $item->load(['category', 'activeAssignments.assignable']);
+
+        return response($item, Response::HTTP_OK);
+    }
+
+    protected function resolveByQr(string $value): ?RoomInventoryItem
+    {
+        $item = RoomInventoryItem::where('qr_code', $value)->first();
+        if ($item) {
+            return $item;
+        }
+
+        if (preg_match('#/room-inventory/items/(\d+)\b#', $value, $matches)) {
+            return RoomInventoryItem::find((int) $matches[1]);
+        }
+
+        if (ctype_digit($value)) {
+            return RoomInventoryItem::find((int) $value);
+        }
+
+        return null;
+    }
+
     public function store(Request $request)
     {
         $validation = Validator::make($request->all(), [
