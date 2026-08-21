@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Reservation;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Log;
@@ -123,6 +124,8 @@ class ReservationEmailService
             $totalChildren = $isMultiRoom ? $reservation->children + $reservation->childReservations->sum('children') : $reservation->children;
             $totalInfants = $isMultiRoom ? $reservation->infants + $reservation->childReservations->sum('infants') : $reservation->infants;
             $totalPrice = (float) ($reservation->final_price ?? $reservation->total_price);
+
+            DB::connection()->reconnect();
 
             Mail::send(
                 'emails.reservation_confirmation',
