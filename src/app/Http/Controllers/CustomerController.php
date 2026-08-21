@@ -53,8 +53,7 @@ class CustomerController extends Controller
 
         $customers = $query->orderBy('name')
             ->orderBy('last_name')
-            ->limit($perPage)
-            ->get();
+            ->paginate($perPage);
 
         return $customers;
     }
