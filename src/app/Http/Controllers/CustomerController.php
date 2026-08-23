@@ -43,7 +43,8 @@ class CustomerController extends Controller
                       ->orWhere('last_name', 'like', $like)
                       ->orWhere('company_name', 'like', $like)
                       ->orWhere('company_nit', 'like', $like)
-                      ->orWhere('email', 'like', $like);
+                      ->orWhere('email', 'like', $like)
+                      ->orWhere('phone_number', 'like', $like);
                 });
             }
         }
