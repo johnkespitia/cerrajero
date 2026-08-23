@@ -1341,13 +1341,16 @@ $mainReservation->load([
             }
             $reservation->recomputeFinalPrice();
 
-            // Aplicar política de cancelación
+            // Aplicar política de cancelación (dentro de transacción)
             try {
                 $this->cancellationService->applyPolicyToReservation($reservation);
             } catch (\Exception $e) {
                 \Log::warning('Error applying cancellation policy: ' . $e->getMessage());
             }
 
+            DB::commit();
+
+            // Efectos externos fuera de transacción para evitar huérfanos si hay rollback
             try {
                 $this->googleCalendarService->createEvent($reservation);
             } catch (\Exception $e) {
@@ -1359,8 +1362,6 @@ $mainReservation->load([
             } catch (\Exception $e) {
                 \Log::warning('Error sending email: ' . $e->getMessage());
             }
-
-            DB::commit();
 
             $reservation->load(['customer', 'room', 'room.roomType', 'guests', 'additionalServices.additionalService']);
 
@@ -1605,7 +1606,10 @@ $mainReservation->load([
                 // DETECTAR AUTOMÁTICAMENTE si es reserva grupal:
                 // 1. Si la bandera is_group_reservation es verdadera, ó
                 // 2. Si hay child_reservations (habitaciones secundarias) cargadas
-                $tiene_habitaciones_secundarias = !empty($reservation->child_reservations ?? $reservation->childReservations ?? []);
+                $childResRel = $reservation->relationLoaded('childReservations') ? $reservation->childReservations : collect($reservation->child_reservations ?? []);
+                $tiene_habitaciones_secundarias = $childResRel instanceof \Illuminate\Support\Collection || $childResRel instanceof \Illuminate\Database\Eloquent\Collection
+                    ? $childResRel->isNotEmpty()
+                    : !empty($childResRel);
                 $es_grupal = $reservation->is_group_reservation || $tiene_habitaciones_secundarias;
 
                 if ($es_grupal) {
@@ -1619,8 +1623,8 @@ $mainReservation->load([
                     }
                     
                     // Sumar capacidad de habitaciones secundarias (child_reservations)
-                    $childReservations = $reservation->child_reservations ?? $reservation->childReservations ?? [];
-                    if (!empty($childReservations)) {
+                    $childReservations = $childResRel;
+                    if ($childReservations instanceof \Illuminate\Support\Collection || $childReservations instanceof \Illuminate\Database\Eloquent\Collection ? $childReservations->isNotEmpty() : !empty($childReservations)) {
                         foreach ($childReservations as $childRes) {
                             if (!empty($childRes->room_id)) {
                                 $childRoom = Room::find($childRes->room_id);
@@ -1647,8 +1651,9 @@ $mainReservation->load([
                     $deseados = $totalSolicitado;
 
                     if ($deseados > $actuales) {
+                        $guestsColl = $reservation->relationLoaded('guests') ? $reservation->guests : collect($reservation->guests ?? []);
                         for ($i = $actuales; $i < $deseados; $i++) {
-                            $reservation->guests[] = [
+                            $guestsColl->push([
                                 'first_name' => '',
                                 'last_name' => '',
                                 'document_type' => 'CC',
@@ -1664,15 +1669,23 @@ $mainReservation->load([
                                 'is_child' => false,
                                 'health_insurance_name' => null,
                                 'health_insurance_type' => null,
-                            ];
+                            ]);
                         }
+                        $reservation->setRelation('guests', $guestsColl);
                     } elseif ($deseados < $actuales) {
+                        // Fix: $reservation->guests es Collection al venir de BD → array_values falla. Normalizar a array.
+                        $guestsArray = $reservation->guests instanceof \Illuminate\Support\Collection || $reservation->guests instanceof \Illuminate\Database\Eloquent\Collection
+                            ? $reservation->guests->all()
+                            : (array) $reservation->guests;
                         for ($i = $actuales - 1; $i >= $deseados; $i--) {
-                            if ($reservation->guests[$i]->is_primary_guest === false) {
-                                unset($reservation->guests[$i]);
+                            $guest = $guestsArray[$i] ?? null;
+                            $isPrimary = is_array($guest) ? ($guest['is_primary_guest'] ?? false) : ($guest->is_primary_guest ?? false);
+                            if ($isPrimary === false) {
+                                unset($guestsArray[$i]);
                             }
                         }
-                        $reservation->guests = array_values($reservation->guests);
+                        $guestsArray = array_values($guestsArray);
+                        $reservation->setRelation('guests', collect($guestsArray));
                     }
                 } else {
                     // RESERVA ÚNICA: validación contra la habitación individual (comportamiento anterior)
@@ -1696,8 +1709,9 @@ $mainReservation->load([
                     $deseados = $totalSolicitado;
 
                     if ($deseados > $actuales) {
+                        $guestsColl = $reservation->relationLoaded('guests') ? $reservation->guests : collect($reservation->guests ?? []);
                         for ($i = $actuales; $i < $deseados; $i++) {
-                            $reservation->guests[] = [
+                            $guestsColl->push([
                                 'first_name' => '',
                                 'last_name' => '',
                                 'document_type' => 'CC',
@@ -1713,15 +1727,22 @@ $mainReservation->load([
                                 'is_child' => false,
                                 'health_insurance_name' => null,
                                 'health_insurance_type' => null,
-                            ];
+                            ]);
                         }
+                        $reservation->setRelation('guests', $guestsColl);
                     } elseif ($deseados < $actuales) {
+                        $guestsArray = $reservation->guests instanceof \Illuminate\Support\Collection || $reservation->guests instanceof \Illuminate\Database\Eloquent\Collection
+                            ? $reservation->guests->all()
+                            : (array) $reservation->guests;
                         for ($i = $actuales - 1; $i >= $deseados; $i--) {
-                            if ($reservation->guests[$i]->is_primary_guest === false) {
-                                unset($reservation->guests[$i]);
+                            $guest = $guestsArray[$i] ?? null;
+                            $isPrimary = is_array($guest) ? ($guest['is_primary_guest'] ?? false) : ($guest->is_primary_guest ?? false);
+                            if ($isPrimary === false) {
+                                unset($guestsArray[$i]);
                             }
                         }
-                        $reservation->guests = array_values($reservation->guests);
+                        $guestsArray = array_values($guestsArray);
+                        $reservation->setRelation('guests', collect($guestsArray));
                     }
                 }
             }
@@ -1852,7 +1873,7 @@ $mainReservation->load([
                     }
                 }
 
-                // Calcular reembolso y penalización
+                // Calcular reembolso y penalización (dentro de transacción, notificación fuera)
                 try {
                     $refundCalculation = $this->cancellationService->processCancellation(
                         $reservation->fresh(),
@@ -1864,15 +1885,8 @@ $mainReservation->load([
                 } catch (\Exception $e) {
                     \Log::warning('Error calculating refund: ' . $e->getMessage());
                 }
-
-                // Enviar notificación de cancelación
-                try {
-                    $this->notificationService->sendCancellationNotification($reservation->fresh());
-                } catch (\Exception $e) {
-                    \Log::warning('Error sending cancellation notification: ' . $e->getMessage());
-                }
             } else {
-                // Enviar notificación de actualización si hay cambios importantes
+                // Preparar notificación de actualización si hay cambios importantes (se envía fuera de transacción)
                 $importantFields = ['check_in_date', 'check_out_date', 'room_id', 'total_price', 'adults', 'children'];
                 $hasImportantChanges = false;
                 $changes = [];
@@ -1909,26 +1923,40 @@ $mainReservation->load([
                         }
                     }
                 }
-                
-                if ($hasImportantChanges) {
-                    try {
-                        $this->notificationService->sendReservationUpdateNotification($reservation->fresh(), $changes);
-                    } catch (\Exception $e) {
-                        \Log::warning('Error sending reservation update notification: ' . $e->getMessage());
-                    }
-                }
+                // Guardar para envío post-commit
+                $pendingUpdateNotification = $hasImportantChanges ? $changes : null;
             }
 
-            if (!isset($updateData['status']) || $updateData['status'] !== 'cancelled') {
-                $this->syncReservationToGoogleCalendar($reservation);
-            }
-
-            // Actualizar limpiezas programadas si cambiaron las fechas
+            // Actualizar limpiezas programadas si cambiaron las fechas (dentro de transacción)
             if ($reservation->wasChanged(['check_in_date', 'check_out_date']) && $reservation->room_id) {
                 $this->updateCleaningForReservation($reservation);
             }
 
             DB::commit();
+
+            // Efectos externos fuera de transacción para evitar huérfanos si hay rollback
+            if (!isset($pendingUpdateNotification) && isset($changes) && !empty($changes)) {
+                $pendingUpdateNotification = $changes;
+            }
+            if (!empty($updateData['status']) && $updateData['status'] === 'cancelled') {
+                try {
+                    $this->notificationService->sendCancellationNotification($reservation->fresh());
+                } catch (\Exception $e) {
+                    \Log::warning('Error sending cancellation notification: ' . $e->getMessage());
+                }
+            } elseif (!empty($pendingUpdateNotification ?? null)) {
+                try {
+                    $this->notificationService->sendReservationUpdateNotification($reservation->fresh(), $pendingUpdateNotification);
+                } catch (\Exception $e) {
+                    \Log::warning('Error sending reservation update notification: ' . $e->getMessage());
+                }
+            } elseif (empty($updateData['status']) || $updateData['status'] !== 'cancelled') {
+                // Si no hubo notificación específica de update/cancel, solo sincronizar calendario si no es cancelación
+                // (las cancelaciones ya manejan su notificación arriba)
+            }
+            if (!isset($updateData['status']) || $updateData['status'] !== 'cancelled') {
+                $this->syncReservationToGoogleCalendar($reservation);
+            }
 
             $reservation->load(['customer', 'room', 'room.roomType', 'guests', 'additionalServices.additionalService']);
 
