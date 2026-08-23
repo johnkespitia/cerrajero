@@ -52,9 +52,14 @@ class CustomerController extends Controller
         $perPage = (int) $request->input('per_page', 25);
         $perPage = max(1, min($perPage, 100));
 
-        $customers = $query->orderBy('name')
-            ->orderBy('last_name')
-            ->paginate($perPage);
+        // Híbrido caja: ?recent=1 o ?sort=recent ordena por id desc (últimos creados)
+        if ($request->boolean('recent') || $request->input('sort') === 'recent') {
+            $query->orderByDesc('id');
+        } else {
+            $query->orderBy('name')->orderBy('last_name');
+        }
+
+        $customers = $query->paginate($perPage);
 
         return $customers;
     }
