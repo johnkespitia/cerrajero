@@ -61,7 +61,9 @@ return [
             'options' => extension_loaded('pdo_mysql') ? array_filter([
                 PDO::MYSQL_ATTR_SSL_CA => env('MYSQL_ATTR_SSL_CA'),
                 PDO::ATTR_PERSISTENT => false,
-                PDO::ATTR_TIMEOUT => 60
+                PDO::ATTR_TIMEOUT => 60,
+                // Reintentos ante wait_timeout / MySQL gone away: usar timeout largo y reconexión en app
+                PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
             ]) : [],
         ],
 

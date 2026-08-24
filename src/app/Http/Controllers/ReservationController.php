@@ -26,8 +26,12 @@ use App\Services\ElectronicInvoicing\ReservationInvoiceEmissionService;
 use App\Models\AdditionalService;
 use App\Models\ServicePackage;
 use App\Models\ReservationAdditionalService;
+use App\Jobs\SyncReservationToGoogleCalendarJob;
+use App\Jobs\SendPaymentConfirmationJob;
+use App\Jobs\SendReservationEmailsJob;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Carbon\Carbon;
 
@@ -67,7 +71,23 @@ class ReservationController extends Controller
 
     protected function syncReservationToGoogleCalendar(Reservation $reservation): void
     {
-        $this->googleCalendarService->syncReservation($reservation);
+        // Encolado async para no bloquear la conexión MySQL (ver Jobs/SyncReservationToGoogleCalendarJob)
+        // afterCommit garantiza que solo se encole si la transacción hizo commit
+        try {
+            SyncReservationToGoogleCalendarJob::dispatch($reservation->id)->afterCommit();
+        } catch (\Throwable $e) {
+            Log::warning('No se pudo encolar Google Calendar sync, fallback síncrono: '.$e->getMessage());
+            try { $this->googleCalendarService->syncReservation($reservation); } catch (\Throwable $re) { Log::warning($re->getMessage()); }
+        }
+    }
+
+    protected function dispatchReservationEmail(int $reservationId, string $type, array $payload = []): void
+    {
+        try {
+            SendReservationEmailsJob::dispatch($reservationId, $type, $payload)->afterCommit();
+        } catch (\Throwable $e) {
+            Log::warning("No se pudo encolar email {$type}: ".$e->getMessage());
+        }
     }
 
     /**
@@ -845,22 +865,12 @@ $childReservation = Reservation::create([
                 'child_reservations_count' => count($childReservations),
             ]);
 
-            // Google Calendar (fuera de la transacción, no crítico)
-            try {
-                $this->googleCalendarService->createEvent($mainReservation);
-                foreach ($childReservations as $child) {
-                    $this->googleCalendarService->createEvent($child);
-                }
-            } catch (\Exception $e) {
-                \Log::warning('Error creating Google Calendar events: ' . $e->getMessage());
+            // Google Calendar + Email encolados (no bloquean MySQL)
+            $this->syncReservationToGoogleCalendar($mainReservation);
+            foreach ($childReservations as $child) {
+                $this->syncReservationToGoogleCalendar($child);
             }
-
-            // Email (fuera de la transacción, no crítico)
-            try {
-                $this->emailService->sendReservationConfirmation($mainReservation);
-            } catch (\Exception $e) {
-                \Log::warning('Error sending email: ' . $e->getMessage());
-            }
+            $this->dispatchReservationEmail($mainReservation->id, 'confirmation');
 
 $mainReservation->load([
             'customer',
@@ -1063,6 +1073,7 @@ $mainReservation->load([
                 $dayPassCapacity = \App\Models\DayPassCapacity::getOrCreateForDate($request->check_in_date, 0);
                 
                 if (!$dayPassCapacity->hasCapacityFor($totalGuests)) {
+                    DB::rollBack();
                     return response()->json([
                         'message' => "No hay capacidad disponible para pasadía el día {$request->check_in_date}. Capacidad disponible: {$dayPassCapacity->available_capacity}, solicitada: {$totalGuests}",
                         'available_capacity' => $dayPassCapacity->available_capacity,
@@ -1128,6 +1139,7 @@ $mainReservation->load([
                             );
                         }
 
+                        DB::rollBack();
                         return response()->json([
                             'message' => 'No hay habitaciones disponibles del tipo seleccionado para las fechas y número de huéspedes'
                         ], 409);
@@ -1140,6 +1152,7 @@ $mainReservation->load([
                     $room = Room::findOrFail($request->room_id);
 
                     if ($request->room_type_id && $room->room_type_id != $request->room_type_id) {
+                        DB::rollBack();
                         return response()->json([
                             'message' => 'La habitación seleccionada no corresponde al tipo de habitación especificado'
                         ], 409);
@@ -1151,6 +1164,7 @@ $mainReservation->load([
                             ->whereIn('status', ['pending', 'assigned', 'in_progress', 'on_hold'])
                             ->first();
                         
+                        DB::rollBack();
                         return response()->json([
                             'message' => 'La habitación está en mantenimiento y no puede ser reservada. ' . 
                                        ($activeMaintenance ? "Motivo: {$activeMaintenance->title}" : '')
@@ -1161,6 +1175,7 @@ $mainReservation->load([
                         $request->check_in_date,
                         $request->check_out_date ?? $request->check_in_date
                     )) {
+                        DB::rollBack();
                         return response()->json([
                             'message' => 'La habitación no está disponible para las fechas seleccionadas'
                         ], 409);
@@ -1177,8 +1192,10 @@ $mainReservation->load([
                             (int) ($request->children ?? 0)
                         );
                         if ($capacityMessage && $totalGuests <= $room->getMaxGuestCapacity()) {
+                            DB::rollBack();
                             return response()->json(['message' => $capacityMessage], 422);
                         }
+                        DB::rollBack();
                         return $this->createMultiRoomReservation($request, $room->room_type_id, $totalGuests);
                     }
                 } elseif ($request->room_type_id) {
@@ -1195,6 +1212,7 @@ $mainReservation->load([
                         });
 
                     if ($availableRooms->isEmpty()) {
+                        DB::rollBack();
                         return response()->json([
                             'message' => 'No hay habitaciones disponibles del tipo seleccionado'
                         ], 409);
@@ -1202,6 +1220,7 @@ $mainReservation->load([
 
                     $maxCapacity = $availableRooms->max('capacity');
                     if ($totalGuests > $maxCapacity) {
+                        DB::rollBack();
                         return $this->createMultiRoomReservation($request, $request->room_type_id, $totalGuests);
                     }
                 }
@@ -1350,18 +1369,9 @@ $mainReservation->load([
 
             DB::commit();
 
-            // Efectos externos fuera de transacción para evitar huérfanos si hay rollback
-            try {
-                $this->googleCalendarService->createEvent($reservation);
-            } catch (\Exception $e) {
-                \Log::warning('Error creating Google Calendar event: ' . $e->getMessage());
-            }
-
-            try {
-                $this->emailService->sendReservationConfirmation($reservation);
-            } catch (\Exception $e) {
-                \Log::warning('Error sending email: ' . $e->getMessage());
-            }
+            // Efectos externos encolados (no bloquean MySQL)
+            $this->syncReservationToGoogleCalendar($reservation);
+            $this->dispatchReservationEmail($reservation->id, 'confirmation');
 
             $reservation->load(['customer', 'room', 'room.roomType', 'guests', 'additionalServices.additionalService']);
 
@@ -1934,27 +1944,17 @@ $mainReservation->load([
 
             DB::commit();
 
-            // Efectos externos fuera de transacción para evitar huérfanos si hay rollback
+            // Efectos externos encolados (no bloquean MySQL)
             if (!isset($pendingUpdateNotification) && isset($changes) && !empty($changes)) {
                 $pendingUpdateNotification = $changes;
             }
             if (!empty($updateData['status']) && $updateData['status'] === 'cancelled') {
-                try {
-                    $this->notificationService->sendCancellationNotification($reservation->fresh());
-                } catch (\Exception $e) {
-                    \Log::warning('Error sending cancellation notification: ' . $e->getMessage());
-                }
+                $this->dispatchReservationEmail($reservation->id, 'cancellation');
+                $this->syncReservationToGoogleCalendar($reservation);
             } elseif (!empty($pendingUpdateNotification ?? null)) {
-                try {
-                    $this->notificationService->sendReservationUpdateNotification($reservation->fresh(), $pendingUpdateNotification);
-                } catch (\Exception $e) {
-                    \Log::warning('Error sending reservation update notification: ' . $e->getMessage());
-                }
-            } elseif (empty($updateData['status']) || $updateData['status'] !== 'cancelled') {
-                // Si no hubo notificación específica de update/cancel, solo sincronizar calendario si no es cancelación
-                // (las cancelaciones ya manejan su notificación arriba)
-            }
-            if (!isset($updateData['status']) || $updateData['status'] !== 'cancelled') {
+                $this->dispatchReservationEmail($reservation->id, 'update', ['changes' => $pendingUpdateNotification]);
+                $this->syncReservationToGoogleCalendar($reservation);
+            } elseif (!isset($updateData['status']) || $updateData['status'] !== 'cancelled') {
                 $this->syncReservationToGoogleCalendar($reservation);
             }
 
@@ -2378,15 +2378,9 @@ $mainReservation->load([
 
     public function resendEmail(Reservation $reservation)
     {
-        try {
-            $this->emailService->sendReservationConfirmation($reservation);
-            return response()->json(['message' => 'Email enviado exitosamente']);
-        } catch (\Exception $e) {
-            return response()->json([
-                'message' => 'Error al enviar el email',
-                'error' => $e->getMessage()
-            ], 500);
-        }
+        // Encolado para no bloquear MySQL, con fallback síncrono si la queue es sync
+        $this->dispatchReservationEmail($reservation->id, 'confirmation');
+        return response()->json(['message' => 'Email encolado para envío']);
     }
 
     /**
@@ -2402,13 +2396,8 @@ $mainReservation->load([
         }
 
         try {
-            // Generar o obtener el certificado de checkout
-            $checkoutCertificate = $this->certificateService->generateCheckoutCertificate($reservation);
-            
-            // Enviar email con el certificado
-            $this->emailService->sendCheckoutConfirmation($reservation, $checkoutCertificate);
-            
-            return response()->json(['message' => 'Certificado de checkout enviado exitosamente']);
+            $this->dispatchReservationEmail($reservation->id, 'checkout');
+            return response()->json(['message' => 'Certificado de checkout encolado para envío']);
         } catch (\Exception $e) {
             return response()->json([
                 'message' => 'Error al enviar el certificado de checkout',
@@ -2624,10 +2613,8 @@ $mainReservation->load([
                 })
                 ->sum('amount');
 
-            // Minibar del grupo: cargos y lo ya pagado (concepto minibar)
-            $minibarChargesTotal = $groupReservations->sum(function ($r) {
-                return (float) $r->minibarCharges()->sum('total');
-            });
+            // Minibar del grupo: cargos y lo ya pagado (concepto minibar) — 1 sola query agregada (evita N+1)
+            $minibarChargesTotal = (float) \App\Models\ReservationMinibarCharge::whereIn('reservation_id', $groupReservationIds)->sum('total');
             $minibarPaid = \App\Models\ReservationPayment::whereIn('reservation_id', $groupReservationIds)
                 ->whereRaw('LOWER(concept) LIKE ?', ['%minibar%'])
                 ->sum('amount');
@@ -2661,6 +2648,7 @@ $mainReservation->load([
 
             // Validar que el pago no exceda el saldo pendiente total (reserva + minibar + kiosko)
             if ($request->amount > $totalPending) {
+                DB::rollBack();
                 $formattedAmount = number_format($request->amount, 2);
                 $formattedTotalPending = number_format($totalPending, 2);
                 $formattedReservationBalance = number_format($reservationBalance, 2);
@@ -2698,6 +2686,7 @@ $mainReservation->load([
             $totalPaidAfterThisPayment = $totalPaid + $request->amount;
 
             if ($totalPaidAfterThisPayment > $totalDue) {
+                DB::rollBack();
                 $excessAmount = $totalPaidAfterThisPayment - $totalDue;
                 $formattedExcess = number_format($excessAmount, 2);
                 $formattedTotalDue = number_format($totalDue, 2);
@@ -2787,39 +2776,29 @@ $mainReservation->load([
             // Registrar auditoría
             $this->auditService->logPayment($reservation, $request->amount, $paymentMethodName, $request->notes, $request);
 
-            // Calcular totales para el correo (grupo: main + hijos; pendingKioskInvoices ya es del grupo)
+            // Totales para el correo: calcular antes de commit pero enviar después (fuera de transacción)
             $groupTotalPaid = \App\Models\ReservationPayment::whereIn('reservation_id', $groupReservationIds)
                 ->where(function ($q) {
                     $q->where('concept', '!=', 'Compra en kiosko (a crédito)')->orWhereNull('concept');
                 })
                 ->sum('amount');
-            $totalPendingKiosk = $pendingKioskInvoices->sum(function ($invoice) {
+            // Reusar pendingKioskInvoices ya cargadas (evita re-consulta)
+            $kioskPendingForEmail = $pendingKioskInvoices;
+            $totalPendingKioskForEmail = $kioskPendingForEmail->sum(function ($invoice) {
                 return $invoice->details->sum('price');
             });
-            $totalDue = $finalPrice + $totalPendingKiosk;
-            $newBalance = max(0, $totalDue - $groupTotalPaid);
-
-            // Cargar relaciones necesarias para el correo
-            $pendingKioskInvoices->load(['details.kiosk_unit.product', 'payment_type']);
-            $payment->load('paymentType');
-
-            // Enviar correo de confirmación de pago (multihabitaciones: totales del grupo y facturas kiosko de todas las habitaciones)
-            try {
-                $this->emailService->sendPaymentConfirmation(
-                    $mainReservation,
-                    $payment,
-                    $pendingKioskInvoices,
-                    $groupTotalPaid,
-                    $totalDue,
-                    $newBalance
-                );
-            } catch (\Exception $e) {
-                // Log del error pero no interrumpir el flujo del pago
-                \Log::error("Error enviando correo de confirmación de pago: " . $e->getMessage());
-            }
+            $totalDueForEmail = $finalPrice + $totalPendingKioskForEmail;
+            $newBalanceForEmail = max(0, $totalDueForEmail - $groupTotalPaid);
 
             DB::commit();
 
+            // Efectos externos encolados (jobs async, no bloquean MySQL ni la respuesta)
+            // El Job recalculará totales del grupo para evitar pasar colecciones grandes
+            try {
+                SendPaymentConfirmationJob::dispatch($reservation->id, $payment->id)->afterCommit();
+            } catch (\Throwable $e) {
+                Log::warning('No se pudo encolar SendPaymentConfirmationJob: '.$e->getMessage());
+            }
             $this->syncReservationToGoogleCalendar($reservation);
 
             return response()->json([
@@ -2828,7 +2807,7 @@ $mainReservation->load([
                 'reservation' => $reservation->fresh(['payments.paymentType', 'customer']),
             ], 201);
         } catch (\Exception $e) {
-            DB::rollBack();
+            if (DB::transactionLevel() > 0) { try { DB::rollBack(); } catch (\Throwable $re) { \Log::warning('rollback failed after addPayment error: '.$re->getMessage()); } }
             return response()->json([
                 'message' => 'Error al registrar el pago',
                 'error' => $e->getMessage()
@@ -3044,9 +3023,7 @@ $mainReservation->load([
             })
             ->sum('amount');
 
-        $minibarChargesTotal = $groupReservations->sum(function ($r) {
-            return (float) $r->minibarCharges()->sum('total');
-        });
+        $minibarChargesTotal = (float) \App\Models\ReservationMinibarCharge::whereIn('reservation_id', $groupReservationIds)->sum('total');
         $minibarPaid = (float) \App\Models\ReservationPayment::whereIn('reservation_id', $groupReservationIds)
             ->whereRaw('LOWER(concept) LIKE ?', ['%minibar%'])
             ->sum('amount');
@@ -3451,14 +3428,12 @@ $mainReservation->load([
 
             // Para pasadías, hacer check-out automático el mismo día
             $autoCheckout = false;
+            $checkoutCertificate = null;
             if ($reservation->reservation_type === 'day_pass') {
-                // Hacer check-out automático
                 $reservation->update([
                     'status' => 'checked_out',
-                    'check_out_time' => $checkInTime, // Mismo tiempo que check-in
+                    'check_out_time' => $checkInTime,
                 ]);
-
-                // Registrar auditoría del check-out automático
                 $this->auditService->logStatusChange(
                     $reservation,
                     'checked_in',
@@ -3466,37 +3441,24 @@ $mainReservation->load([
                     'Check-out automático (pasadía)',
                     $request
                 );
-
-                // Generar PDF de checkout automático
-                $checkoutCertificate = null;
                 try {
                     $checkoutCertificate = $this->certificateService->generateCheckoutCertificate($reservation);
                 } catch (\Exception $e) {
                     \Log::warning('Error generating checkout certificate for day pass: ' . $e->getMessage());
                 }
-
-                // Enviar email con PDF de checkout
-                if ($checkoutCertificate) {
-                    try {
-                        $this->emailService->sendCheckoutConfirmation($reservation, $checkoutCertificate);
-                    } catch (\Exception $e) {
-                        \Log::warning('Error sending checkout email for day pass: ' . $e->getMessage());
-                    }
-                }
-
                 $autoCheckout = true;
             }
 
-            // Enviar confirmación de check-in
-            try {
-                $this->notificationService->sendCheckInConfirmation($reservation);
-            } catch (\Exception $e) {
-                \Log::warning('Error sending check-in confirmation: ' . $e->getMessage());
-            }
-
-            $this->syncReservationToGoogleCalendar($reservation);
-
             DB::commit();
+
+            // Efectos externos encolados (no bloquean MySQL ni la respuesta)
+            if ($autoCheckout && $checkoutCertificate) {
+                $this->dispatchReservationEmail($reservation->id, 'checkout');
+            }
+            if (!$autoCheckout) {
+                $this->dispatchReservationEmail($reservation->id, 'check_in');
+            }
+            $this->syncReservationToGoogleCalendar($reservation);
 
             $reservation->load(['customer', 'room', 'room.roomType', 'guests', 'payments']);
 
@@ -3780,18 +3742,13 @@ $mainReservation->load([
                 }
             }
 
-            // Enviar email con PDF de checkout y factura consolidada
-            if ($checkoutCertificate) {
-                try {
-                    $this->emailService->sendCheckoutConfirmation($reservation, $checkoutCertificate, $checkoutInvoice);
-                } catch (\Exception $e) {
-                    \Log::warning('Error sending checkout email: ' . $e->getMessage());
-                }
-            }
-
-            $this->syncReservationToGoogleCalendar($reservation);
-
             DB::commit();
+
+            // Efectos externos encolados (no bloquean MySQL)
+            if ($checkoutCertificate) {
+                $this->dispatchReservationEmail($reservation->id, 'checkout');
+            }
+            $this->syncReservationToGoogleCalendar($reservation);
 
             $reservation->load(['customer', 'room', 'room.roomType', 'guests', 'payments']);
 

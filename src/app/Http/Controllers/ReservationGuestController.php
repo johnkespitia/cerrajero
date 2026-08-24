@@ -6,9 +6,11 @@ use App\Models\Customer;
 use App\Models\Reservation;
 use App\Models\ReservationGuest;
 use App\Services\GuestAgeClassifier;
+use App\Jobs\SyncReservationToGoogleCalendarJob;
 use App\Services\GuestImportService;
 use App\Services\GoogleCalendarService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 
 class ReservationGuestController extends Controller
@@ -29,7 +31,12 @@ class ReservationGuestController extends Controller
 
     protected function syncReservationToGoogleCalendar(Reservation $reservation): void
     {
-        $this->googleCalendarService->syncReservation($reservation);
+        try {
+            SyncReservationToGoogleCalendarJob::dispatch($reservation->id)->afterCommit();
+        } catch (\Throwable $e) {
+            Log::warning('No se pudo encolar Google Calendar sync (guests): '.$e->getMessage());
+            try { $this->googleCalendarService->syncReservation($reservation); } catch (\Throwable $re) { Log::warning($re->getMessage()); }
+        }
     }
 
     public function downloadTemplate(Request $request)

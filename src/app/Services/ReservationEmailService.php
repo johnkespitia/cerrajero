@@ -24,6 +24,15 @@ class ReservationEmailService
      * 
      * @return string|null URL del logo o null si no se encuentra
      */
+    protected function ensureDbConnection(): void
+    {
+        try {
+            DB::connection()->getPdo();
+        } catch (\Throwable $e) {
+            try { DB::reconnect(); } catch (\Throwable $re) { Log::warning('DB reconnect failed: '.$re->getMessage()); }
+        }
+    }
+
     protected function getLogoUrl(): ?string
     {
         // Prioridad 1: public/logocv.png (no requiere symlink, más simple)
@@ -233,6 +242,8 @@ class ReservationEmailService
         }
 
         try {
+            try { DB::connection()->getPdo(); } catch (\Throwable $e) { DB::reconnect(); }
+            DB::connection()->reconnect();
             // Verificar que el archivo del certificado existe
             if (!Storage::exists($certificate['path'])) {
                 Log::error("El archivo del certificado no existe: {$certificate['path']}");
@@ -361,6 +372,7 @@ class ReservationEmailService
      */
     public function sendCheckInReminder(Reservation $reservation)
     {
+        $this->ensureDbConnection();
         $reservation->loadMissing(['customer', 'guests', 'room', 'roomType']);
 
         $recipients = $this->getRecipients($reservation);
@@ -411,6 +423,7 @@ class ReservationEmailService
      */
     public function sendCheckInConfirmation(Reservation $reservation)
     {
+        $this->ensureDbConnection();
         $reservation->loadMissing(['customer', 'guests', 'room', 'roomType']);
 
         $recipients = $this->getRecipients($reservation);
@@ -461,6 +474,7 @@ class ReservationEmailService
      */
     public function sendCheckOutReminder(Reservation $reservation)
     {
+        $this->ensureDbConnection();
         $reservation->loadMissing(['customer', 'guests', 'room', 'roomType']);
 
         $recipients = $this->getRecipients($reservation);
@@ -511,6 +525,7 @@ class ReservationEmailService
      */
     public function sendCancellationNotification(Reservation $reservation)
     {
+        $this->ensureDbConnection();
         $reservation->loadMissing(['customer', 'guests', 'room', 'roomType']);
 
         $recipients = $this->getRecipients($reservation);
@@ -561,6 +576,7 @@ class ReservationEmailService
      */
     public function sendReservationUpdateNotification(Reservation $reservation, array $changes = [])
     {
+        $this->ensureDbConnection();
         $reservation->loadMissing(['customer', 'guests', 'room', 'roomType']);
 
         $recipients = $this->getRecipients($reservation);
@@ -632,6 +648,11 @@ class ReservationEmailService
         }
 
         try {
+            // Reconectar MySQL por si SMTP/Google tardaron y cerraron la conexión (wait_timeout)
+            try { DB::connection()->getPdo(); } catch (\Throwable $e) { DB::reconnect(); }
+            // También forzar reconexión preventiva antes de operaciones largas de email
+            DB::connection()->reconnect();
+
             Log::info("Intentando enviar confirmación de pago #{$reservation->reservation_number}", [
                 'recipients_count' => count($recipients),
                 'payment_amount' => $payment->amount

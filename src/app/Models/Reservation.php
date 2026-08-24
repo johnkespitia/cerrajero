@@ -137,7 +137,8 @@ class Reservation extends Model
     }
 
     /**
-     * Atributos calculados incluidos en la serialización JSON (API).
+     * room_charges_total se incluye en JSON pero el accessor reutiliza
+     * payments ya cargados (with payments) para evitar N+1.
      */
     protected $appends = ['room_charges_total'];
 
@@ -285,9 +286,17 @@ class Reservation extends Model
 
     /**
      * Total de cargos a habitación (restaurante, etc.): pagos con payment_type_id null.
+     * Si el valor ya viene por withSum/attributes lo reutiliza; si payments está
+     * eager-loaded suma en memoria para evitar N+1.
      */
     public function getRoomChargesTotalAttribute(): float
     {
+        if (array_key_exists('room_charges_total', $this->attributes) && $this->attributes['room_charges_total'] !== null) {
+            return (float) $this->attributes['room_charges_total'];
+        }
+        if ($this->relationLoaded('payments')) {
+            return (float) $this->payments->whereNull('payment_type_id')->sum('amount');
+        }
         return (float) $this->payments()->whereNull('payment_type_id')->sum('amount');
     }
 
