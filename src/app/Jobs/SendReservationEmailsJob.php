@@ -23,6 +23,7 @@ class SendReservationEmailsJob implements ShouldQueue
     public array $payload;
     public int $tries = 3;
     public int $backoff = 10;
+    public int $timeout = 90;
 
     /**
      * @param int $reservationId

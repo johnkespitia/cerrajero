@@ -21,6 +21,8 @@ class SendPaymentConfirmationJob implements ShouldQueue
     public int $paymentId;
     public int $tries = 3;
     public int $backoff = 15;
+    public int $timeout = 90;
+    public int $maxExceptions = 3;
 
     public function __construct(int $reservationId, int $paymentId)
     {
