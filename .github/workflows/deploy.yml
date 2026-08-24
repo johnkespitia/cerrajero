@@ -99,7 +99,7 @@ jobs:
           BROADCAST_DRIVER=${{ secrets.BROADCAST_DRIVER || 'log' }}
           CACHE_DRIVER=${{ secrets.CACHE_DRIVER || 'file' }}
           FILESYSTEM_DRIVER=${{ secrets.FILESYSTEM_DRIVER || 'local' }}
-          QUEUE_CONNECTION=${{ secrets.QUEUE_CONNECTION || 'sync' }}
+          QUEUE_CONNECTION=${{ secrets.QUEUE_CONNECTION || 'database' }}
           SESSION_DRIVER=${{ secrets.SESSION_DRIVER || 'file' }}
           SESSION_LIFETIME=${{ secrets.SESSION_LIFETIME || '120' }}
 
