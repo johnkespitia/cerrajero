@@ -151,6 +151,194 @@ class RoomInventoryAssignmentController extends Controller
         }
     }
 
+    public function storeBatch(Request $request)
+    {
+        $assignableType = str_replace('\\\\', '\\', $request->input('assignable_type'));
+        $validation = Validator::make([
+            'assignable_type' => $assignableType,
+            'assignable_id' => $request->input('assignable_id'),
+            'selections' => $request->input('selections'),
+            'condition_notes' => $request->input('condition_notes'),
+            'atomic' => $request->input('atomic'),
+        ], [
+            'assignable_type' => ['required', function ($attr, $val, $fail) {
+                if (!in_array($val, [Room::class, CommonArea::class])) $fail('The selected assignable type is invalid.');
+            }],
+            'assignable_id' => 'required|integer',
+            'selections' => 'required|array|min:1',
+            'selections.*.item_id' => 'nullable|integer|exists:room_inventory_items,id',
+            'selections.*.qr' => 'nullable|string|max:500',
+            'selections.*.name' => 'nullable|string|max:250',
+            'selections.*.brand' => 'nullable|string|max:125',
+            'selections.*.model' => 'nullable|string|max:125',
+            'selections.*.quantity' => 'nullable|integer|min:1',
+            'selections.*.status' => 'nullable|in:available,in_use,damaged,maintenance,missing,replaced',
+            'condition_notes' => 'nullable|string',
+            'atomic' => 'nullable|boolean',
+        ]);
+        if ($validation->fails()) return response($validation->errors()->toArray(), Response::HTTP_UNPROCESSABLE_ENTITY);
+
+        $assignable = $assignableType::find($request->input('assignable_id'));
+        if (!$assignable) return response(['message' => 'La ubicación no existe'], Response::HTTP_NOT_FOUND);
+        if (!$assignable->active) return response(['message' => 'La ubicación no está activa'], Response::HTTP_UNPROCESSABLE_ENTITY);
+
+        $atomic = $request->has('atomic') ? $request->boolean('atomic') : true;
+        $allCreated = [];
+        $allErrors = [];
+        $hasError = false;
+
+        DB::beginTransaction();
+        try {
+            foreach ($request->input('selections') as $idx => $sel) {
+                $quantity = max(1, (int) ($sel['quantity'] ?? 1));
+                $status = $sel['status'] ?? 'in_use';
+                $itemIds = [];
+
+                if (!empty($sel['item_id'])) {
+                    $itemIds = [(int) $sel['item_id']];
+                    if ($quantity > 1) {
+                        return response(['message' => 'No se puede usar quantity>1 con item_id puntual (selección #' . ($idx+1) . ')'], Response::HTTP_UNPROCESSABLE_ENTITY);
+                    }
+                } elseif (!empty($sel['qr'])) {
+                    $item = $this->resolveItemByQr(trim((string) $sel['qr']));
+                    if (!$item) {
+                        $msg = 'No se encontró artículo con QR: ' . $sel['qr'];
+                        if ($atomic) { DB::rollBack(); return response(['message' => $msg], Response::HTTP_UNPROCESSABLE_ENTITY); }
+                        $allErrors[] = ['index' => $idx, 'qr' => $sel['qr'], 'message' => $msg]; $hasError = true; continue;
+                    }
+                    $itemIds = [$item->id];
+                    if ($quantity > 1) {
+                        return response(['message' => 'No se puede usar quantity>1 con qr puntual'], Response::HTTP_UNPROCESSABLE_ENTITY);
+                    }
+                } elseif (!empty($sel['name'])) {
+                    $baseName = trim((string) $sel['name']);
+                    $brand = $sel['brand'] ?? null;
+                    $model = $sel['model'] ?? null;
+                    // Strip suffix #N for matching
+                    $bare = preg_replace('/\s+#\d+$/', '', $baseName);
+                    $query = RoomInventoryItem::where('active', true)
+                        ->where(function($q) use ($baseName, $bare) {
+                            $q->where('name', $baseName)->orWhere('name', $bare)->orWhere('name', 'like', $bare . ' #%');
+                        })
+                        ->whereDoesntHave('activeAssignments', function($q){ $q->where('status','in_use')->where('active',true); });
+                    if ($brand !== null && $brand !== '') $query->where('brand', $brand);
+                    if ($model !== null && $model !== '') $query->where('model', $model);
+                    $candidates = $query->orderBy('created_at')->limit($quantity)->get();
+                    if ($candidates->count() < $quantity) {
+                        $msg = 'Stock insuficiente para "' . $baseName . '": solicitadas ' . $quantity . ', disponibles ' . $candidates->count();
+                        if ($atomic) { DB::rollBack(); return response(['message' => $msg], Response::HTTP_UNPROCESSABLE_ENTITY); }
+                        $allErrors[] = ['index' => $idx, 'name' => $baseName, 'message' => $msg]; $hasError = true; continue;
+                    }
+                    $itemIds = $candidates->pluck('id')->all();
+                } else {
+                    $msg = 'Selección #' . ($idx+1) . ' debe tener item_id, qr o name';
+                    if ($atomic) { DB::rollBack(); return response(['message' => $msg], Response::HTTP_UNPROCESSABLE_ENTITY); }
+                    $allErrors[] = ['index' => $idx, 'message' => $msg]; $hasError = true; continue;
+                }
+
+                foreach ($itemIds as $itemId) {
+                    $item = RoomInventoryItem::find($itemId);
+                    if (!$item || !$item->active) {
+                        $msg = 'Artículo #' . $itemId . ' no activo';
+                        if ($atomic) { DB::rollBack(); return response(['message' => $msg], Response::HTTP_UNPROCESSABLE_ENTITY); }
+                        $allErrors[] = ['index' => $idx, 'item_id' => $itemId, 'message' => $msg]; $hasError = true; continue;
+                    }
+                    if ($status === 'in_use') {
+                        $exists = RoomInventoryAssignment::where('item_id',$itemId)->where('active',true)->where('status','in_use')->exists();
+                        if ($exists) {
+                            $msg = 'Artículo #' . $itemId . ' ya está en uso';
+                            if ($atomic) { DB::rollBack(); return response(['message' => $msg], Response::HTTP_UNPROCESSABLE_ENTITY); }
+                            $allErrors[] = ['index' => $idx, 'item_id' => $itemId, 'message' => $msg]; $hasError = true; continue;
+                        }
+                    }
+                    $assignment = RoomInventoryAssignment::create([
+                        'assignable_type' => $assignableType,
+                        'assignable_id' => $request->input('assignable_id'),
+                        'item_id' => $itemId,
+                        'quantity' => 1,
+                        'status' => $status,
+                        'condition_notes' => $request->input('condition_notes') ?? ($sel['condition_notes'] ?? null),
+                        'assigned_by' => auth()->id(),
+                        'assigned_at' => now(),
+                        'active' => true,
+                    ]);
+                    $this->auditService->logAssignment($assignment, auth()->id(), $request);
+                    $assignment->load(['item.category','assignable','assignedBy']);
+                    $allCreated[] = $assignment;
+                }
+            }
+            DB::commit();
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response(['message' => 'Error en lote: ' . $e->getMessage()], Response::HTTP_INTERNAL_SERVER_ERROR);
+        }
+
+        if ($hasError && !$atomic) {
+            return response(['message' => count($allCreated) . ' asignaciones creadas, ' . count($allErrors) . ' con error', 'created' => $allCreated, 'errors' => $allErrors], 207);
+        }
+        return response(['message' => count($allCreated) . ' asignación(es) creada(s)', 'assignments' => $allCreated], Response::HTTP_CREATED);
+    }
+
+    public function storeByQr(Request $request)
+    {
+        $validation = Validator::make($request->all(), [
+            'qr' => 'required|string|max:500',
+            'assignable_type' => 'required|string',
+            'assignable_id' => 'required|integer',
+            'quantity' => 'nullable|integer|min:1',
+            'status' => 'nullable|in:available,in_use,damaged,maintenance,missing,replaced',
+            'condition_notes' => 'nullable|string',
+        ]);
+        if ($validation->fails()) return response($validation->errors()->toArray(), Response::HTTP_UNPROCESSABLE_ENTITY);
+        $item = $this->resolveItemByQr(trim((string) $request->input('qr')));
+        if (!$item) return response(['message' => 'No se encontró artículo con ese QR'], Response::HTTP_NOT_FOUND);
+        $request->merge(['item_id' => $item->id]);
+        return $this->store($request);
+    }
+
+    public function moveByQr(Request $request)
+    {
+        $validation = Validator::make($request->all(), [
+            'qr' => 'required|string|max:500',
+            'new_assignable_type' => 'required|string',
+            'new_assignable_id' => 'required|integer',
+            'notes' => 'nullable|string',
+        ]);
+        if ($validation->fails()) return response($validation->errors()->toArray(), Response::HTTP_UNPROCESSABLE_ENTITY);
+        $item = $this->resolveItemByQr(trim((string) $request->input('qr')));
+        if (!$item) return response(['message' => 'No se encontró artículo con ese QR'], Response::HTTP_NOT_FOUND);
+        $assignment = RoomInventoryAssignment::where('item_id',$item->id)->where('active',true)->where('status','in_use')->first();
+        if (!$assignment) return response(['message' => 'El artículo no tiene asignación activa en uso para trasladar'], Response::HTTP_NOT_FOUND);
+        // normalize and validate new location
+        $newType = str_replace('\\\\','\\',$request->input('new_assignable_type'));
+        if (!in_array($newType,[Room::class,CommonArea::class])) return response(['new_assignable_type'=>['Tipo inválido']], Response::HTTP_UNPROCESSABLE_ENTITY);
+        $newAssignable = $newType::find($request->input('new_assignable_id'));
+        if (!$newAssignable) return response(['message'=>'La nueva ubicación no existe'], Response::HTTP_NOT_FOUND);
+        if (!$newAssignable->active) return response(['message'=>'La nueva ubicación no está activa'], Response::HTTP_UNPROCESSABLE_ENTITY);
+        $oldType = $assignment->assignable_type;
+        $oldId = $assignment->assignable_id;
+        DB::beginTransaction();
+        try {
+            $assignment->update(['assignable_type'=>$newType,'assignable_id'=>$request->input('new_assignable_id')]);
+            $this->auditService->logMove($assignment,$oldType,$oldId,$newType,$request->input('new_assignable_id'),$request->input('notes'),$request);
+            $assignment->load(['item.category','assignable']);
+            DB::commit();
+            return response(['message'=>'Artículo movido exitosamente por QR','assignment'=>$assignment], Response::HTTP_OK);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response(['message'=>'Error al mover: '.$e->getMessage()], Response::HTTP_INTERNAL_SERVER_ERROR);
+        }
+    }
+
+    protected function resolveItemByQr(string $value): ?RoomInventoryItem
+    {
+        $item = RoomInventoryItem::where('qr_code',$value)->first();
+        if ($item) return $item;
+        if (preg_match('#/room-inventory/items/(\d+)\b#',$value,$m)) return RoomInventoryItem::find((int)$m[1]);
+        if (ctype_digit($value)) return RoomInventoryItem::find((int)$value);
+        return null;
+    }
+
     public function show(RoomInventoryAssignment $roomInventoryAssignment)
     {
         $roomInventoryAssignment->load(['item.category', 'assignable', 'assignedBy', 'lastCheckedBy', 'history.user']);

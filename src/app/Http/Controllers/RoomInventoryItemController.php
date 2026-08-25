@@ -85,6 +85,81 @@ class RoomInventoryItemController extends Controller
         return null;
     }
 
+    public function storeBatch(Request $request)
+    {
+        $validation = Validator::make($request->all(), [
+            'quantity' => 'required|integer|min:1',
+            'serial_prefix' => 'nullable|string|max:100',
+            'barcode_prefix' => 'nullable|string|max:100',
+            'base.name' => 'required|string|max:250',
+            'base.description' => 'nullable|string',
+            'base.category_id' => 'nullable|exists:room_inventory_categories,id',
+            'base.brand' => 'nullable|string|max:125',
+            'base.model' => 'nullable|string|max:125',
+            'base.purchase_price' => 'nullable|numeric|min:0',
+            'base.current_value' => 'nullable|numeric|min:0',
+            'base.purchase_date' => 'nullable|date',
+            'base.warranty_expires_at' => 'nullable|date',
+            'base.image_url' => 'nullable|string|max:500',
+            'base.active' => 'nullable|boolean',
+        ]);
+
+        if ($validation->fails()) {
+            return response($validation->errors()->toArray(), Response::HTTP_UNPROCESSABLE_ENTITY);
+        }
+
+        $base = $request->input('base');
+        $quantity = (int) $request->input('quantity');
+        $serialPrefix = $request->input('serial_prefix');
+        $barcodePrefix = $request->input('barcode_prefix');
+
+        $items = [];
+        $chunkSize = 100;
+        $chunks = (int) ceil($quantity / $chunkSize);
+
+        for ($c = 0; $c < $chunks; $c++) {
+            $start = $c * $chunkSize + 1;
+            $end = min(($c + 1) * $chunkSize, $quantity);
+            \Illuminate\Support\Facades\DB::beginTransaction();
+            try {
+                for ($i = $start; $i <= $end; $i++) {
+                    $name = $quantity > 1 ? $base['name'] . ' #' . $i : $base['name'];
+                    $serial = null;
+                    $barcode = null;
+                    if ($serialPrefix !== null && $serialPrefix !== '') {
+                        $serial = $serialPrefix . '-' . $i;
+                    }
+                    if ($barcodePrefix !== null && $barcodePrefix !== '') {
+                        $barcode = $barcodePrefix . '-' . $i;
+                    }
+                    $item = RoomInventoryItem::create([
+                        'name' => $name,
+                        'description' => $base['description'] ?? null,
+                        'category_id' => $base['category_id'] ?? null,
+                        'brand' => $base['brand'] ?? null,
+                        'model' => $base['model'] ?? null,
+                        'serial_number' => $serial,
+                        'barcode' => $barcode,
+                        'purchase_price' => $base['purchase_price'] ?? null,
+                        'current_value' => $base['current_value'] ?? null,
+                        'purchase_date' => $base['purchase_date'] ?? null,
+                        'warranty_expires_at' => $base['warranty_expires_at'] ?? null,
+                        'image_url' => $base['image_url'] ?? null,
+                        'active' => $base['active'] ?? true,
+                    ]);
+                    $item->load('category');
+                    $items[] = $item;
+                }
+                \Illuminate\Support\Facades\DB::commit();
+            } catch (\Exception $e) {
+                \Illuminate\Support\Facades\DB::rollBack();
+                return response(['message' => 'Error en lote: ' . $e->getMessage()], Response::HTTP_INTERNAL_SERVER_ERROR);
+            }
+        }
+
+        return response(['message' => $quantity . ' artículo(s) creado(s) exitosamente', 'count' => $quantity, 'items' => $items], Response::HTTP_CREATED);
+    }
+
     public function store(Request $request)
     {
         $validation = Validator::make($request->all(), [

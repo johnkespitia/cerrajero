@@ -623,6 +623,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::controller(\App\Http\Controllers\RoomInventoryItemController::class)->group(function () {
         Route::get('/room-inventory/items', 'index')->middleware('permission:room_inventory.item.list,reservas');
         Route::get('/room-inventory/items/lookup', 'lookup')->middleware('permission:room_inventory.item.list,reservas');
+        Route::post('/room-inventory/items/batch', 'storeBatch')->middleware('permission:room_inventory.item.create,reservas');
         Route::get('/room-inventory/items/{roomInventoryItem}', 'show')->middleware('permission:room_inventory.item.list,reservas')->name('room-inventory.item.show');
         Route::post('/room-inventory/items', 'store')->middleware('permission:room_inventory.item.create,reservas');
         Route::put('/room-inventory/items/{roomInventoryItem}', 'update')->middleware('permission:room_inventory.item.edit,reservas');
@@ -657,6 +658,9 @@ Route::middleware(['auth:sanctum'])->group(function () {
     // Asignaciones de inventario
     Route::controller(\App\Http\Controllers\RoomInventoryAssignmentController::class)->group(function () {
         Route::get('/room-inventory/assignments', 'index')->middleware('permission:room_inventory.assignment.list,reservas');
+        Route::post('/room-inventory/assignments/batch', 'storeBatch')->middleware('permission:room_inventory.assignment.create,reservas');
+        Route::post('/room-inventory/assignments/by-qr', 'storeByQr')->middleware('permission:room_inventory.assignment.create,reservas');
+        Route::post('/room-inventory/assignments/move-by-qr', 'moveByQr')->middleware('permission:room_inventory.assignment.edit,reservas');
         Route::get('/room-inventory/assignments/{roomInventoryAssignment}', 'show')->middleware('permission:room_inventory.assignment.list,reservas');
         Route::post('/room-inventory/assignments', 'store')->middleware('permission:room_inventory.assignment.create,reservas');
         Route::put('/room-inventory/assignments/{roomInventoryAssignment}', 'update')->middleware('permission:room_inventory.assignment.edit,reservas');
