@@ -224,6 +224,79 @@ class RoomInventoryItemController extends Controller
         return response(['message' => 'Artículo actualizado exitosamente', 'item' => $roomInventoryItem], Response::HTTP_OK);
     }
 
+    public function updateBatch(Request $request)
+    {
+        $validation = Validator::make($request->all(), [
+            'ids' => 'required|array|min:1',
+            'ids.*' => 'integer|exists:room_inventory_items,id',
+            'updates.name' => 'nullable|string|max:250',
+            'updates.description' => 'nullable|string',
+            'updates.category_id' => 'nullable|exists:room_inventory_categories,id',
+            'updates.brand' => 'nullable|string|max:125',
+            'updates.model' => 'nullable|string|max:125',
+            'updates.purchase_price' => 'nullable|numeric|min:0',
+            'updates.current_value' => 'nullable|numeric|min:0',
+            'updates.purchase_date' => 'nullable|date',
+            'updates.warranty_expires_at' => 'nullable|date',
+            'updates.image_url' => 'nullable|string|max:500',
+            'updates.active' => 'nullable|boolean',
+        ]);
+        if ($validation->fails()) return response($validation->errors()->toArray(), Response::HTTP_UNPROCESSABLE_ENTITY);
+
+        $updates = array_filter($request->input('updates', []), fn($v) => $v !== null && $v !== '');
+        if (empty($updates)) return response(['message' => 'Nada para actualizar'], Response::HTTP_UNPROCESSABLE_ENTITY);
+
+        // If updating name, preserve suffix #N
+        $isNameUpdate = array_key_exists('name', $updates) && $updates['name'] !== null && $updates['name'] !== '';
+        $newBaseName = $isNameUpdate ? trim((string) $updates['name']) : null;
+
+        $ids = $request->input('ids');
+        $updated = 0;
+        \Illuminate\Support\Facades\DB::beginTransaction();
+        try {
+            foreach ($ids as $id) {
+                $item = RoomInventoryItem::find($id);
+                if (!$item) continue;
+                $data = $updates;
+                if ($isNameUpdate) {
+                    // Preserve suffix #N if original had it
+                    if (preg_match('/\s+#\d+$/', $item->name, $m)) {
+                        $data['name'] = $newBaseName . $m[0];
+                    } else {
+                        // If original was single without suffix but batch typo case, just use new base
+                        // If ids count >1, add suffix handling outside? For simplicity, keep base for first, suffix for others based on index
+                        $data['name'] = $newBaseName;
+                    }
+                }
+                $item->update($data);
+                $updated++;
+            }
+            \Illuminate\Support\Facades\DB::commit();
+        } catch (\Exception $e) {
+            \Illuminate\Support\Facades\DB::rollBack();
+            return response(['message' => 'Error en actualización masiva: ' . $e->getMessage()], Response::HTTP_INTERNAL_SERVER_ERROR);
+        }
+
+        // For bulk typo like "Mesa de nadera" batch, need to handle suffix preservation for all if original batch had suffix
+        if ($isNameUpdate && count($ids) > 1) {
+            // Re-apply suffix correctly for batch groups: fetch updated items to re-suffix sequentially if they were batch
+            $items = RoomInventoryItem::whereIn('id', $ids)->orderBy('id')->get();
+            $hasSuffix = $items->filter(fn($it) => preg_match('/\s+#\d+$/', $it->name))->count() > 0;
+            if (!$hasSuffix) {
+                // If original batch had suffix but we overwrote without suffix (single base), fix to add #1..N
+                // Detect by checking if any name equals base exactly and count>1
+                $allSame = $items->pluck('name')->unique()->count() === 1;
+                if ($allSame) {
+                    foreach ($items as $idx => $it) {
+                        $it->update(['name' => $newBaseName . ' #' . ($idx + 1)]);
+                    }
+                }
+            }
+        }
+
+        return response(['message' => $updated . ' artículo(s) actualizado(s)', 'updated' => $updated], Response::HTTP_OK);
+    }
+
     public function destroy(RoomInventoryItem $roomInventoryItem)
     {
         // Verificar si tiene asignaciones activas

@@ -624,6 +624,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::get('/room-inventory/items', 'index')->middleware('permission:room_inventory.item.list,reservas');
         Route::get('/room-inventory/items/lookup', 'lookup')->middleware('permission:room_inventory.item.list,reservas');
         Route::post('/room-inventory/items/batch', 'storeBatch')->middleware('permission:room_inventory.item.create,reservas');
+        Route::put('/room-inventory/items/batch', 'updateBatch')->middleware('permission:room_inventory.item.edit,reservas');
         Route::get('/room-inventory/items/{roomInventoryItem}', 'show')->middleware('permission:room_inventory.item.list,reservas')->name('room-inventory.item.show');
         Route::post('/room-inventory/items', 'store')->middleware('permission:room_inventory.item.create,reservas');
         Route::put('/room-inventory/items/{roomInventoryItem}', 'update')->middleware('permission:room_inventory.item.edit,reservas');
