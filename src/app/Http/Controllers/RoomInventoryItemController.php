@@ -11,7 +11,8 @@ class RoomInventoryItemController extends Controller
 {
     public function index(Request $request)
     {
-        $query = RoomInventoryItem::with(['category', 'activeAssignments.assignable']);
+        $query = RoomInventoryItem::with(['category', 'activeAssignments.assignable'])
+            ->withCount(['assignments', 'history']);
 
         // Filtros
         if ($request->has('category_id')) {
@@ -299,9 +300,12 @@ class RoomInventoryItemController extends Controller
 
     public function destroy(RoomInventoryItem $roomInventoryItem)
     {
-        // Verificar si tiene asignaciones activas
-        if ($roomInventoryItem->activeAssignments()->count() > 0) {
-            return response(['message' => 'No se puede eliminar el artículo porque tiene asignaciones activas'], Response::HTTP_UNPROCESSABLE_ENTITY);
+        // Solo se puede eliminar si no tiene asignaciones (activas o históricas) ni historial
+        if ($roomInventoryItem->assignments()->exists()) {
+            return response(['message' => 'No se puede eliminar el artículo porque tiene asignaciones registradas (activas o históricas)'], Response::HTTP_UNPROCESSABLE_ENTITY);
+        }
+        if ($roomInventoryItem->history()->exists()) {
+            return response(['message' => 'No se puede eliminar el artículo porque tiene historial registrado'], Response::HTTP_UNPROCESSABLE_ENTITY);
         }
 
         $roomInventoryItem->delete();
