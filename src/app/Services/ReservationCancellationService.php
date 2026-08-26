@@ -180,7 +180,7 @@ class ReservationCancellationService
     }
 
     /**
-     * Procesar cancelación completa de una reserva
+     * Procesar cancelación completa de una reserva (cliente)
      */
     public function processCancellation(Reservation $reservation, $reason = null)
     {
@@ -278,6 +278,7 @@ class ReservationCancellationService
             'refund_amount' => $refundCalculation['refund_amount'],
             'penalty_amount' => $refundCalculation['penalty_amount'],
             'cancellation_reason' => $reason,
+            'cancellation_kind' => 'customer',
         ]);
 
         if ($refundCalculation['refund_amount'] > 0) {
@@ -294,6 +295,31 @@ class ReservationCancellationService
             'days_until_checkin' => $refundCalculation['days_until_checkin'],
             'before_deadline' => $refundCalculation['before_deadline'],
         ];
+    }
+
+    /**
+     * Anular reserva por error de captura/staff.
+     * No aplica política de cancelación ni marca reembolso; conserva payment_status y pagos.
+     */
+    public function processStaffErrorVoid(Reservation $reservation, string $reason): Reservation
+    {
+        $paymentStatus = $reservation->payment_status;
+
+        $reservation->update([
+            'status' => 'cancelled',
+            'cancellation_kind' => 'staff_error',
+            'cancellation_reason' => $reason,
+            'refund_amount' => 0,
+            'penalty_amount' => 0,
+        ]);
+
+        // Garantizar que payment_status no cambie (p. ej. por observers futuros)
+        if ($reservation->payment_status !== $paymentStatus) {
+            $reservation->payment_status = $paymentStatus;
+            $reservation->save();
+        }
+
+        return $reservation;
     }
 }
 
