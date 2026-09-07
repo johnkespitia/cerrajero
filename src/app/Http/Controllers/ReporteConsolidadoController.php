@@ -51,12 +51,29 @@ class ReporteConsolidadoController extends Controller
                 'total_reservas'    => $reservations->count(),
                 'guests_total'      => $reservations->sum(function ($r) { return $r->getNightsAttribute(); }),
                 'final_price_total' => $reservations->sum('final_price'),
+                'items' => $reservations->map(fn ($r) => [
+                    'id' => $r->id,
+                    'check_in_date' => $r->check_in_date,
+                    'check_out_date' => $r->check_out_date,
+                    'guest_name' => optional($r->customer)->name ?? 'N/A',
+                    'room' => optional($r->room)->name ?? 'N/A',
+                    'final_price' => $r->final_price,
+                    'status' => $r->status,
+                ]),
             ],
             'kiosk_invoices' => [
                 'total_facturas'    => $kioskInvoices->count(),
                 'pagadas'           => $kioskInvoices->filter(fn ($i) => (bool) $i->payed)->count(),
                 'pendientes'        => $kioskInvoices->filter(fn ($i) => $i->isPending())->count(),
                 'total_pagado'      => $kioskInvoices->filter(fn ($i) => (bool) $i->payed)->sum(fn ($i) => $i->payableTotal()),
+                'items' => $kioskInvoices->map(fn ($i) => [
+                    'id' => $i->id,
+                    'created_at' => $i->created_at->format('Y-m-d'),
+                    'guest_name' => optional(optional($i->reservation)->customer)->name ?? 'N/A',
+                    'total' => $i->subtotal(),
+                    'payable' => $i->payableTotal(),
+                    'payed' => (bool) $i->payed,
+                ]),
             ],
             'closures' => [
                 'total_cierres'    => $closures->count(),
@@ -64,6 +81,14 @@ class ReporteConsolidadoController extends Controller
                 'total_efectivo'   => $closures->sum('total_cash'),
                 'total_tarjeta'   => $closures->sum('total_card'),
                 'total_credential'=> $closures->sum('total_credit'),
+                'items' => $closures->map(fn ($c) => [
+                    'id' => $c->id,
+                    'closure_date' => $c->closure_date,
+                    'total_sales' => $c->total_sales,
+                    'total_cash' => $c->total_cash,
+                    'total_card' => $c->total_card,
+                    'total_credit' => $c->total_credit,
+                ]),
             ],
         ]);
     }
