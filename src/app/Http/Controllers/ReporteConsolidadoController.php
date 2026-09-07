@@ -56,7 +56,7 @@ class ReporteConsolidadoController extends Controller
                 'total_facturas'    => $kioskInvoices->count(),
                 'pagadas'           => $kioskInvoices->filter(fn ($i) => (bool) $i->payed)->count(),
                 'pendientes'        => $kioskInvoices->filter(fn ($i) => $i->isPending())->count(),
-                'total_pagado'      => $kioskInvoices->filter(fn ($i) => (bool) $i->payed)->sum('payableTotal'),
+                'total_pagado'      => $kioskInvoices->filter(fn ($i) => (bool) $i->payed)->sum(fn ($i) => $i->payableTotal()),
             ],
             'closures' => [
                 'total_cierres'    => $closures->count(),
@@ -112,7 +112,7 @@ class ReporteConsolidadoController extends Controller
                 'total_facturas'    => $kioskInvoices->count(),
                 'pagadas'           => $kioskInvoices->filter(fn ($i) => (bool) $i->payed)->count(),
                 'pendientes'        => $kioskInvoices->filter(fn ($i) => $i->isPending())->count(),
-                'total_pagado'      => $kioskInvoices->filter(fn ($i) => (bool) $i->payed)->sum('payableTotal'),
+                'total_pagado'      => $kioskInvoices->filter(fn ($i) => (bool) $i->payed)->sum(fn ($i) => $i->payableTotal()),
             ],
             'closures' => [
                 'total_cierres'    => $closures->count(),
