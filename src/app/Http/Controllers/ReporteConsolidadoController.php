@@ -33,18 +33,14 @@ class ReporteConsolidadoController extends Controller
               ->orWhere('check_out_date', '<=', $toDate);
         })->with(['customer', 'room'])->get();
 
-        // 2. Facturas del kiosko (pagadas o en crédito a habitación, no canceladas)
+        // 2. Facturas del kiosko (no canceladas)
         $kioskInvoices = KioskInvoice::whereNull('cancelled_at')
-            ->where(function ($q) use ($fromDate, $toDate) {
-                $q->with('reservation')->has('reservation', function ($subQuery) use ($fromDate, $toDate) {
-                    $subQuery->where('check_in_date', '>=', $fromDate)
-                              ->orWhere('check_out_date', '<=', $toDate);
-                });
-            })->get();
+            ->whereBetween('created_at', [$fromDate, $toDate])
+            ->get();
 
         // 3. Cierres de caja en el periodo
-        $closures = CashRegisterClosure::where('closure_date', 'in', [$fromDate->toDateString(), $toDate->toDateString()])
-            ->with(['invoices'])->get();
+        $closures = CashRegisterClosure::whereBetween('closure_date', [$fromDate->toDateString(), $toDate->toDateString()])
+            ->get();
 
         return response()->json([
             'periodo' => [
