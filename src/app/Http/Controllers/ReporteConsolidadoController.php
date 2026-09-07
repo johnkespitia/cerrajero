@@ -20,12 +20,12 @@ class ReporteConsolidadoController extends Controller
     public function consolidado(Request $request)
     {
         $validated = $request->validate([
-            'from_date' => 'required|date',
-            'to_date'   => 'required|date|after_or_equal:from_date',
+            'date_from' => 'required|date',
+            'date_to'   => 'required|date|after_or_equal:date_from',
         ]);
 
-        $fromDate = Carbon::parse($validated['from_date'])->startOfDay();
-        $toDate  = Carbon::parse($validated['to_date'])->endOfDay();
+        $fromDate = Carbon::parse($validated['date_from'])->startOfDay();
+        $toDate  = Carbon::parse($validated['date_to'])->endOfDay();
 
         // 1. Reservas en el periodo (check_in o check_out dentro de la ventana)
         $reservations = Reservation::where(function ($q) use ($fromDate, $toDate) {
