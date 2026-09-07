@@ -41,17 +41,25 @@ class KioskInvoiceController extends Controller
     /**
      * Display a listing of the resource.
      */
-    public function index()
+    public function index(Request $request)
     {
-        return KioskInvoice::with([
+        $query = KioskInvoice::with([
             "customer",
             "payment_type",
             "details.kiosk_unit.product.tax",
             "details.kiosk_unit.product.category",
             "manualDiscountBy:id,name",
-        ])
-            ->orderBy('id', 'desc')
-            ->get();
+        ]);
+
+        if ($request->filled('date_from')) {
+            $query->whereDate('created_at', '>=', $request->input('date_from'));
+        }
+
+        if ($request->filled('date_to')) {
+            $query->whereDate('created_at', '<=', $request->input('date_to'));
+        }
+
+        return $query->orderBy('id', 'desc')->get();
     }
 
     /**

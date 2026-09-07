@@ -496,6 +496,12 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::put('/site-content', 'update')->middleware('permission:reservation.edit,reservas');
     });
 
+    // Reporte consolidado de pagos
+    Route::controller(\App\Http\Controllers\ReporteConsolidadoController::class)->group(function () {
+        Route::get('/reportes/consolidado', 'consolidado')->middleware('permission:reservation.report,reservas');
+        Route::get('/reportes/historial', 'historial')->middleware('permission:reservation.report,reservas');
+    });
+
     Route::post('/site-media', [\App\Http\Controllers\SiteMediaController::class, 'store'])
         ->middleware('permission:reservation.edit,reservas');
 
