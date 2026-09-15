@@ -83,6 +83,7 @@ class PublicBookingService
     public function getRoomTypes(): array
     {
         return RoomType::where('active', true)
+            ->withCount(['rooms as active_rooms_count' => fn ($q) => $q->where('active', true)])
             ->orderBy('name')
             ->get($this->roomTypeSelectColumns())
             ->map(fn (RoomType $roomType) => $this->formatRoomTypeForPublic($roomType))
@@ -119,6 +120,18 @@ class PublicBookingService
         $data = $roomType->toArray();
         $data['image_url'] = $data['image_url'] ?? null;
         $data['gallery'] = $data['gallery'] ?? [];
+
+        // Precio más bajo real de las habitaciones activas de este tipo
+        $minPrice = \App\Models\Room::where('room_type_id', $roomType->id)
+            ->where('active', true)
+            ->min('room_price');
+        $data['min_room_price'] = $minPrice !== null ? (float) $minPrice : (float) $roomType->base_price;
+
+        // Capacidad mínima real (menor capacity entre habitaciones activas)
+        $minCapacity = \App\Models\Room::where('room_type_id', $roomType->id)
+            ->where('active', true)
+            ->min('capacity');
+        $data['min_capacity'] = $minCapacity !== null ? (int) $minCapacity : (int) $roomType->default_capacity;
 
         return $data;
     }

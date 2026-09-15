@@ -2129,6 +2129,83 @@ $mainReservation->load([
             ? []
             : \Illuminate\Database\Eloquent\Collection::make($availableRooms->all())->load('roomType')->values()->toArray();
 
+        // Calcular estimated_total para la respuesta (misma lógica que ReservationPriceCalculator)
+        $adults = (int) ($request->adults ?? 1);
+        $children = (int) ($request->children ?? 0);
+        $chargeableGuests = $adults + $children;
+        $nights = (int) $checkIn->diffInDays($checkOut);
+
+        $estimatedTotal = 0;
+        $adultPricePerNight = 0;
+        $childPricePerNight = 0;
+
+        if ($availableRooms->isNotEmpty() && $chargeableGuests > 0 && $nights > 0) {
+            // Usar el precio más bajo entre las habitaciones disponibles
+            $minRoomPrice = (float) $availableRooms->min('room_price');
+            $firstRoom = $availableRooms->first();
+            $roomType = $firstRoom->roomType;
+
+            // Precio base por persona por noche (igual que ReservationPriceCalculator)
+            $basePricePerPersonPerNight = $minRoomPrice > 0
+                ? $minRoomPrice
+                : ($roomType ? (float) $roomType->base_price : 0);
+
+            // Aplicar temporada
+            $seasonMultiplier = 1.0;
+            $seasonFixedPrice = null;
+            if ($roomType && $roomType->id) {
+                $season = \App\Models\RoomSeason::getSeasonForDate(
+                    $roomType->id,
+                    $checkIn->format('Y-m-d')
+                );
+                if ($season) {
+                    $seasonMultiplier = (float) ($season->price_multiplier ?? 1.0);
+                    $seasonFixedPrice = $season->fixed_price !== null
+                        ? (float) $season->fixed_price
+                        : null;
+                }
+            }
+
+            if ($seasonFixedPrice !== null) {
+                $perGuestStayPrice = $seasonFixedPrice * $nights;
+            } else {
+                $perGuestStayPrice = $basePricePerPersonPerNight * $nights * $seasonMultiplier;
+            }
+
+            $adultPricePerNight = $perGuestStayPrice / $nights;
+            $childPricePerNight = $perGuestStayPrice / $nights;
+
+            // Precio base de noches
+            $totalNightsPrice = $perGuestStayPrice * $chargeableGuests;
+
+            // Personas extra (exceden capacidad base de la habitación más barata)
+            $cheapestRoom = $availableRooms->sortBy('room_price')->first();
+            $capacity = $cheapestRoom->capacity;
+            $extraPersons = max(0, $chargeableGuests - $capacity);
+            $extraPersonCost = $extraPersons * (float) ($cheapestRoom->extra_person_price ?? 0) * $nights;
+
+            // Servicios del paquete asociado al tipo de habitación
+            $packageServicesCost = 0;
+            if ($roomType && $roomType->id) {
+                $package = \App\Models\ServicePackage::where('room_type_id', $roomType->id)
+                    ->active()
+                    ->with('additionalServices')
+                    ->first();
+
+                if ($package) {
+                    foreach ($package->additionalServices as $service) {
+                        if ($service->billing_type === 'per_day') {
+                            $packageServicesCost += (float) $service->price * $chargeableGuests * $nights;
+                        } else {
+                            $packageServicesCost += (float) $service->price * $chargeableGuests;
+                        }
+                    }
+                }
+            }
+
+            $estimatedTotal = $totalNightsPrice + $extraPersonCost + $packageServicesCost;
+        }
+
         return response()->json([
             'reservation_type' => 'room',
             'available_rooms' => $roomsList,
@@ -2141,6 +2218,9 @@ $mainReservation->load([
             'suggested_room_type_id' => $multiRoomRequired && $availableRooms->isNotEmpty()
                 ? $availableRooms->first()->room_type_id
                 : null,
+            'estimated_total' => $estimatedTotal,
+            'adult_price' => $adultPricePerNight,
+            'child_price' => $childPricePerNight,
         ]);
     }
 
