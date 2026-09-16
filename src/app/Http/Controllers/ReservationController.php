@@ -2105,7 +2105,16 @@ $mainReservation->load([
         $roomsByType = $availableRooms->groupBy('room_type_id')->map(function ($rooms) use ($getEffectiveCapacity) {
             $roomType = $rooms->first()->roomType;
             return [
-                'room_type' => $roomType,
+                'room_type' => $roomType ? [
+                    'id' => $roomType->id,
+                    'name' => $roomType->name,
+                    'code' => $roomType->code,
+                    'description' => $roomType->description,
+                    'default_capacity' => $roomType->default_capacity,
+                    'max_capacity' => $roomType->max_capacity,
+                    'base_price' => (float) $roomType->base_price,
+                    'min_capacity' => $roomType->getMinGuestCapacity(),
+                ] : null,
                 'rooms' => $rooms->map(function ($room) use ($getEffectiveCapacity) {
                     return [
                         'id' => $room->id,
@@ -2145,6 +2154,10 @@ $mainReservation->load([
             $firstRoom = $availableRooms->first();
             $roomType = $firstRoom->roomType;
 
+            // Mínimo de huéspedes cobrables según el tipo de habitación
+            $minCapacity = $roomType ? $roomType->getMinGuestCapacity() : 1;
+            $chargeableGuestsForPricing = max($chargeableGuests, $minCapacity);
+
             // Precio base por persona por noche (igual que ReservationPriceCalculator)
             $basePricePerPersonPerNight = $minRoomPrice > 0
                 ? $minRoomPrice
@@ -2175,17 +2188,18 @@ $mainReservation->load([
             $adultPricePerNight = $perGuestStayPrice / $nights;
             $childPricePerNight = $perGuestStayPrice / $nights;
 
-            // Precio base de noches
-            $totalNightsPrice = $perGuestStayPrice * $chargeableGuests;
+            // Precio base de noches (usar mínimo de capacidad si hay menos huéspedes)
+            $totalNightsPrice = $perGuestStayPrice * $chargeableGuestsForPricing;
 
             // Personas extra (exceden capacidad base de la habitación más barata)
             $cheapestRoom = $availableRooms->sortBy('room_price')->first();
             $capacity = $cheapestRoom->capacity;
-            $extraPersons = max(0, $chargeableGuests - $capacity);
+            $extraPersons = max(0, $chargeableGuestsForPricing - $capacity);
             $extraPersonCost = $extraPersons * (float) ($cheapestRoom->extra_person_price ?? 0) * $nights;
 
             // Servicios del paquete asociado al tipo de habitación
             $packageServicesCost = 0;
+            $availableServices = [];
             if ($roomType && $roomType->id) {
                 $package = \App\Models\ServicePackage::where('room_type_id', $roomType->id)
                     ->active()
@@ -2194,13 +2208,56 @@ $mainReservation->load([
 
                 if ($package) {
                     foreach ($package->additionalServices as $service) {
-                        if ($service->billing_type === 'per_day') {
-                            $packageServicesCost += (float) $service->price * $chargeableGuests * $nights;
+                        $unitTotal = 0;
+                        if ($service->is_per_guest) {
+                            $guestsForService = $chargeableGuestsForPricing;
                         } else {
-                            $packageServicesCost += (float) $service->price * $chargeableGuests;
+                            $guestsForService = 1;
                         }
+                        if ($service->billing_type === 'per_day') {
+                            $unitTotal = (float) $service->price * $guestsForService * $nights;
+                        } else {
+                            $unitTotal = (float) $service->price * $guestsForService;
+                        }
+                        $packageServicesCost += $unitTotal;
+                        $availableServices[] = [
+                            'id' => $service->id,
+                            'name' => $service->name,
+                            'description' => $service->description,
+                            'price' => (float) $service->price,
+                            'billing_type' => $service->billing_type,
+                            'is_per_guest' => $service->is_per_guest,
+                            'unit_total' => $unitTotal,
+                        ];
                     }
                 }
+            }
+
+            // Servicios adicionales disponibles para habitaciones (no incluidos en paquete)
+            $availableExtras = [];
+            $packageServiceIds = array_column($availableServices, 'id');
+            $extras = \App\Models\AdditionalService::active()
+                ->forReservationType('room')
+                ->whereNotIn('id', $packageServiceIds)
+                ->get();
+
+            foreach ($extras as $extra) {
+                $unitTotal = 0;
+                $guestsForExtra = $extra->is_per_guest ? $chargeableGuestsForPricing : 1;
+                if ($extra->billing_type === 'per_day') {
+                    $unitTotal = (float) $extra->price * $guestsForExtra * $nights;
+                } else {
+                    $unitTotal = (float) $extra->price * $guestsForExtra;
+                }
+                $availableExtras[] = [
+                    'id' => $extra->id,
+                    'name' => $extra->name,
+                    'description' => $extra->description,
+                    'price' => (float) $extra->price,
+                    'billing_type' => $extra->billing_type,
+                    'is_per_guest' => $extra->is_per_guest,
+                    'unit_total' => $unitTotal,
+                ];
             }
 
             $estimatedTotal = $totalNightsPrice + $extraPersonCost + $packageServicesCost;
@@ -2221,6 +2278,9 @@ $mainReservation->load([
             'estimated_total' => $estimatedTotal,
             'adult_price' => $adultPricePerNight,
             'child_price' => $childPricePerNight,
+            'available_services' => $availableServices,
+            'available_extras' => $availableExtras,
+            'selected_service_ids' => array_column($availableServices, 'id'),
         ]);
     }
 

@@ -416,6 +416,9 @@ class PublicBookingService
             $validator->addRules([
                 'check_out_date' => 'required|date|after:check_in_date',
                 'room_type_id' => 'required|exists:room_types,id',
+                'room_id' => 'nullable|exists:rooms,id',
+                'selected_service_ids' => 'nullable|array',
+                'selected_service_ids.*' => 'exists:additional_services,id',
             ]);
         }
 
@@ -452,6 +455,14 @@ class PublicBookingService
                 'is_primary_guest' => true,
             ]],
         ];
+
+        if ($request->filled('room_id')) {
+            $internalPayload['room_id'] = $request->room_id;
+        }
+
+        if ($request->filled('selected_service_ids')) {
+            $internalPayload['additional_service_ids'] = $request->selected_service_ids;
+        }
 
         $internalRequest = Request::create('/api/reservations', 'POST', $internalPayload);
         $response = $this->reservationController->store($internalRequest);
