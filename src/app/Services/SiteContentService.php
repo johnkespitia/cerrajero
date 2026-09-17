@@ -71,7 +71,7 @@ class SiteContentService
                 'address' => SiteSetting::get(self::KEY_CONTACT_ADDRESS, 'Vereda La Campana, Cocorná, Antioquia, Colombia'),
                 'sla' => SiteSetting::get(self::KEY_CONTACT_SLA, 'Respuesta en máximo 24 horas hábiles por correo o WhatsApp.'),
             ],
-            'policies' => SiteSetting::get(self::KEY_POLICIES, $this->defaultPolicies()),
+            'policies' => SiteSetting::getJson(self::KEY_POLICIES, $this->defaultPolicies()),
         ];
     }
 
