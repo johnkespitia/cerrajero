@@ -19,12 +19,17 @@ class RoomType extends Model
         'max_capacity',
         'base_price',
         'features',
+        'incluye',
+        'no_incluye',
+        'price_unit',
         'active'
     ];
 
     protected $casts = [
         'gallery' => 'array',
         'features' => 'array',
+        'incluye' => 'array',
+        'no_incluye' => 'array',
         'base_price' => 'decimal:2',
         'active' => 'boolean',
     ];

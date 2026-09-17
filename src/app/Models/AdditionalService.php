@@ -20,6 +20,9 @@ class AdditionalService extends Model
         'status',
         'meal_type',
         'is_food_service',
+        'preseleccionado',
+        'obligatorio',
+        'orden',
     ];
 
     protected $casts = [
@@ -27,6 +30,8 @@ class AdditionalService extends Model
         'campo_verde_cost' => 'decimal:2',
         'is_per_guest' => 'boolean',
         'is_food_service' => 'boolean',
+        'preseleccionado' => 'boolean',
+        'obligatorio' => 'boolean',
     ];
 
     public function reservationAdditionalServices()

@@ -112,6 +112,18 @@ class PublicBookingService
             $columns[] = 'gallery';
         }
 
+        if (Schema::hasColumn('room_types', 'incluye')) {
+            $columns[] = 'incluye';
+        }
+
+        if (Schema::hasColumn('room_types', 'no_incluye')) {
+            $columns[] = 'no_incluye';
+        }
+
+        if (Schema::hasColumn('room_types', 'price_unit')) {
+            $columns[] = 'price_unit';
+        }
+
         return $columns;
     }
 
@@ -120,6 +132,9 @@ class PublicBookingService
         $data = $roomType->toArray();
         $data['image_url'] = $data['image_url'] ?? null;
         $data['gallery'] = $data['gallery'] ?? [];
+        $data['incluye'] = $data['incluye'] ?? [];
+        $data['no_incluye'] = $data['no_incluye'] ?? [];
+        $data['price_unit'] = $data['price_unit'] ?? 'per_person_night';
 
         // Precio más bajo real de las habitaciones activas de este tipo
         $minPrice = \App\Models\Room::where('room_type_id', $roomType->id)
@@ -218,6 +233,9 @@ class PublicBookingService
             'billing_type' => $service->billing_type,
             'is_food_service' => (bool) $service->is_food_service,
             'applies_to' => $service->applies_to,
+            'preseleccionado' => (bool) $service->preseleccionado,
+            'obligatorio' => (bool) $service->obligatorio,
+            'orden' => (int) $service->orden,
         ];
     }
 

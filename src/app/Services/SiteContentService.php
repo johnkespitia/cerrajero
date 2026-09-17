@@ -10,6 +10,9 @@ class SiteContentService
     public const KEY_HOME_VIDEO_URL = 'home_video_url';
     public const KEY_HOME_VIDEO_POSTER = 'home_video_poster_url';
     public const KEY_ABOUT_GALLERY = 'about_gallery';
+    public const KEY_CONTACT_ADDRESS = 'contact_address';
+    public const KEY_CONTACT_SLA = 'contact_sla';
+    public const KEY_POLICIES = 'policies';
 
     public function defaultAboutGallery(): array
     {
@@ -29,13 +32,11 @@ class SiteContentService
             [
                 'image_url' => '/images/panoramic1.c8f24303.jpg',
                 'title' => 'Hospedaje',
-                'plan_title' => 'Plan incluye',
+                'plan_title' => 'Tarifa incluye',
                 'plan_items' => [
-                    'Habitación con camas',
-                    'Desayuno',
-                    'Almuerzo',
-                    'Cena',
-                    'Piscina',
+                    'Habitación',
+                    'Acceso a piscina',
+                    'Acceso a zonas verdes',
                     'Parqueadero',
                 ],
                 'cta_text' => '¡Reserve Ahora!',
@@ -44,11 +45,10 @@ class SiteContentService
             [
                 'image_url' => '/images/panoramic2.a8ffc854.jpg',
                 'title' => 'Pasadía',
-                'plan_title' => 'Plan incluye',
+                'plan_title' => 'Tarifa incluye',
                 'plan_items' => [
-                    'Almuerzo',
-                    'Cena',
-                    'Piscina',
+                    'Acceso a piscina',
+                    'Acceso a zonas verdes',
                     'Parqueadero',
                 ],
                 'cta_text' => '¡Reserve Ahora!',
@@ -67,6 +67,50 @@ class SiteContentService
                 '/images/panoramic1.c8f24303.jpg'
             ),
             'about_gallery' => $this->getAboutGallery(),
+            'contact' => [
+                'address' => SiteSetting::get(self::KEY_CONTACT_ADDRESS, 'Vereda La Campana, Cocorná, Antioquia, Colombia'),
+                'sla' => SiteSetting::get(self::KEY_CONTACT_SLA, 'Respuesta en máximo 24 horas hábiles por correo o WhatsApp.'),
+            ],
+            'policies' => SiteSetting::get(self::KEY_POLICIES, $this->defaultPolicies()),
+        ];
+    }
+
+    public function defaultPolicies(): array
+    {
+        return [
+            [
+                'title' => 'Política de reserva',
+                'items' => [
+                    'Las reservas están sujetas a disponibilidad.',
+                    'Se requiere confirmación por parte del equipo de Campo Verde.',
+                    'Los precios son por persona por noche salvo indicación contraria.',
+                    'El mínimo facturable corresponde a la capacidad mínima del tipo de habitación.',
+                ],
+            ],
+            [
+                'title' => 'Política de pago',
+                'items' => [
+                    'El depósito o pago completo debe ser confirmado antes del check-in.',
+                    'Los comprobantes de pago deben ser enviados por correo o WhatsApp.',
+                    'No se aceptan devoluciones una vez confirmada la reserva.',
+                ],
+            ],
+            [
+                'title' => 'Check-in / Check-out',
+                'items' => [
+                    'Check-in: a partir de las 15:00.',
+                    'Check-out: antes de las 12:00 del día siguiente.',
+                    'Sujeto a disponibilidad para early check-in o late check-out.',
+                ],
+            ],
+            [
+                'title' => 'Normas de la propiedad',
+                'items' => [
+                    'Está prohibido el uso de equipos de sonido después de las 22:00.',
+                    'No se permite el ingreso de mascotas salvo autorización previa.',
+                    'Se responsabiliza al huésped por los daños a las instalaciones.',
+                ],
+            ],
         ];
     }
 
@@ -158,6 +202,32 @@ class SiteContentService
             );
         }
 
+        if (array_key_exists('contact', $payload)) {
+            $contact = $payload['contact'];
+            if (array_key_exists('address', $contact)) {
+                SiteSetting::set(
+                    self::KEY_CONTACT_ADDRESS,
+                    (string) $contact['address'],
+                    'Dirección del centro vacacional'
+                );
+            }
+            if (array_key_exists('sla', $contact)) {
+                SiteSetting::set(
+                    self::KEY_CONTACT_SLA,
+                    (string) $contact['sla'],
+                    'Tiempo de respuesta al cliente'
+                );
+            }
+        }
+
+        if (array_key_exists('policies', $payload)) {
+            SiteSetting::setJson(
+                self::KEY_POLICIES,
+                $payload['policies'],
+                'Políticas del centro vacacional'
+            );
+        }
+
         return $this->getPublicContent();
     }
 
@@ -176,6 +246,30 @@ class SiteContentService
                 self::KEY_ABOUT_GALLERY,
                 $this->defaultAboutGallery(),
                 'Galería de fotos de la página Quienes somos'
+            );
+        }
+
+        if (SiteSetting::where('key', self::KEY_CONTACT_ADDRESS)->doesntExist()) {
+            SiteSetting::set(
+                self::KEY_CONTACT_ADDRESS,
+                'Vereda La Campana, Cocorná, Antioquia, Colombia',
+                'Dirección del centro vacacional'
+            );
+        }
+
+        if (SiteSetting::where('key', self::KEY_CONTACT_SLA)->doesntExist()) {
+            SiteSetting::set(
+                self::KEY_CONTACT_SLA,
+                'Respuesta en máximo 24 horas hábiles por correo o WhatsApp.',
+                'Tiempo de respuesta al cliente'
+            );
+        }
+
+        if (SiteSetting::where('key', self::KEY_POLICIES)->doesntExist()) {
+            SiteSetting::setJson(
+                self::KEY_POLICIES,
+                $this->defaultPolicies(),
+                'Políticas del centro vacacional'
             );
         }
     }
