@@ -11,6 +11,7 @@ use App\Models\ReservationSetting;
 use App\Models\Room;
 use App\Models\RoomType;
 use App\Models\ServicePackage;
+use App\Services\HotelClosureService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Schema;
@@ -172,6 +173,7 @@ class PublicBookingService
             ->map(fn (ServicePackage $package) => [
                 'id' => $package->id,
                 'name' => $package->name,
+                'slug' => \Illuminate\Support\Str::slug($package->name),
                 'description' => $package->description,
                 'room_type' => $package->roomType ? $this->formatRoomTypeForPublic($package->roomType) : null,
                 'services' => $package->additionalServices
@@ -231,6 +233,7 @@ class PublicBookingService
             'description' => $service->description,
             'price' => (float) $service->price,
             'billing_type' => $service->billing_type,
+            'is_per_guest' => (bool) $service->is_per_guest,
             'is_food_service' => (bool) $service->is_food_service,
             'applies_to' => $service->applies_to,
             'preseleccionado' => (bool) $service->preseleccionado,
@@ -272,6 +275,7 @@ class PublicBookingService
         $minNights = ReservationSetting::getInt('min_stay_nights', 1);
         $maxAdvanceDays = ReservationSetting::getInt('max_advance_days', 365);
         $maxBookableDate = $today->copy()->addDays($maxAdvanceDays);
+        $closureService = app(HotelClosureService::class);
 
         $days = [];
 
@@ -283,6 +287,16 @@ class PublicBookingService
 
             for ($date = $start->copy(); $date->lte($end); $date->addDay()) {
                 $dateStr = $date->format('Y-m-d');
+                if ($closureService->hasClosureConflict($dateStr, $dateStr)) {
+                    $days[] = [
+                        'date' => $dateStr,
+                        'status' => 'closed',
+                        'available_count' => 0,
+                        'total_count' => DayPassCapacity::where('date', $dateStr)->first()?->max_capacity ?? 0,
+                        'multi_room_required' => false,
+                    ];
+                    continue;
+                }
                 $capacity = $capacities->get($dateStr)
                     ?? DayPassCapacity::getOrCreateForDate($dateStr, 0, 0, 0);
 
@@ -308,6 +322,16 @@ class PublicBookingService
             for ($date = $start->copy(); $date->lte($end); $date->addDay()) {
                 $checkIn = $date->format('Y-m-d');
                 $checkOut = $date->copy()->addDays($minNights)->format('Y-m-d');
+                if ($closureService->hasClosureConflict($checkIn, $checkOut)) {
+                    $days[] = [
+                        'date' => $checkIn,
+                        'status' => 'closed',
+                        'available_count' => 0,
+                        'total_count' => $totalRooms,
+                        'multi_room_required' => false,
+                    ];
+                    continue;
+                }
 
                 $availableRooms = $allRooms->filter(
                     fn (Room $room) => $room->isAvailable($checkIn, $checkOut)

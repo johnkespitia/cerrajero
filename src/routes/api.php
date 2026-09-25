@@ -486,6 +486,14 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::post('/reservations/{reservation}/transfer-client', 'transferClient')->middleware('permission:reservation.edit,reservas');
     });
 
+    Route::controller(\App\Http\Controllers\HotelClosureController::class)->group(function () {
+        Route::get('/hotel-closures', 'index')->middleware('permission:reservation.list,reservas');
+        Route::post('/hotel-closures', 'store')->middleware('permission:reservation.edit,reservas');
+        Route::get('/hotel-closures/{hotelClosure}', 'show')->middleware('permission:reservation.list,reservas');
+        Route::put('/hotel-closures/{hotelClosure}', 'update')->middleware('permission:reservation.edit,reservas');
+        Route::delete('/hotel-closures/{hotelClosure}', 'destroy')->middleware('permission:reservation.edit,reservas');
+    });
+
     Route::controller(\App\Http\Controllers\ReservationSettingController::class)->group(function () {
         Route::get('/reservation-settings', 'index')->middleware('permission:reservation.edit,reservas');
         Route::put('/reservation-settings', 'update')->middleware('permission:reservation.edit,reservas');

@@ -17,6 +17,8 @@ use App\Services\ReservationValidationService;
 use App\Services\ReservationNotificationService;
 use App\Services\ReservationCancellationService;
 use App\Services\AdditionalServicePriceCalculator;
+
+use App\Services\HotelClosureService;
 use App\Services\ReservationClientTransferService;
 use App\Services\GuestAgeClassifier;
 use App\Services\ElectronicInvoicing\Exceptions\ReservationEmissionException;
@@ -1061,6 +1063,18 @@ $mainReservation->load([
             return $response;
         }
 
+        // Validación cierre programado hotel
+        $closureService = app(\App\Services\HotelClosureService::class);
+        $checkInForClosure = $request->check_in_date;
+        $checkOutForClosure = $request->check_out_date ?? $request->check_in_date;
+        if ($closureService->hasClosureConflict($checkInForClosure, $checkOutForClosure)) {
+            $conflict = $closureService->getConflictingClosure($checkInForClosure, $checkOutForClosure);
+            return response()->json([
+                'message' => 'Hotel cerrado del ' . $conflict->start_date->format('Y-m-d') . ' al ' . $conflict->end_date->format('Y-m-d') . '. No se pueden crear reservas que incluyan esos días.',
+                'closure' => $conflict,
+            ], 422);
+        }
+
         DB::beginTransaction();
         try {
             // Si es pasadía, validar aforo y ajustar fecha de salida
@@ -1456,6 +1470,18 @@ $mainReservation->load([
         }
         if ($response = $this->validateCourtesyGuestsRequest($courtesyRequest)) {
             return $response;
+        }
+
+        // Validación cierre programado
+        $closureService = app(\App\Services\HotelClosureService::class);
+        $checkInForClosure = $request->check_in_date ?? $reservation->check_in_date->format('Y-m-d');
+        $checkOutForClosure = $request->check_out_date ?? $reservation->check_out_date?->format('Y-m-d') ?? $checkInForClosure;
+        if ($closureService->hasClosureConflict($checkInForClosure, $checkOutForClosure)) {
+            $conflict = $closureService->getConflictingClosure($checkInForClosure, $checkOutForClosure);
+            return response()->json([
+                'message' => 'Hotel cerrado del ' . $conflict->start_date->format('Y-m-d') . ' al ' . $conflict->end_date->format('Y-m-d') . '. No se puede modificar la reserva a esas fechas.',
+                'closure' => $conflict,
+            ], 422);
         }
 
         $manualOverride = $request->has('manual_price_override')
@@ -2356,7 +2382,7 @@ $mainReservation->load([
         ]);
     }
 
-    /**
+/**
      * Reasignar habitación en una reserva múltiple
      */
     public function changeRoom(Request $request, Reservation $reservation)
@@ -2404,6 +2430,18 @@ $mainReservation->load([
         if ($reservation->room_type_id && $newRoom->room_type_id !== $reservation->room_type_id) {
             return response()->json([
                 'message' => 'La nueva habitación debe ser del mismo tipo que la reserva original'
+            ], 422);
+        }
+
+        // Validación cierre programado
+        $closureService = app(\App\Services\HotelClosureService::class);
+        $checkIn = $reservation->check_in_date->format('Y-m-d');
+        $checkOut = $reservation->check_out_date?->format('Y-m-d') ?? $checkIn;
+        if ($closureService->hasClosureConflict($checkIn, $checkOut)) {
+            $conflict = $closureService->getConflictingClosure($checkIn, $checkOut);
+            return response()->json([
+                'message' => 'Hotel cerrado del ' . $conflict->start_date->format('Y-m-d') . ' al ' . $conflict->end_date->format('Y-m-d') . '. No se puede cambiar la habitación a esas fechas.',
+                'closure' => $conflict,
             ], 422);
         }
 
