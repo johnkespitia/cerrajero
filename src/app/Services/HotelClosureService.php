@@ -14,6 +14,14 @@ class HotelClosureService
         return $this->getConflictingClosure($checkIn, $checkOut) !== null;
     }
 
+    public function getConflictingClosure(string $checkIn, string $checkOut): ?HotelClosure
+    {
+        $startDate = Carbon::parse($checkIn)->toDateString();
+        $endDate = Carbon::parse($checkOut)->toDateString();
+
+        return HotelClosure::active()->overlapping($startDate, $endDate)->first();
+    }
+
     public function getClosureDetails(string $start, string $end): ?array
     {
         $startDate = Carbon::parse($start)->toDateString();
