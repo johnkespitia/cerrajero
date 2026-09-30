@@ -2173,6 +2173,8 @@ $mainReservation->load([
         $estimatedTotal = 0;
         $adultPricePerNight = 0;
         $childPricePerNight = 0;
+        $availableServices = [];
+        $availableExtras = [];
 
         if ($availableRooms->isNotEmpty() && $chargeableGuests > 0 && $nights > 0) {
             // Usar el precio más bajo entre las habitaciones disponibles
